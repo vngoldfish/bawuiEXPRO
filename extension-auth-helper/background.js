@@ -684,9 +684,34 @@ async function _executeFbPost(payload, updateStep) {
         const fbPostUrl = gqlRes.fbPostUrl || (fbPostId ? `https://www.facebook.com/posts/${fbPostId}` : "");
         const fbFeedbackId = gqlRes.fbFeedbackId || (fbPostId ? btoa("feedback:" + fbPostId) : null);
 
+        const hasSeeding = payload.seedingComments && Array.isArray(payload.seedingComments) && payload.seedingComments.length > 0;
+        const hasReact = payload.autoReactType && payload.autoReactType !== "NONE";
+
+        if (hasSeeding || hasReact) {
+            // Facebook publishes posts asynchronously (ASYNC_SILENT flow).
+            // We MUST allow 3.5s propagation time so Facebook commits the post & its feedback container before commenting!
+            await updateStep(`⏳ Đang đợi Facebook kích hoạt bài viết (3.5s) để seeding không bị mất...`);
+            if (fbPostUrl) {
+                try {
+                    const curTab = await chrome.tabs.get(targetTab.id);
+                    if (curTab && curTab.url && !curTab.url.includes(fbPostId)) {
+                        await chrome.tabs.update(targetTab.id, { url: fbPostUrl });
+                        await ensureTabLoaded(targetTab.id, 8000);
+                        await new Promise(r => setTimeout(r, 1500));
+                    } else {
+                        await new Promise(r => setTimeout(r, 3500));
+                    }
+                } catch(e) {
+                    await new Promise(r => setTimeout(r, 3500));
+                }
+            } else {
+                await new Promise(r => setTimeout(r, 3500));
+            }
+        }
+
         // Seeding Comments
-        if (payload.seedingComments && Array.isArray(payload.seedingComments) && payload.seedingComments.length > 0) {
-            await updateStep(`💬 4/4: Đang gửi ${payload.seedingComments.length} bình luận seeding tự động (giãn cách chống spam)...`);
+        if (hasSeeding) {
+            await updateStep(`💬 4/4: Đang gửi ${payload.seedingComments.length} bình luận seeding tự động (giãn cách an toàn)...`);
             const seedRes = await _executeFbSeeding(targetTab.id, fbPostId, fbFeedbackId, payload.seedingComments, fallbackActorId);
             if (seedRes && seedRes.count !== undefined) {
                 await updateStep(`💬 Đã gửi thành công ${seedRes.count}/${payload.seedingComments.length} bình luận seeding!`);
@@ -858,17 +883,16 @@ async function _executeFbSeeding(tabId, postId, knownFeedbackId, comments, fallb
                                 let json = null;
                                 try { json = JSON.parse(text.replace(/^for\s*\(;+\)\s*;?\s*/, "")); } catch(e) {}
 
-                                const hasCommentData = json && json.data && (
+                                const hasErrors = Boolean(json?.errors && Array.isArray(json.errors) && json.errors.length > 0) || Boolean(json?.error);
+                                const hasCommentData = !hasErrors && json && json.data && (
                                     json.data.comment_create || 
                                     json.data.useCometUFICreateCommentMutation || 
                                     json.data.comment || 
-                                    json.data.feedback || 
-                                    json.data.id ||
-                                    text.includes('"comment"') ||
-                                    text.includes('"feedback"')
+                                    (json.data.feedback && (json.data.feedback.comment || json.data.feedback.comments || json.data.feedback.id)) ||
+                                    (text.includes('"comment"') && !text.includes('"errors"') && !text.includes('errorSummary'))
                                 );
 
-                                if (resp.ok && (hasCommentData || (json && json.data && !json.errors))) {
+                                if (resp.ok && !hasErrors && hasCommentData) {
                                     commentSuccess = true;
                                     break;
                                 }

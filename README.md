@@ -42,12 +42,18 @@ Hệ thống tự động hóa đăng bài, lên lịch, tạo seeding và quả
 
 ```text
 AUTOPOSTFB/
+├── .github/workflows/
+│   └── deploy.yml                 # Tự động deploy lên VPS qua GitHub Actions
 ├── extension-auth-helper/         # Extension Google Chrome (Manifest V3)
 │   ├── background.js              # Service worker xử lý lệnh đăng bài, upload, seeding
 │   ├── manifest.json              # Khai báo extension
 │   ├── popup.html / popup.js      # Giao diện popup extension
 │   └── options.html / options.js  # Cài đặt cấu hình extension
 ├── server.py                      # Backend server Python (chạy trên port 9999)
+├── autopostfb.service             # File cấu hình chạy ngầm 24/7 trên Linux VPS (systemd)
+├── deploy.sh                      # Shell script cập nhật và restart server trên VPS
+├── Dockerfile                     # Cấu hình đóng gói container Docker
+├── docker-compose.yml             # Cấu hình chạy dịch vụ với Docker Compose
 ├── bridge_config.json             # Cấu hình kết nối giữa Server và Extension
 ├── projects.json                  # Dữ liệu dự án và hàng đợi bài đăng
 ├── projects.example.json          # File dữ liệu mẫu khởi tạo ban đầu
@@ -108,6 +114,42 @@ git remote add origin https://github.com/<tai-khoan>/<ten-repo>.git
 # 6. Đẩy code lên Git
 git push -u origin main
 ```
+
+---
+
+## 🚢 Hướng Dẫn Tự Động Deploy Lên VPS (CI/CD)
+
+Mỗi khi bạn `git push origin main`, GitHub Actions sẽ tự động SSH vào VPS, kéo code mới và restart server.
+
+### 1. Cấu hình Secrets trên GitHub
+Vào GitHub Repository: **Settings** ➔ **Secrets and variables** ➔ **Actions** ➔ **New repository secret**, thêm:
+* `VPS_HOST`: Địa chỉ IP của VPS (ví dụ: `103.x.x.x`).
+* `VPS_USERNAME`: Tên người dùng VPS (thường là `root` hoặc `ubuntu`).
+* `VPS_SSH_KEY`: Private SSH Key của bạn (hoặc tạo biến `VPS_PASSWORD` nếu dùng mật khẩu).
+* `VPS_PORT`: Cổng SSH (mặc định là `22`).
+
+### 2. Thiết lập trên VPS lần đầu tiên
+Truy cập vào VPS qua SSH và clone dự án về thư mục `/var/www/autopostfb`:
+```bash
+# Tạo thư mục và clone
+sudo mkdir -p /var/www/autopostfb
+sudo chown -R $USER:$USER /var/www/autopostfb
+git clone https://github.com/vngoldfish/bawuiEXPRO.git /var/www/autopostfb
+cd /var/www/autopostfb
+
+# Cấp quyền chạy script deploy
+chmod +x deploy.sh
+
+# Cài đặt dịch vụ chạy ngầm 24/7 bằng Systemd:
+sudo cp autopostfb.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable autopostfb
+sudo systemctl start autopostfb
+```
+
+*(Hoặc nếu dùng Docker: `docker compose up -d --build`)*
+
+Từ lúc này, bất cứ khi nào bạn `git push origin main` từ máy tính, code trên VPS sẽ **tự động cập nhật và khởi động lại ngay lập tức**!
 
 ---
 

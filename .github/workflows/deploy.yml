@@ -1,0 +1,56 @@
+name: Auto Deploy to VPS
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          password: ${{ secrets.VPS_PASSWORD }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script: |
+            echo "🚀 Bắt đầu quá trình auto deploy lên VPS..."
+            
+            # Điều hướng vào thư mục dự án trên VPS (mặc định /var/www/autopostfb hoặc /root/autopostfb)
+            if [ -d "/var/www/autopostfb" ]; then
+              cd /var/www/autopostfb
+            elif [ -d "$HOME/autopostfb" ]; then
+              cd "$HOME/autopostfb"
+            elif [ -d "/root/autopostfb" ]; then
+              cd /root/autopostfb
+            else
+              echo "❌ Không tìm thấy thư mục dự án trên VPS!"
+              exit 1
+            fi
+            
+            # Kéo mã nguồn mới nhất từ GitHub
+            git pull origin main
+            
+            # Khởi động lại ứng dụng
+            if [ -f "deploy.sh" ]; then
+              chmod +x deploy.sh
+              ./deploy.sh
+            elif command -v systemctl &> /dev/null && systemctl is-active --quiet autopostfb; then
+              sudo systemctl restart autopostfb
+              echo "✅ Đã restart dịch vụ systemd: autopostfb"
+            elif command -v pm2 &> /dev/null && pm2 list | grep -q autopostfb; then
+              pm2 restart autopostfb
+              echo "✅ Đã restart dịch vụ PM2: autopostfb"
+            elif command -v docker &> /dev/null && [ -f docker-compose.yml ]; then
+              docker compose up -d --build
+              echo "✅ Đã rebuild và restart Docker container"
+            else
+              echo "⚠️ Mã nguồn đã pull thành công, nhưng chưa tìm thấy tiến trình nền (systemd/pm2/docker)."
+            fi
+            
+            echo "🎉 Hoàn tất auto deploy!"

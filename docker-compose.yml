@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  autopostfb:
+    build: .
+    container_name: autopostfb
+    restart: always
+    ports:
+      - "9999:9999"
+    volumes:
+      # Giữ lại dữ liệu projects và config trên máy chủ khi container restart/rebuild
+      - ./projects.json:/app/projects.json
+      - ./bridge_config.json:/app/bridge_config.json
+    environment:
+      - PYTHONUNBUFFERED=1

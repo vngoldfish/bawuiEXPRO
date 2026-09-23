@@ -1,0 +1,17 @@
+[Unit]
+Description=BAWUI EX PRO Facebook Automation Controller
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/var/www/autopostfb
+ExecStart=/usr/bin/python3 /var/www/autopostfb/server.py
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/autopostfb.log
+StandardError=append:/var/log/autopostfb.error.log
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

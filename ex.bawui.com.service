@@ -1,0 +1,17 @@
+[Unit]
+Description=BAWUI EX PRO (ex.bawui.com) Facebook Automation Controller
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/var/www/ex.bawui.com
+ExecStart=/usr/bin/python3 /var/www/ex.bawui.com/server.py
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/ex.bawui.com.log
+StandardError=append:/var/log/ex.bawui.com.error.log
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

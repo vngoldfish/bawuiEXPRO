@@ -24,7 +24,11 @@ if [ -d "venv" ]; then
 fi
 
 # 3. Khởi động lại dịch vụ
-if command -v systemctl &> /dev/null && systemctl list-unit-files | grep -q autopostfb.service; then
+if command -v systemctl &> /dev/null && systemctl list-unit-files | grep -q ex.bawui.com.service; then
+    echo "⚙️ Khởi động lại dịch vụ Systemd (ex.bawui.com)..."
+    sudo systemctl restart ex.bawui.com
+    sudo systemctl status ex.bawui.com --no-pager -l
+elif command -v systemctl &> /dev/null && systemctl list-unit-files | grep -q autopostfb.service; then
     echo "⚙️ Khởi động lại dịch vụ Systemd (autopostfb)..."
     sudo systemctl restart autopostfb
     sudo systemctl status autopostfb --no-pager -l

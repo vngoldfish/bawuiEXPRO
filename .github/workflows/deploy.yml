@@ -21,8 +21,14 @@ jobs:
           script: |
             echo "🚀 Bắt đầu quá trình auto deploy lên VPS..."
             
-            # Điều hướng vào thư mục dự án trên VPS (mặc định /var/www/autopostfb hoặc /root/autopostfb)
-            if [ -d "/var/www/autopostfb" ]; then
+            # Điều hướng vào thư mục dự án trên VPS
+            if [ -d "/var/www/ex.bawui.com" ]; then
+              cd /var/www/ex.bawui.com
+            elif [ -d "$HOME/ex.bawui.com" ]; then
+              cd "$HOME/ex.bawui.com"
+            elif [ -d "/root/ex.bawui.com" ]; then
+              cd /root/ex.bawui.com
+            elif [ -d "/var/www/autopostfb" ]; then
               cd /var/www/autopostfb
             elif [ -d "$HOME/autopostfb" ]; then
               cd "$HOME/autopostfb"
@@ -40,6 +46,9 @@ jobs:
             if [ -f "deploy.sh" ]; then
               chmod +x deploy.sh
               ./deploy.sh
+            elif command -v systemctl &> /dev/null && systemctl is-active --quiet ex.bawui.com; then
+              sudo systemctl restart ex.bawui.com
+              echo "✅ Đã restart dịch vụ systemd: ex.bawui.com"
             elif command -v systemctl &> /dev/null && systemctl is-active --quiet autopostfb; then
               sudo systemctl restart autopostfb
               echo "✅ Đã restart dịch vụ systemd: autopostfb"

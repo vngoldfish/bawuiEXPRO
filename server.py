@@ -987,6 +987,12 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                         <span id="sideMenuAutopostTitle">Tự Động Đăng Bài Facebook</span>
                     </button>
                 </li>
+                <li class="menu-item" data-sub-menu="sub-api-doc" id="sideMenuApiDocItem">
+                    <button onclick="switchSubMenu('sub-api-doc')">
+                        <span>📖</span>
+                        <span id="sideMenuApiDocTitle">Tài Liệu Endpoint API</span>
+                    </button>
+                </li>
                 <li class="menu-item" data-sub-menu="sub-interaction" id="sideMenuInteractionItem">
                     <button onclick="switchSubMenu('sub-interaction')">
                         <span>💬</span>
@@ -1827,6 +1833,201 @@ Sản phẩm tuyệt vời quá</textarea>
                 </div>
             </section>
 
+            <!-- MENU TỰ ĐỘNG HÓA 2.5: TÀI LIỆU ENDPOINT API CHO DỰ ÁN FB NÀY -->
+            <section class="route-view" id="view-sub-api-doc">
+                <!-- BANNER THÔNG TIN NGỮ CẢNH CỦA TÀI KHOẢN HIỆN TẠI -->
+                <div class="card" style="margin-bottom:20px; background:linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); border-color:#6366f1;">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:14px;">
+                        <div>
+                            <h2 style="font-size:18px; font-weight:800; color:#fff; display:flex; align-items:center; gap:8px;">
+                                <span>📖</span> <span>Chi Tiết Các Endpoint API & Tự Động Hóa</span>
+                            </h2>
+                            <p style="font-size:13px; color:#cbd5e1; margin-top:4px;">
+                                Kết nối trực tiếp hệ thống bên ngoài (CRM, n8n, Make, Telegram Bot, Python, cURL) để điều khiển đăng bài và seeding tự động cho tài khoản Facebook này.
+                            </p>
+                        </div>
+                        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                            <button class="btn btn-sm btn-purple" onclick="copySubApiToken()">📋 Copy Token Dự Án</button>
+                            <button class="btn btn-sm" style="background:#0f172a; color:#38bdf8;" onclick="copySubApiBaseUrl()">📋 Copy Base URL</button>
+                        </div>
+                    </div>
+
+                    <!-- THÔNG TIN ĐỊNH DANH DỰ ÁN NÀY -->
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px; margin-top:16px; background:#090e1c; padding:14px; border-radius:8px; border:1px solid rgba(99,102,241,0.3);">
+                        <div>
+                            <div style="font-size:11px; color:#94a3b8; font-weight:700; text-transform:uppercase;">Project Token (Mã Dự Án):</div>
+                            <div style="margin-top:2px;"><code id="subApiTokenVal" style="color:#a78bfa; font-weight:800; font-size:13px;">BW-PROJ-XXXXXX</code></div>
+                        </div>
+                        <div>
+                            <div style="font-size:11px; color:#94a3b8; font-weight:700; text-transform:uppercase;">SubProject ID (Thư Mục FB):</div>
+                            <div style="margin-top:2px;"><code id="subApiSubIdVal" style="color:#38bdf8; font-weight:700; font-size:12px;">sub_fb_...</code></div>
+                        </div>
+                        <div>
+                            <div style="font-size:11px; color:#94a3b8; font-weight:700; text-transform:uppercase;">Tài Khoản Đăng:</div>
+                            <div style="margin-top:2px;"><span id="subApiAccountInfo" style="color:#34d399; font-weight:700; font-size:12px;">Rin</span></div>
+                        </div>
+                        <div>
+                            <div style="font-size:11px; color:#94a3b8; font-weight:700; text-transform:uppercase;">Base URL Máy Chủ:</div>
+                            <div style="margin-top:2px;"><code id="subApiBaseUrlVal" style="color:#f59e0b; font-weight:700; font-size:12px;">http://localhost:9999</code></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- DANH SÁCH CHI TIẾT CÁC ENDPOINT -->
+                <div style="display:flex; flex-direction:column; gap:20px;">
+                    <!-- ENDPOINT 1: PUBLISH POST -->
+                    <div class="card" style="border-left:4px solid #10b981;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+                            <div style="display:flex; align-items:center; gap:10px;">
+                                <span style="background:#059669; color:#fff; font-size:12px; font-weight:800; padding:4px 10px; border-radius:4px;">POST</span>
+                                <code style="font-size:15px; color:#38bdf8; font-weight:800;">/api/v1/posts/publish</code>
+                            </div>
+                            <span style="font-size:12px; color:#10b981; font-weight:700;">🚀 Đăng Bài Viết & Seeding Tự Động</span>
+                        </div>
+                        <p style="font-size:13px; color:var(--text-muted); line-height:1.6; margin-bottom:14px;">
+                            Phát lệnh cho Extension trên máy Chrome đăng ngay hoặc lên lịch xuất bản bài viết lên <b>Trang Cá Nhân (Profile), Fanpage</b> hoặc <b>Nhóm (Group)</b>. Hệ thống tự động bóc tách ID bài viết và bắn kịch bản bình luận seeding ngay sau khi đăng.
+                        </p>
+
+                        <div style="font-size:12px; font-weight:700; color:#fff; margin-bottom:6px;">Headers Yêu Cầu:</div>
+                        <pre style="background:#090e1c; padding:10px; border-radius:6px; font-size:12px; color:#a78bfa; margin-bottom:14px;">Content-Type: application/json
+Authorization: Bearer <MÃ_TOKEN_DỰ_ÁN></pre>
+
+                        <div style="font-size:12px; font-weight:700; color:#fff; margin-bottom:8px;">Bảng Tham Số Body (JSON):</div>
+                        <div style="overflow-x:auto; margin-bottom:16px;">
+                            <table style="width:100%; font-size:12px; border-collapse:collapse;">
+                                <thead>
+                                    <tr style="background:#090e1c; border-bottom:1px solid var(--border-color); text-align:left; color:#94a3b8;">
+                                        <th style="padding:8px 10px;">Tên Trường</th>
+                                        <th style="padding:8px 10px;">Kiểu Dữ Liệu</th>
+                                        <th style="padding:8px 10px;">Bắt Buộc?</th>
+                                        <th style="padding:8px 10px;">Mô Tả Chi Tiết</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                                        <td style="padding:8px 10px;"><code>content</code></td>
+                                        <td style="padding:8px 10px; color:#a78bfa;">string</td>
+                                        <td style="padding:8px 10px; color:#f87171;">Có (hoặc media)</td>
+                                        <td style="padding:8px 10px; color:var(--text-muted);">Nội dung bài viết. <b>Hỗ trợ Spintax đa tầng <code>{A|B|C}</code></b> tự xoay nội dung chống trùng lặp.</td>
+                                    </tr>
+                                    <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                                        <td style="padding:8px 10px;"><code>postType</code></td>
+                                        <td style="padding:8px 10px; color:#a78bfa;">string</td>
+                                        <td style="padding:8px 10px; color:#94a3b8;">Không</td>
+                                        <td style="padding:8px 10px; color:var(--text-muted);">Định dạng bài đăng: <code>post</code> (bài viết thường), <code>reel</code> (thước phim), <code>video</code> (video bảng tin), <code>story</code> (bản tin). Mặc định: <code>post</code>.</td>
+                                    </tr>
+                                    <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                                        <td style="padding:8px 10px;"><code>targetType</code></td>
+                                        <td style="padding:8px 10px; color:#a78bfa;">string</td>
+                                        <td style="padding:8px 10px; color:#94a3b8;">Không</td>
+                                        <td style="padding:8px 10px; color:var(--text-muted);">Đích đăng bài: <code>profile</code> (trang cá nhân), <code>page</code> (fanpage), <code>group</code> (nhóm). Mặc định: <code>profile</code>.</td>
+                                    </tr>
+                                    <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                                        <td style="padding:8px 10px;"><code>targetId</code></td>
+                                        <td style="padding:8px 10px; color:#a78bfa;">string</td>
+                                        <td style="padding:8px 10px; color:#f87171;">Khi page/group</td>
+                                        <td style="padding:8px 10px; color:var(--text-muted);">ID của Fanpage hoặc ID của Nhóm Facebook cần đăng vào.</td>
+                                    </tr>
+                                    <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                                        <td style="padding:8px 10px;"><code>mediaUrl</code></td>
+                                        <td style="padding:8px 10px; color:#a78bfa;">string</td>
+                                        <td style="padding:8px 10px; color:#94a3b8;">Không</td>
+                                        <td style="padding:8px 10px; color:var(--text-muted);">URL trực tiếp của tệp ảnh hoặc video (hệ thống tự động tải và upload qua Facebook Comet API).</td>
+                                    </tr>
+                                    <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                                        <td style="padding:8px 10px;"><code>seedingComments</code></td>
+                                        <td style="padding:8px 10px; color:#a78bfa;">array[string]</td>
+                                        <td style="padding:8px 10px; color:#94a3b8;">Không</td>
+                                        <td style="padding:8px 10px; color:var(--text-muted);">Mảng các câu bình luận seeding mồi (ví dụ: <code>["Tư vấn mình với", "Sản phẩm tốt quá"]</code>).</td>
+                                    </tr>
+                                    <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                                        <td style="padding:8px 10px;"><code>autoReactType</code></td>
+                                        <td style="padding:8px 10px; color:#a78bfa;">string</td>
+                                        <td style="padding:8px 10px; color:#94a3b8;">Không</td>
+                                        <td style="padding:8px 10px; color:var(--text-muted);">Cảm xúc thả vào bài viết: <code>LOVE</code>, <code>LIKE</code>, <code>CARE</code>, <code>HAHA</code>, <code>WOW</code>, <code>SAD</code>, <code>ANGRY</code>, <code>NONE</code>. Mặc định: <code>LIKE</code>.</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="padding:8px 10px;"><code>runNow</code></td>
+                                        <td style="padding:8px 10px; color:#a78bfa;">boolean</td>
+                                        <td style="padding:8px 10px; color:#94a3b8;">Không</td>
+                                        <td style="padding:8px 10px; color:var(--text-muted);"><code>true</code> = Đăng ngay lập tức; <code>false</code> = Lưu vào hàng đợi chờ phát lệnh sau. Mặc định: <code>true</code>.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- CODE MẪU ĐÃ ĐIỀN SẴN TOKEN CỦA DỰ ÁN NÀY -->
+                        <div style="font-size:13px; font-weight:800; color:#38bdf8; margin-bottom:10px;">💻 Mẫu Code Sẵn Sàng Copy Cho Tài Khoản Này:</div>
+                        
+                        <div style="font-size:11px; color:#94a3b8; font-weight:700; margin-bottom:4px;">Terminal / cURL:</div>
+                        <pre id="subApiCurlCode" style="background:#090e1c; padding:12px; border-radius:6px; font-size:11px; color:#e2e8f0; overflow-x:auto; margin-bottom:12px; border:1px solid var(--border-color);"></pre>
+
+                        <div style="font-size:11px; color:#94a3b8; font-weight:700; margin-bottom:4px;">Python (requests):</div>
+                        <pre id="subApiPythonCode" style="background:#090e1c; padding:12px; border-radius:6px; font-size:11px; color:#e2e8f0; overflow-x:auto; margin-bottom:12px; border:1px solid var(--border-color);"></pre>
+
+                        <div style="font-size:11px; color:#94a3b8; font-weight:700; margin-bottom:4px;">Node.js / JavaScript (fetch):</div>
+                        <pre id="subApiJsCode" style="background:#090e1c; padding:12px; border-radius:6px; font-size:11px; color:#e2e8f0; overflow-x:auto; border:1px solid var(--border-color);"></pre>
+                    </div>
+
+                    <!-- ENDPOINT 2: GET STATUS -->
+                    <div class="card" style="border-left:4px solid #0284c7;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+                            <div style="display:flex; align-items:center; gap:10px;">
+                                <span style="background:#0284c7; color:#fff; font-size:12px; font-weight:800; padding:4px 10px; border-radius:4px;">GET</span>
+                                <code style="font-size:15px; color:#38bdf8; font-weight:800;">/api/v1/posts/status?postId={postId}</code>
+                            </div>
+                            <span style="font-size:12px; color:#38bdf8; font-weight:700;">📊 Kiểm Tra Tiến Trình & Lấy Link Bài Viết</span>
+                        </div>
+                        <p style="font-size:13px; color:var(--text-muted); line-height:1.6; margin-bottom:12px;">
+                            Truy vấn trạng thái thời gian thực của bài đăng (<code>pending</code>, <code>in_progress</code>, <code>completed</code>, <code>failed</code>) và nhận link bài viết Facebook (<code>fbPostUrl</code>) ngay sau khi đăng thành công.
+                        </p>
+                        <div style="font-size:11px; color:#94a3b8; font-weight:700; margin-bottom:4px;">Response Mẫu Khi Thành Công:</div>
+                        <pre style="background:#090e1c; padding:12px; border-radius:6px; font-size:12px; color:#34d399; overflow-x:auto; border:1px solid var(--border-color);">{
+  "success": true,
+  "postId": "post_1790192594_206a",
+  "status": "completed",
+  "progressStep": "✅ Đã đăng thành công lên Facebook (ID: 2151992722340672)",
+  "fbPostId": "2151992722340672",
+  "fbPostUrl": "https://www.facebook.com/permalink.php?story_fbid=2151992722340672&id=100025898964308"
+}</pre>
+                    </div>
+
+                    <!-- ENDPOINT 3: SEEDING EXISTING POST -->
+                    <div class="card" style="border-left:4px solid #a855f7;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+                            <div style="display:flex; align-items:center; gap:10px;">
+                                <span style="background:#7c3aed; color:#fff; font-size:12px; font-weight:800; padding:4px 10px; border-radius:4px;">POST</span>
+                                <code style="font-size:15px; color:#38bdf8; font-weight:800;">/api/v1/posts/seeding</code>
+                            </div>
+                            <span style="font-size:12px; color:#c084fc; font-weight:700;">💬 Bắn Thêm Seeding Vào Bài Viết Đã Đăng</span>
+                        </div>
+                        <p style="font-size:13px; color:var(--text-muted); line-height:1.6; margin-bottom:12px;">
+                            Bắn thêm danh sách bình luận seeding mồi và thả cảm xúc vào bất kỳ bài viết nào đã được đăng thành công trên Facebook.
+                        </p>
+                        <div style="font-size:11px; color:#94a3b8; font-weight:700; margin-bottom:4px;">Body Mẫu (JSON):</div>
+                        <pre style="background:#090e1c; padding:12px; border-radius:6px; font-size:12px; color:#e2e8f0; overflow-x:auto; border:1px solid var(--border-color);">{
+  "postId": "post_1790192594_206a",
+  "comments": ["Bình luận seeding thêm 1", "Bình luận seeding thêm 2"],
+  "autoReactType": "LOVE"
+}</pre>
+                    </div>
+
+                    <!-- ENDPOINT 4: GET POSTS LIST -->
+                    <div class="card" style="border-left:4px solid #f59e0b;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+                            <div style="display:flex; align-items:center; gap:10px;">
+                                <span style="background:#d97706; color:#fff; font-size:12px; font-weight:800; padding:4px 10px; border-radius:4px;">GET</span>
+                                <code style="font-size:15px; color:#38bdf8; font-weight:800;">/api/v1/posts?limit=20&status=completed</code>
+                            </div>
+                            <span style="font-size:12px; color:#f59e0b; font-weight:700;">📋 Lấy Danh Sách Bài Đăng & Hàng Đợi</span>
+                        </div>
+                        <p style="font-size:13px; color:var(--text-muted); line-height:1.6;">
+                            Lấy lịch sử và danh sách bài đăng gần đây của dự án. Hỗ trợ lọc theo <code>status</code> (<code>pending</code>, <code>in_progress</code>, <code>completed</code>, <code>failed</code>) và phân trang với <code>limit</code>.
+                        </p>
+                    </div>
+                </div>
+            </section>
+
             <!-- MENU TỰ ĐỘNG HÓA 3: TƯƠNG TÁC / SEEDING / NUÔI NICK (INTERACTION STUDIO) -->
             <section class="route-view" id="view-sub-interaction">
                 <!-- BANNER -->
@@ -2537,6 +2738,7 @@ Sản phẩm tuyệt vời quá</textarea>
             "sub-account-info": { title: "👤 Kiểm Tra Thông Tin Tài Khoản", el: document.getElementById("view-sub-account-info") },
             "sub-scraper": { title: "📥 Cào Dữ Liệu Facebook (Scraper)", el: document.getElementById("view-sub-scraper") },
             "sub-autopost": { title: "🚀 Tự Động Đăng Bài Facebook (Auto Poster)", el: document.getElementById("view-sub-autopost") },
+            "sub-api-doc": { title: "📖 Chi Tiết Các Endpoint API", el: document.getElementById("view-sub-api-doc") },
             "sub-interaction": { title: "💬 Studio Tương Tác / Nuôi Nick FB", el: document.getElementById("view-sub-interaction") },
             "sub-other-notice": { title: "💡 Trạng Thái Tự Động Hóa Nền Tảng", el: document.getElementById("view-sub-other-notice") },
             "sub-browser": { title: "🌐 Điều Khiển Tab Web", el: document.getElementById("view-sub-browser") },
@@ -2553,7 +2755,7 @@ Sản phẩm tuyệt vời quá</textarea>
 
             // Phân biệt rõ: Nếu không phải Facebook, không mở các menu tự động hóa của Facebook
             if (subType !== 'facebook') {
-                if (targetKey === 'sub-scraper' || targetKey === 'sub-autopost' || targetKey === 'sub-interaction') {
+                if (targetKey === 'sub-scraper' || targetKey === 'sub-autopost' || targetKey === 'sub-api-doc' || targetKey === 'sub-interaction') {
                     targetKey = 'sub-other-notice';
                 }
             } else {
@@ -2572,7 +2774,106 @@ Sản phẩm tuyệt vời quá</textarea>
                 const subName = sub ? sub.name : "Dự Án Con";
                 const pCfg = PLATFORM_CONFIG[subType] || PLATFORM_CONFIG["facebook"];
                 document.getElementById("pageTitle").innerHTML = `📁 ${pName} &gt; 📂 <b>${subName}</b> [${pCfg.icon} ${pCfg.name}] &rarr; ${subMenus[targetKey].title}`;
+                if (targetKey === 'sub-api-doc') {
+                    updateSubApiDocView();
+                }
             }
+        }
+
+        function updateSubApiDocView() {
+            const p = allProjects.find(x => x.id === currentProjectId);
+            const sub = p ? (p.subProjects || []).find(s => s.id === currentSubProjectId) : null;
+            if (!p || !sub) return;
+
+            const token = p.token || "";
+            const subId = sub.id || "";
+            const accName = sub.fbName || sub.name || "Facebook";
+            const uid = sub.c_user || "Chưa có UID";
+            const origin = window.location.origin;
+
+            const tokenEl = document.getElementById("subApiTokenVal");
+            if (tokenEl) tokenEl.innerText = token;
+            const subIdEl = document.getElementById("subApiSubIdVal");
+            if (subIdEl) subIdEl.innerText = subId;
+            const accEl = document.getElementById("subApiAccountInfo");
+            if (accEl) accEl.innerText = `${accName} (UID: ${uid})`;
+            const baseEl = document.getElementById("subApiBaseUrlVal");
+            if (baseEl) baseEl.innerText = origin;
+
+            const curlEl = document.getElementById("subApiCurlCode");
+            if (curlEl) {
+                curlEl.innerText = `curl -X POST "${origin}/api/v1/posts/publish" \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer ${token}" \\
+  -d '{
+    "subProjectId": "${subId}",
+    "content": "{Chào bạn|Hello quý khách}! Bài viết tự động qua API với {nhiều ưu đãi|khuyến mãi khủng}.",
+    "postType": "post",
+    "targetType": "profile",
+    "seedingComments": ["Quan tâm shop ơi", "Tư vấn mình với ạ"],
+    "autoReactType": "LOVE",
+    "runNow": true
+  }'`;
+            }
+
+            const pyEl = document.getElementById("subApiPythonCode");
+            if (pyEl) {
+                pyEl.innerText = `import requests
+
+url = "${origin}/api/v1/posts/publish"
+headers = {
+    "Content-Type": "application/json",
+    "Authorization": "Bearer ${token}"
+}
+payload = {
+    "subProjectId": "${subId}",
+    "content": "Nội dung bài viết {chất lượng|độc quyền} đăng từ Python API!",
+    "postType": "post",
+    "targetType": "profile",
+    "seedingComments": ["Tuyệt vời quá shop!", "Giá bao nhiêu ạ?"],
+    "autoReactType": "LOVE",
+    "runNow": True
+}
+
+res = requests.post(url, json=payload, headers=headers)
+print(res.json())`;
+            }
+
+            const jsEl = document.getElementById("subApiJsCode");
+            if (jsEl) {
+                jsEl.innerText = `const res = await fetch("${origin}/api/v1/posts/publish", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "Authorization": "Bearer ${token}"
+  },
+  body: JSON.stringify({
+    subProjectId: "${subId}",
+    content: "Bài viết tự động qua JavaScript API với {nhiều quà tặng|ưu đãi hấp dẫn}!",
+    postType: "post",
+    targetType: "profile",
+    seedingComments: ["Quan tâm shop ơi", "Check inbox giúp mình nhé"],
+    autoReactType: "LOVE",
+    runNow: true
+  })
+});
+
+const data = await res.json();
+console.log(data);`;
+            }
+        }
+
+        function copySubApiToken() {
+            const tokenEl = document.getElementById("subApiTokenVal");
+            if (tokenEl && tokenEl.innerText) {
+                navigator.clipboard.writeText(tokenEl.innerText.trim());
+                showToast("📋 Đã copy Project Token vào clipboard!", "success");
+            }
+        }
+
+        function copySubApiBaseUrl() {
+            navigator.clipboard.writeText(window.location.origin);
+            showToast("📋 Đã copy Base URL vào clipboard!", "success");
         }
 
         // =========================================================

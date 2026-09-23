@@ -10,56 +10,58 @@ jobs:
     name: Deploy to VPS
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USERNAME }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          password: ${{ secrets.VPS_PASSWORD }}
-          port: ${{ secrets.VPS_PORT || 22 }}
-          script: |
-            echo "🚀 Bắt đầu quá trình auto deploy lên VPS..."
-            
-            # Điều hướng vào thư mục dự án trên VPS
-            if [ -d "/var/www/ex.bawui.com" ]; then
-              cd /var/www/ex.bawui.com
-            elif [ -d "$HOME/ex.bawui.com" ]; then
-              cd "$HOME/ex.bawui.com"
-            elif [ -d "/root/ex.bawui.com" ]; then
-              cd /root/ex.bawui.com
-            elif [ -d "/var/www/autopostfb" ]; then
-              cd /var/www/autopostfb
-            elif [ -d "$HOME/autopostfb" ]; then
-              cd "$HOME/autopostfb"
-            elif [ -d "/root/autopostfb" ]; then
-              cd /root/autopostfb
-            else
-              echo "❌ Không tìm thấy thư mục dự án trên VPS!"
-              exit 1
-            fi
-            
-            # Kéo mã nguồn mới nhất từ GitHub
-            git pull origin main
-            
-            # Khởi động lại ứng dụng
-            if [ -f "deploy.sh" ]; then
-              chmod +x deploy.sh
-              ./deploy.sh
-            elif command -v systemctl &> /dev/null && systemctl is-active --quiet ex.bawui.com; then
-              sudo systemctl restart ex.bawui.com
-              echo "✅ Đã restart dịch vụ systemd: ex.bawui.com"
-            elif command -v systemctl &> /dev/null && systemctl is-active --quiet autopostfb; then
-              sudo systemctl restart autopostfb
-              echo "✅ Đã restart dịch vụ systemd: autopostfb"
-            elif command -v pm2 &> /dev/null && pm2 list | grep -q autopostfb; then
-              pm2 restart autopostfb
-              echo "✅ Đã restart dịch vụ PM2: autopostfb"
-            elif command -v docker &> /dev/null && [ -f docker-compose.yml ]; then
-              docker compose up -d --build
-              echo "✅ Đã rebuild và restart Docker container"
-            else
-              echo "⚠️ Mã nguồn đã pull thành công, nhưng chưa tìm thấy tiến trình nền (systemd/pm2/docker)."
-            fi
-            
-            echo "🎉 Hoàn tất auto deploy!"
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH Key & Deploy to VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST || '64.110.106.110' }}
+          VPS_USER: ${{ secrets.VPS_USER || secrets.VPS_USERNAME || 'ubuntu' }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY || secrets.vps_ssh_key }}
+          VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
+        run: |
+          if [ -z "$VPS_SSH_KEY" ]; then
+            echo "::error::Chưa cấu hình Secret 'VPS_SSH_KEY' trong GitHub Repository Settings!"
+            echo "Vui lòng vào Settings -> Secrets and variables -> Actions -> Thêm Secret 'VPS_SSH_KEY'!"
+            exit 1
+          fi
+
+          mkdir -p ~/.ssh
+          printf "%s\n" "$VPS_SSH_KEY" | tr -d '\r' > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          echo "🚀 [CI/CD] Connecting to $VPS_USER@$VPS_HOST:$VPS_PORT..."
+
+          ssh -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o PubkeyAcceptedAlgorithms=+ssh-rsa \
+            -o HostkeyAlgorithms=+ssh-rsa \
+            -p $VPS_PORT \
+            $VPS_USER@$VPS_HOST << 'ENDSSH'
+              set -e
+
+              echo "🚀 [CI/CD] Connected to VPS successfully!"
+              
+              if [ -d "/opt/apps/bawuiEXPRO" ]; then
+                cd /opt/apps/bawuiEXPRO
+              elif [ -d "/var/www/ex.bawui.com" ]; then
+                cd /var/www/ex.bawui.com
+              else
+                echo "❌ Không tìm thấy thư mục dự án trên VPS!"
+                exit 1
+              fi
+
+              echo "📥 Fetching latest code from GitHub..."
+              git fetch origin main
+              git reset --hard origin/main
+
+              echo "🐳 Rebuilding and updating Docker container bawuiEXPRO..."
+              docker compose build
+              docker compose up -d --remove-orphans
+
+              echo "🧹 Cleaning up old unused Docker images..."
+              docker image prune -f
+
+              echo "✅ [CI/CD] Auto Deploy hoàn tất thành công! https://ex.bawui.com is live!"
+          ENDSSH

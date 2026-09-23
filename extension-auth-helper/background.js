@@ -772,24 +772,24 @@ async function _executeFbSeeding(tabId, postId, knownFeedbackId, comments, fallb
                 let jazoest = "2";
                 for (let i = 0; i < fb_dtsg.length; i++) jazoest += fb_dtsg.charCodeAt(i);
 
-                const finalHtml = document.documentElement.innerHTML || "";
-                const feedbackCandidates = [];
+                // Determine the single authoritative feedback ID for the post
+                let targetFeedbackId = "";
                 if (knownFeedbackId) {
-                    if (knownFeedbackId.startsWith("ZmVl")) {
-                        feedbackCandidates.push(knownFeedbackId);
-                    } else {
-                        feedbackCandidates.push(btoa("feedback:" + knownFeedbackId));
+                    targetFeedbackId = knownFeedbackId.startsWith("ZmVl") ? knownFeedbackId : btoa("feedback:" + knownFeedbackId);
+                } else if (postId) {
+                    targetFeedbackId = btoa("feedback:" + postId);
+                }
+
+                if (!targetFeedbackId) {
+                    const finalHtml = document.documentElement.innerHTML || "";
+                    const m = finalHtml.match(/"(?:feedback_target_id|legacy_story_id|story_fbid|post_id)"\s*:\s*"(\d+)"/);
+                    if (m && m[1]) {
+                        targetFeedbackId = btoa("feedback:" + m[1]);
                     }
                 }
-                if (postId) {
-                    feedbackCandidates.push(btoa("feedback:" + postId));
-                }
-                const numMatches = finalHtml.matchAll(/"(?:legacy_story_id|story_fbid|post_id|story_id|subscription_target_id|feedback_target_id)"\s*:\s*"(\d+)"/g);
-                for (const m of numMatches) {
-                    if (m[1] && m[1].length >= 8) {
-                        const b = btoa("feedback:" + m[1]);
-                        if (!feedbackCandidates.includes(b)) feedbackCandidates.push(b);
-                    }
+
+                if (!targetFeedbackId) {
+                    return { success: false, error: "Thiếu feedback ID bài viết để seeding" };
                 }
 
                 let liveCommentDocIds = [];
@@ -822,114 +822,105 @@ async function _executeFbSeeding(tabId, postId, knownFeedbackId, comments, fallb
                     const clientMutationId = Date.now() + "_" + randomSuffix;
                     const idempotenceToken = "client:" + Date.now() + "_" + randomSuffix;
 
-                    for (const fbIdCandidate of feedbackCandidates) {
-                        if (commentSuccess) break;
-                        for (const docId of docIds) {
-                            try {
-                                const isNewMutation = (docId === "27829190080054105" || docId.startsWith("2782") || docId.startsWith("5765"));
-                                const vars = isNewMutation ? {
-                                    feedLocation: "POST_PERMALINK_DIALOG",
-                                    feedbackSource: 2,
-                                    groupID: null,
-                                    input: {
-                                        client_mutation_id: clientMutationId,
-                                        attachments: null,
-                                        feedback_id: fbIdCandidate,
-                                        formatting_style: null,
-                                        is_inline_vote_enabled_for_qna: false,
-                                        message: { ranges: [], text: commentText.trim() },
-                                        attribution_id_v2: "CometSinglePostDialogRoot.react,comet.post.single_dialog,unexpected," + Date.now() + ",881640,,,",
-                                        feedback_source: "OBJECT",
-                                        idempotence_token: idempotenceToken,
-                                        session_id: String(Date.now())
-                                    },
-                                    inviteShortLinkKey: null,
-                                    renderLocation: "permalink",
-                                    scale: 2,
-                                    useDefaultActor: false
-                                } : {
-                                    input: {
-                                        feedback_id: fbIdCandidate,
-                                        message: { text: commentText.trim() },
-                                        actor_id: actorId,
-                                        client_mutation_id: clientMutationId
-                                    }
-                                };
-
-                                const params = new URLSearchParams();
-                                params.append("av", actorId);
-                                params.append("__user", actorId);
-                                params.append("__a", "1");
-                                params.append("fb_dtsg", fb_dtsg);
-                                params.append("jazoest", jazoest);
-                                params.append("lsd", lsd);
-                                params.append("fb_api_caller_class", "RelayModern");
-                                params.append("fb_api_req_friendly_name", isNewMutation ? "useCometUFICreateCommentMutation" : "CometCommentCreateMutation");
-                                params.append("variables", JSON.stringify(vars));
-                                params.append("doc_id", docId);
-
-                                const resp = await fetch("/api/graphql/", {
-                                    method: "POST",
-                                    headers: {
-                                        "Content-Type": "application/x-www-form-urlencoded",
-                                        "X-FB-Friendly-Name": isNewMutation ? "useCometUFICreateCommentMutation" : "CometCommentCreateMutation",
-                                        "X-FB-LSD": lsd
-                                    },
-                                    body: params.toString(),
-                                    credentials: "include"
-                                });
-
-                                const text = await resp.text();
-                                let json = null;
-                                try { json = JSON.parse(text.replace(/^for\s*\(;+\)\s*;?\s*/, "")); } catch(e) {}
-
-                                const hasErrors = Boolean(json?.errors && Array.isArray(json.errors) && json.errors.length > 0) || Boolean(json?.error);
-                                const hasCommentData = !hasErrors && json && json.data && (
-                                    json.data.comment_create || 
-                                    json.data.useCometUFICreateCommentMutation || 
-                                    json.data.comment || 
-                                    (json.data.feedback && (json.data.feedback.comment || json.data.feedback.comments || json.data.feedback.id)) ||
-                                    (text.includes('"comment"') && !text.includes('"errors"') && !text.includes('errorSummary'))
-                                );
-
-                                if (resp.ok && !hasErrors && hasCommentData) {
-                                    commentSuccess = true;
-                                    break;
-                                }
-                            } catch(e) {}
-                        }
-                    }
-
-                    // DOM Fallback if GraphQL didn't succeed
-                    if (!commentSuccess) {
+                    for (const docId of docIds) {
                         try {
-                            const commentBox = document.querySelector(
-                                'div[role="textbox"][aria-label*="bình luận"], ' +
-                                'div[role="textbox"][aria-label*="Comment"], ' +
-                                'div[role="textbox"][aria-label*="Viết"], ' +
-                                'div[role="textbox"][contenteditable="true"], ' +
-                                'form div[role="textbox"]'
-                            );
-                            if (commentBox) {
-                                commentBox.focus();
-                                document.execCommand("insertText", false, commentText.trim());
-                                commentBox.dispatchEvent(new Event("input", { bubbles: true }));
-                                await new Promise(r => setTimeout(r, 400));
-                                const enterEvt = new KeyboardEvent("keydown", {
-                                    key: "Enter", code: "Enter", keyCode: 13, which: 13,
-                                    bubbles: true, cancelable: true
-                                });
-                                commentBox.dispatchEvent(enterEvt);
-                                commentSuccess = true;
+                            const isNewMutation = (docId === "27829190080054105" || docId.startsWith("2782") || docId.startsWith("5765"));
+                            const vars = isNewMutation ? {
+                                feedLocation: "POST_PERMALINK_DIALOG",
+                                feedbackSource: 2,
+                                groupID: null,
+                                input: {
+                                    client_mutation_id: clientMutationId,
+                                    attachments: null,
+                                    feedback_id: targetFeedbackId,
+                                    formatting_style: null,
+                                    is_inline_vote_enabled_for_qna: false,
+                                    message: { ranges: [], text: commentText.trim() },
+                                    attribution_id_v2: "CometSinglePostDialogRoot.react,comet.post.single_dialog,unexpected," + Date.now() + ",881640,,,",
+                                    feedback_source: "OBJECT",
+                                    idempotence_token: idempotenceToken,
+                                    session_id: String(Date.now())
+                                },
+                                inviteShortLinkKey: null,
+                                renderLocation: "permalink",
+                                scale: 2,
+                                useDefaultActor: false
+                            } : {
+                                input: {
+                                    feedback_id: targetFeedbackId,
+                                    message: { text: commentText.trim() },
+                                    actor_id: actorId,
+                                    client_mutation_id: clientMutationId
+                                }
+                            };
+
+                            const params = new URLSearchParams();
+                            params.append("av", actorId);
+                            params.append("__user", actorId);
+                            params.append("__a", "1");
+                            params.append("fb_dtsg", fb_dtsg);
+                            params.append("jazoest", jazoest);
+                            params.append("lsd", lsd);
+                            params.append("fb_api_caller_class", "RelayModern");
+                            params.append("fb_api_req_friendly_name", isNewMutation ? "useCometUFICreateCommentMutation" : "CometCommentCreateMutation");
+                            params.append("variables", JSON.stringify(vars));
+                            params.append("doc_id", docId);
+
+                            const resp = await fetch("/api/graphql/", {
+                                method: "POST",
+                                headers: {
+                                    "Content-Type": "application/x-www-form-urlencoded",
+                                    "X-FB-Friendly-Name": isNewMutation ? "useCometUFICreateCommentMutation" : "CometCommentCreateMutation",
+                                    "X-FB-LSD": lsd
+                                },
+                                body: params.toString(),
+                                credentials: "include"
+                            });
+
+                            if (!resp.ok) continue;
+
+                            const text = await resp.text();
+                            
+                            // Check clean JSON / streaming JSON lines
+                            const cleanText = text.replace(/^for\s*\(;+\)\s*;?\s*/, "").trim();
+                            const lines = cleanText.split("\n");
+                            for (const line of lines) {
+                                const tr = line.trim();
+                                if (!tr) continue;
+                                try {
+                                    const parsed = JSON.parse(tr);
+                                    if (parsed && parsed.data) {
+                                        const d = parsed.data;
+                                        if (d.comment_create || d.useCometUFICreateCommentMutation || d.comment || d.feedback?.id) {
+                                            commentSuccess = true;
+                                            break;
+                                        }
+                                    }
+                                } catch(e) {}
                             }
-                        } catch(domErr) {}
+
+                            // String fallback check
+                            if (!commentSuccess) {
+                                if ((text.includes('"comment_create"') || 
+                                     text.includes('"useCometUFICreateCommentMutation"') || 
+                                     text.includes('"comment":{') || 
+                                     text.includes('"feedback":{')) && 
+                                    !text.includes('"errorSummary"')) {
+                                    commentSuccess = true;
+                                }
+                            }
+
+                            if (commentSuccess) {
+                                break; // Success! Never retry or post duplicate
+                            }
+                        } catch(e) {}
                     }
 
                     if (commentSuccess) successCount++;
 
-                    // Anti-spam interval: 2600ms between comments to prevent Facebook rate limiting
+                    // Anti-spam interval: 2800ms between comments to prevent Facebook rate limiting
                     if (i < comments.length - 1) {
-                        await new Promise(r => setTimeout(r, 2600));
+                        await new Promise(r => setTimeout(r, 2800));
                     }
                 }
 

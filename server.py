@@ -369,20 +369,27 @@ HTML_DASHBOARD = """<!DOCTYPE html>
 
         .sidebar-menu {
             list-style: none;
-            padding: 12px 10px;
+            padding: 12px 8px;
             flex: 1;
             display: flex;
             flex-direction: column;
-            gap: 4px;
+            gap: 3px;
         }
 
         .menu-label {
             font-size: 10px;
-            font-weight: 700;
+            font-weight: 800;
             color: #64748b;
             text-transform: uppercase;
             letter-spacing: 0.8px;
-            padding: 10px 12px 4px;
+            padding: 14px 12px 6px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .menu-item {
+            position: relative;
         }
 
         .menu-item a, .menu-item button {
@@ -390,29 +397,113 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             display: flex;
             align-items: center;
             gap: 10px;
-            padding: 9px 12px;
+            padding: 8px 12px;
             border-radius: 8px;
-            color: var(--text-muted);
+            color: #94a3b8;
             text-decoration: none;
             font-size: 13px;
             font-weight: 600;
             transition: all 0.15s ease-in-out;
             background: transparent;
-            border: none;
+            border: 1px solid transparent;
+            border-left: 3px solid transparent; /* ĐẢM BẢO KHÔNG BỊ NHẢY THỤT LỀ KHI ACTIVE */
             text-align: left;
             cursor: pointer;
+            box-sizing: border-box;
+        }
+
+        /* KHUNG CHỨA ICON CỐ ĐỊNH KÍCH THƯỚC GIÚP MỌI CHỮ THẲNG HÀNG 100% TUYỆT ĐỐI */
+        .menu-item .nav-icon,
+        .menu-item > a > span:first-child,
+        .menu-item > button > span:first-child {
+            width: 22px;
+            min-width: 22px;
+            height: 22px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 15px;
+            line-height: 1;
+            text-align: center;
+            flex-shrink: 0;
+        }
+
+        .menu-item .menu-title {
+            flex: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .menu-item a:hover, .menu-item button:hover {
             background: rgba(255, 255, 255, 0.05);
-            color: #fff;
+            color: #f1f5f9;
         }
 
-        .menu-item.active a, .menu-item.active button {
+        .menu-item.active > a, .menu-item.active > button {
             background: rgba(2, 132, 199, 0.18);
-            color: var(--accent);
-            border-left: 3px solid var(--accent);
+            color: #38bdf8;
+            border-left: 3px solid #38bdf8;
             border-radius: 4px 8px 8px 4px;
+            font-weight: 700;
+        }
+
+        /* MỤC CHA ACCORDION (POST FACEBOOK) */
+        .menu-item.menu-parent > button {
+            color: #e2e8f0;
+            font-weight: 700;
+        }
+        .menu-item.menu-parent.expanded > button {
+            color: #fff;
+            background: rgba(255, 255, 255, 0.04);
+        }
+        .menu-item.menu-parent.active-parent > button {
+            background: rgba(2, 132, 199, 0.12);
+            color: #38bdf8;
+            border-left: 3px solid rgba(56, 189, 248, 0.5);
+        }
+        .menu-chevron {
+            font-size: 9px;
+            color: #64748b;
+            transition: transform 0.2s ease;
+            margin-left: auto;
+            flex-shrink: 0;
+        }
+        .menu-item.menu-parent.expanded .menu-chevron {
+            transform: rotate(180deg);
+            color: #38bdf8;
+        }
+
+        /* CÂY MENU CON THỤT LỀ CHUẨN (NESTED TREE) */
+        .menu-sub-tree {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            margin-left: 18px;
+            padding-left: 8px;
+            border-left: 2px solid #1e293b;
+            margin-top: 2px;
+            margin-bottom: 4px;
+        }
+        .menu-sub-tree.collapsed {
+            display: none;
+        }
+        .menu-sub-item a, .menu-sub-item button {
+            padding: 7px 10px;
+            font-size: 12.5px;
+            gap: 8px;
+            border-radius: 6px;
+        }
+        .menu-sub-item .nav-icon {
+            width: 18px;
+            min-width: 18px;
+            height: 18px;
+            font-size: 13px;
+        }
+        .menu-sub-item.active a, .menu-sub-item.active button {
+            background: rgba(56, 189, 248, 0.15);
+            color: #38bdf8;
+            border-left: 3px solid #38bdf8;
         }
 
         /* SIDEBAR CARD BANNERS */
@@ -881,32 +972,32 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 <li class="menu-label">Sảnh Quản Trị Hệ Thống</li>
                 <li class="menu-item active" data-hub-route="hub-projects">
                     <button onclick="switchHubRoute('hub-projects')">
-                        <span>📁</span>
-                        <span>Danh Sách Dự Án</span>
+                        <span class="nav-icon">📁</span>
+                        <span class="menu-title">Danh Sách Dự Án</span>
                     </button>
                 </li>
                 <li class="menu-item" data-hub-route="hub-api">
                     <button onclick="switchHubRoute('hub-api')">
-                        <span>🔌</span>
-                        <span>Tài Liệu API & Webhook</span>
+                        <span class="nav-icon">🔌</span>
+                        <span class="menu-title">Tài Liệu API & Webhook</span>
                     </button>
                 </li>
                 <li class="menu-item" data-hub-route="hub-vps">
                     <button onclick="switchHubRoute('hub-vps')">
-                        <span>☁️</span>
-                        <span>Cài Đặt VPS & Hướng Dẫn</span>
+                        <span class="nav-icon">☁️</span>
+                        <span class="menu-title">Cài Đặt VPS & Hướng Dẫn</span>
                     </button>
                 </li>
                 <li class="menu-item" data-hub-route="hub-manifest">
                     <button onclick="switchHubRoute('hub-manifest')">
-                        <span>⚙️</span>
-                        <span>Đổi Tên & Cấu Hình Extension</span>
+                        <span class="nav-icon">⚙️</span>
+                        <span class="menu-title">Đổi Tên & Cấu Hình Extension</span>
                     </button>
                 </li>
                 <li class="menu-item" data-hub-route="hub-system">
                     <button onclick="switchHubRoute('hub-system')">
-                        <span>ℹ️</span>
-                        <span>Thông Tin Hệ Thống</span>
+                        <span class="nav-icon">ℹ️</span>
+                        <span class="menu-title">Thông Tin Hệ Thống</span>
                     </button>
                 </li>
             </ul>
@@ -916,7 +1007,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
         <div id="sidebar-parent-nav" style="display:none;">
             <div class="sidebar-context-card">
                 <button class="btn-nav-back" onclick="exitToHub()">
-                    <span>⬅️</span>
+                    <span class="nav-icon">⬅️</span>
                     <span>Thoát Về Sảnh Ngoài</span>
                 </button>
                 <div style="font-size:10px; color:#a78bfa; font-weight:700; text-transform:uppercase;">Dự Án Cha (Máy Chrome):</div>
@@ -932,21 +1023,21 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 <li class="menu-label">Quản Lý Thư Mục Con</li>
                 <li class="menu-item active" data-parent-route="parent-subprojects">
                     <button onclick="switchParentRoute('parent-subprojects')">
-                        <span>📂</span>
-                        <span>Danh Sách Dự Án Con</span>
+                        <span class="nav-icon">📂</span>
+                        <span class="menu-title">Danh Sách Dự Án Con</span>
                     </button>
                 </li>
                 <li class="menu-label">Máy & Trình Duyệt</li>
                 <li class="menu-item" data-parent-route="parent-machine">
                     <button onclick="switchParentRoute('parent-machine')">
-                        <span>🖥️</span>
-                        <span>Thông Tin Máy & Chrome</span>
+                        <span class="nav-icon">🖥️</span>
+                        <span class="menu-title">Thông Tin Máy & Chrome</span>
                     </button>
                 </li>
                 <li class="menu-item" data-parent-route="parent-logs">
                     <button onclick="switchParentRoute('parent-logs')">
-                        <span>📜</span>
-                        <span>Nhật Ký Máy (Logs)</span>
+                        <span class="nav-icon">📜</span>
+                        <span class="menu-title">Nhật Ký Máy (Logs)</span>
                     </button>
                 </li>
             </ul>
@@ -966,63 +1057,80 @@ HTML_DASHBOARD = """<!DOCTYPE html>
 
             <ul class="sidebar-menu">
                 <li class="menu-label">Tài Khoản & Phiên Làm Việc</li>
-                <li class="menu-item active" data-sub-menu="sub-account-info">
+                <li class="menu-item active" data-sub-menu="sub-account-info" id="sideMenuAccountItem">
                     <button onclick="switchSubMenu('sub-account-info')">
-                        <span>👤</span>
-                        <span id="sideMenuAccountTitle">Thông Tin Tài Khoản</span>
+                        <span class="nav-icon">👤</span>
+                        <span class="menu-title" id="sideMenuAccountTitle">Thông Tin & Cookie FB</span>
                     </button>
                 </li>
 
-                <!-- BỘ TỰ ĐỘNG HÓA (PHÂN BIỆT THEO NỀN TẢNG) -->
-                <li class="menu-label" id="sideMenuAutomationLabel">Bộ Tự Động Hóa Facebook</li>
+                <!-- BỘ CHỨC NĂNG TỰ ĐỘNG HÓA -->
+                <li class="menu-label" id="sideMenuAutomationLabel">Chức Năng Tự Động Hóa</li>
+
+                <!-- 1. POST FACEBOOK (CHỨC NĂNG CHÍNH VỚI SUB-MENU) -->
+                <li class="menu-item menu-parent expanded" id="sideMenuPostFbGroup">
+                    <button type="button" onclick="handlePostFbParentClick()">
+                        <span class="nav-icon">🚀</span>
+                        <span class="menu-title" style="font-weight:700;">POST FACEBOOK</span>
+                        <span class="menu-chevron" id="postFbChevron">▼</span>
+                    </button>
+                </li>
+                <div id="postFbSubTree" class="menu-sub-tree">
+                    <li class="menu-item menu-sub-item" data-sub-menu="sub-autopost" id="sideMenuAutopostItem">
+                        <button onclick="switchSubMenu('sub-autopost')">
+                            <span class="nav-icon">✍️</span>
+                            <span class="menu-title" id="sideMenuAutopostTitle">Tự Động Đăng Bài</span>
+                        </button>
+                    </li>
+                    <li class="menu-item menu-sub-item" data-sub-menu="sub-api-doc" id="sideMenuApiDocItem">
+                        <button onclick="switchSubMenu('sub-api-doc')">
+                            <span class="nav-icon">📖</span>
+                            <span class="menu-title" id="sideMenuApiDocTitle">Tài Liệu Endpoint API</span>
+                        </button>
+                    </li>
+                </div>
+
+                <!-- 2. CÀO DỮ LIỆU FACEBOOK -->
                 <li class="menu-item" data-sub-menu="sub-scraper" id="sideMenuScraperItem">
                     <button onclick="switchSubMenu('sub-scraper')">
-                        <span>📥</span>
-                        <span id="sideMenuScraperTitle">Cào Dữ Liệu Facebook</span>
+                        <span class="nav-icon">📥</span>
+                        <span class="menu-title" id="sideMenuScraperTitle">Cào Dữ Liệu Facebook</span>
                     </button>
                 </li>
-                <li class="menu-item" data-sub-menu="sub-autopost" id="sideMenuAutopostItem">
-                    <button onclick="switchSubMenu('sub-autopost')">
-                        <span>🚀</span>
-                        <span id="sideMenuAutopostTitle">Tự Động Đăng Bài Facebook</span>
-                    </button>
-                </li>
-                <li class="menu-item" data-sub-menu="sub-api-doc" id="sideMenuApiDocItem">
-                    <button onclick="switchSubMenu('sub-api-doc')">
-                        <span>📖</span>
-                        <span id="sideMenuApiDocTitle">Tài Liệu Endpoint API</span>
-                    </button>
-                </li>
+
+                <!-- 3. TƯƠNG TÁC / NUÔI NICK FB -->
                 <li class="menu-item" data-sub-menu="sub-interaction" id="sideMenuInteractionItem">
                     <button onclick="switchSubMenu('sub-interaction')">
-                        <span>💬</span>
-                        <span id="sideMenuInteractionTitle">Tương Tác / Nuôi Nick FB</span>
+                        <span class="nav-icon">💬</span>
+                        <span class="menu-title" id="sideMenuInteractionTitle">Tương Tác / Nuôi Nick FB</span>
                     </button>
                 </li>
+
+                <!-- NỀN TẢNG KHÁC -->
                 <li class="menu-item" data-sub-menu="sub-other-notice" id="sideMenuOtherNoticeItem" style="display:none;">
                     <button onclick="switchSubMenu('sub-other-notice')">
-                        <span>💡</span>
-                        <span id="sideMenuOtherNoticeTitle">Trạng Thái Tự Động Hóa</span>
+                        <span class="nav-icon">💡</span>
+                        <span class="menu-title" id="sideMenuOtherNoticeTitle">Trạng Thái Tự Động Hóa</span>
                     </button>
                 </li>
 
                 <li class="menu-label">Điều Khiển Trình Duyệt</li>
                 <li class="menu-item" data-sub-menu="sub-browser">
                     <button onclick="switchSubMenu('sub-browser')">
-                        <span>🌐</span>
-                        <span id="sideMenuBrowserTitle">Điều Khiển Tab Nguồn</span>
+                        <span class="nav-icon">🌐</span>
+                        <span class="menu-title" id="sideMenuBrowserTitle">Điều Khiển Tab Facebook</span>
                     </button>
                 </li>
                 <li class="menu-item" data-sub-menu="sub-scripts">
                     <button onclick="switchSubMenu('sub-scripts')">
-                        <span>💻</span>
-                        <span>JavaScript Console</span>
+                        <span class="nav-icon">💻</span>
+                        <span class="menu-title">JavaScript Console</span>
                     </button>
                 </li>
                 <li class="menu-item" data-sub-menu="sub-logs">
                     <button onclick="switchSubMenu('sub-logs')">
-                        <span>📜</span>
-                        <span>Nhật Ký Lệnh</span>
+                        <span class="nav-icon">📜</span>
+                        <span class="menu-title">Nhật Ký Lệnh</span>
                     </button>
                 </li>
             </ul>
@@ -1611,6 +1719,22 @@ Sản phẩm tuyệt vời quá</textarea>
 
             <!-- MENU TỰ ĐỘNG HÓA 2: TỰ ĐỘNG ĐĂNG BÀI & SEEDING (AUTO POSTER & SEEDING STUDIO) -->
             <section class="route-view" id="view-sub-autopost">
+                <!-- THANH CHUYỂN NHANH TRONG CHỨC NĂNG POST FACEBOOK -->
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; background:#070d1e; border:1px solid #1e293b; padding:8px 14px; border-radius:8px; flex-wrap:wrap; gap:10px;">
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <span style="font-size:12px; font-weight:800; color:#38bdf8; margin-right:4px;">🚀 POST FACEBOOK:</span>
+                        <button class="btn-sm active" style="background:#0284c7; color:#fff; font-weight:700; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-autopost')">
+                            ✍️ Soạn Thảo & Đăng Bài
+                        </button>
+                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-api-doc')">
+                            📖 Tài Liệu Endpoint API
+                        </button>
+                    </div>
+                    <div style="font-size:11px; color:#34d399; font-weight:600;">
+                        🟢 Direct GraphQL FB Mutation Engine
+                    </div>
+                </div>
+
                 <!-- BANNER -->
                 <div class="card" style="margin-bottom:20px; background:linear-gradient(135deg, #022c22 0%, #064e3b 100%); border-color:#34d399;">
                     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px;">
@@ -1835,6 +1959,22 @@ Sản phẩm tuyệt vời quá</textarea>
 
             <!-- MENU TỰ ĐỘNG HÓA 2.5: TÀI LIỆU ENDPOINT API CHO DỰ ÁN FB NÀY -->
             <section class="route-view" id="view-sub-api-doc">
+                <!-- THANH CHUYỂN NHANH TRONG CHỨC NĂNG POST FACEBOOK -->
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; background:#070d1e; border:1px solid #1e293b; padding:8px 14px; border-radius:8px; flex-wrap:wrap; gap:10px;">
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <span style="font-size:12px; font-weight:800; color:#38bdf8; margin-right:4px;">🚀 POST FACEBOOK:</span>
+                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-autopost')">
+                            ✍️ Soạn Thảo & Đăng Bài
+                        </button>
+                        <button class="btn-sm active" style="background:#0284c7; color:#fff; font-weight:700; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-api-doc')">
+                            📖 Tài Liệu Endpoint API
+                        </button>
+                    </div>
+                    <div style="font-size:11px; color:#38bdf8; font-weight:600;">
+                        ⚡ REST API Gateway Port 9999
+                    </div>
+                </div>
+
                 <!-- BANNER THÔNG TIN NGỮ CẢNH CỦA TÀI KHOẢN HIỆN TẠI -->
                 <div class="card" style="margin-bottom:20px; background:linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); border-color:#6366f1;">
                     <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:14px;">
@@ -2735,13 +2875,13 @@ Authorization: Bearer <MÃ_TOKEN_DỰ_ÁN></pre>
 
         // 3. SUB-PROJECT MENU NAVIGATION (LEVEL 3)
         const subMenus = {
-            "sub-account-info": { title: "👤 Kiểm Tra Thông Tin Tài Khoản", el: document.getElementById("view-sub-account-info") },
+            "sub-account-info": { title: "👤 Thông Tin & Cookie FB", el: document.getElementById("view-sub-account-info") },
             "sub-scraper": { title: "📥 Cào Dữ Liệu Facebook (Scraper)", el: document.getElementById("view-sub-scraper") },
-            "sub-autopost": { title: "🚀 Tự Động Đăng Bài Facebook (Auto Poster)", el: document.getElementById("view-sub-autopost") },
-            "sub-api-doc": { title: "📖 Chi Tiết Các Endpoint API", el: document.getElementById("view-sub-api-doc") },
+            "sub-autopost": { title: "🚀 POST FACEBOOK — Đăng Bài & Quản Lý", el: document.getElementById("view-sub-autopost") },
+            "sub-api-doc": { title: "📖 POST FACEBOOK — Chi Tiết Các Endpoint API", el: document.getElementById("view-sub-api-doc") },
             "sub-interaction": { title: "💬 Studio Tương Tác / Nuôi Nick FB", el: document.getElementById("view-sub-interaction") },
             "sub-other-notice": { title: "💡 Trạng Thái Tự Động Hóa Nền Tảng", el: document.getElementById("view-sub-other-notice") },
-            "sub-browser": { title: "🌐 Điều Khiển Tab Web", el: document.getElementById("view-sub-browser") },
+            "sub-browser": { title: "🌐 Điều Khiển Tab Facebook", el: document.getElementById("view-sub-browser") },
             "sub-scripts": { title: "💻 JavaScript Console", el: document.getElementById("view-sub-scripts") },
             "sub-logs": { title: "📜 Nhật Ký Lệnh", el: document.getElementById("view-sub-logs") }
         };
@@ -2767,6 +2907,19 @@ Authorization: Bearer <MÃ_TOKEN_DỰ_ÁN></pre>
             document.querySelectorAll("#sidebar-sub-nav .menu-item").forEach(item => {
                 item.classList.toggle("active", item.getAttribute("data-sub-menu") === targetKey);
             });
+
+            // Đồng bộ trạng thái nhóm POST FACEBOOK
+            const postFbGroup = document.getElementById("sideMenuPostFbGroup");
+            const postFbTree = document.getElementById("postFbSubTree");
+            if (postFbGroup) {
+                const isUnderPostFb = (targetKey === 'sub-autopost' || targetKey === 'sub-api-doc');
+                postFbGroup.classList.toggle("active-parent", isUnderPostFb);
+                if (isUnderPostFb && postFbTree) {
+                    postFbTree.classList.remove("collapsed");
+                    postFbGroup.classList.add("expanded");
+                }
+            }
+
             document.querySelectorAll(".route-view").forEach(v => v.classList.remove("active"));
             if (subMenus[targetKey] && subMenus[targetKey].el) {
                 subMenus[targetKey].el.classList.add("active");
@@ -2777,6 +2930,22 @@ Authorization: Bearer <MÃ_TOKEN_DỰ_ÁN></pre>
                 if (targetKey === 'sub-api-doc') {
                     updateSubApiDocView();
                 }
+            }
+        }
+
+        function handlePostFbParentClick() {
+            const postFbTree = document.getElementById("postFbSubTree");
+            const postFbGroup = document.getElementById("sideMenuPostFbGroup");
+            if (postFbTree) {
+                const isCollapsed = postFbTree.classList.toggle("collapsed");
+                if (postFbGroup) postFbGroup.classList.toggle("expanded", !isCollapsed);
+            }
+            const activeAutopost = document.getElementById("sideMenuAutopostItem");
+            const activeApiDoc = document.getElementById("sideMenuApiDocItem");
+            const isCurrentlyInPostFb = (activeAutopost && activeAutopost.classList.contains("active")) || 
+                                       (activeApiDoc && activeApiDoc.classList.contains("active"));
+            if (!isCurrentlyInPostFb) {
+                switchSubMenu('sub-autopost');
             }
         }
 
@@ -2968,8 +3137,9 @@ console.log(data);`;
             const isFb = (subType === 'facebook');
 
             const autoLabel = document.getElementById("sideMenuAutomationLabel");
+            const postFbGroup = document.getElementById("sideMenuPostFbGroup");
+            const postFbTree = document.getElementById("postFbSubTree");
             const scraperItem = document.getElementById("sideMenuScraperItem");
-            const autopostItem = document.getElementById("sideMenuAutopostItem");
             const interactionItem = document.getElementById("sideMenuInteractionItem");
             const otherNoticeItem = document.getElementById("sideMenuOtherNoticeItem");
             const sideAccount = document.getElementById("sideMenuAccountTitle");
@@ -2977,18 +3147,20 @@ console.log(data);`;
 
             if (isFb) {
                 // FACEBOOK: ĐẦY ĐỦ 100% CÔNG CỤ TỰ ĐỘNG HÓA FB
-                if (autoLabel) { autoLabel.textContent = "Bộ Tự Động Hóa Facebook"; autoLabel.style.display = "block"; }
+                if (autoLabel) { autoLabel.textContent = "Chức Năng Tự Động Hóa"; autoLabel.style.display = "flex"; }
+                if (postFbGroup) postFbGroup.style.display = "block";
+                if (postFbTree) postFbTree.style.display = "flex";
                 if (scraperItem) scraperItem.style.display = "block";
-                if (autopostItem) autopostItem.style.display = "block";
                 if (interactionItem) interactionItem.style.display = "block";
                 if (otherNoticeItem) otherNoticeItem.style.display = "none";
                 if (sideAccount) sideAccount.textContent = "Thông Tin & Cookie FB";
                 if (sideBrowser) sideBrowser.textContent = "Điều Khiển Tab Facebook";
             } else {
                 // CÁC NỀN TẢNG KHÁC (TIKTOK, FLOW, X...): ẨN CÁC TOOL FB ĐỂ KHÔNG BỊ TRỘN LẪN
-                if (autoLabel) { autoLabel.textContent = `Tự Động Hóa ${pCfg.name}`; autoLabel.style.display = "block"; }
+                if (autoLabel) { autoLabel.textContent = `Chức Năng ${pCfg.name}`; autoLabel.style.display = "flex"; }
+                if (postFbGroup) postFbGroup.style.display = "none";
+                if (postFbTree) postFbTree.style.display = "none";
                 if (scraperItem) scraperItem.style.display = "none";
-                if (autopostItem) autopostItem.style.display = "none";
                 if (interactionItem) interactionItem.style.display = "none";
                 if (otherNoticeItem) {
                     otherNoticeItem.style.display = "block";

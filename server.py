@@ -2743,7 +2743,16 @@ Authorization: Bearer <MÃ_TOKEN_DỰ_ÁN></pre>
             "hub-system": { title: "ℹ️ Thông Tin Hệ Thống", el: document.getElementById("view-hub-system") }
         };
 
-        function switchHubRoute(targetKey) {
+        let isRoutingFromHash = false;
+
+        function setRouterHash(newHash) {
+            if (isRoutingFromHash) return;
+            if (window.location.hash !== newHash) {
+                history.pushState(null, "", newHash);
+            }
+        }
+
+        function switchHubRoute(targetKey, updateHash = true) {
             document.querySelectorAll("#sidebar-hub-nav .menu-item").forEach(item => {
                 item.classList.toggle("active", item.getAttribute("data-hub-route") === targetKey);
             });
@@ -2754,6 +2763,11 @@ Authorization: Bearer <MÃ_TOKEN_DỰ_ÁN></pre>
                 if (targetKey === "hub-api") {
                     populateApiTestProjects();
                 }
+            }
+
+            if (updateHash && !isRoutingFromHash) {
+                const cleanKey = targetKey.replace(/^hub-/, '');
+                setRouterHash(`#/hub/${cleanKey}`);
             }
         }
 
@@ -2860,7 +2874,7 @@ Authorization: Bearer <MÃ_TOKEN_DỰ_ÁN></pre>
             "parent-logs": { title: "📜 Nhật Ký Hoạt Động Máy", el: document.getElementById("view-parent-logs") }
         };
 
-        function switchParentRoute(targetKey) {
+        function switchParentRoute(targetKey, updateHash = true) {
             document.querySelectorAll("#sidebar-parent-nav .menu-item").forEach(item => {
                 item.classList.toggle("active", item.getAttribute("data-parent-route") === targetKey);
             });
@@ -2870,6 +2884,11 @@ Authorization: Bearer <MÃ_TOKEN_DỰ_ÁN></pre>
                 const p = allProjects.find(x => x.id === currentProjectId);
                 const pName = p ? p.name : "Dự Án Cha";
                 document.getElementById("pageTitle").innerHTML = `📁 <b>${pName}</b> &rarr; ${parentRoutes[targetKey].title}`;
+            }
+
+            if (updateHash && !isRoutingFromHash && currentProjectId) {
+                const cleanKey = targetKey.replace(/^parent-/, '');
+                setRouterHash(`#/project/${currentProjectId}/${cleanKey}`);
             }
         }
 
@@ -2886,7 +2905,7 @@ Authorization: Bearer <MÃ_TOKEN_DỰ_ÁN></pre>
             "sub-logs": { title: "📜 Nhật Ký Lệnh", el: document.getElementById("view-sub-logs") }
         };
 
-        function switchSubMenu(targetKey) {
+        function switchSubMenu(targetKey, updateHash = true) {
             if (targetKey === "sub-cookies" || targetKey === "sub-token") targetKey = "sub-account-info";
 
             const p = allProjects.find(x => x.id === currentProjectId);
@@ -2930,6 +2949,11 @@ Authorization: Bearer <MÃ_TOKEN_DỰ_ÁN></pre>
                 if (targetKey === 'sub-api-doc') {
                     updateSubApiDocView();
                 }
+            }
+
+            if (updateHash && !isRoutingFromHash && currentProjectId && currentSubProjectId) {
+                const cleanKey = targetKey.replace(/^sub-/, '');
+                setRouterHash(`#/project/${currentProjectId}/sub/${currentSubProjectId}/${cleanKey}`);
             }
         }
 
@@ -3049,7 +3073,7 @@ console.log(data);`;
         // TRANSITIONS BETWEEN LEVELS
         // =========================================================
 
-        function enterParentProject(projId) {
+        function enterParentProject(projId, targetRoute = "parent-subprojects", updateHash = true) {
             currentProjectId = projId;
             currentSubProjectId = null;
             currentLevel = "parent";
@@ -3066,9 +3090,10 @@ console.log(data);`;
 
             document.getElementById("sidebarParentName").textContent = projName;
             document.getElementById("sidebarParentToken").textContent = projToken;
-            document.getElementById("parentSubHeaderTitle").textContent = `Các Thư Mục / Dự Án Con Của [${projName}]`;
+            const parentSubHeaderTitle = document.getElementById("parentSubHeaderTitle");
+            if (parentSubHeaderTitle) parentSubHeaderTitle.textContent = `Các Thư Mục / Dự Án Con Của [${projName}]`;
 
-            switchParentRoute("parent-subprojects");
+            switchParentRoute(targetRoute || "parent-subprojects", updateHash);
 
             fetchParentProjectData(projId);
             if (projectPollInterval) clearInterval(projectPollInterval);
@@ -3079,7 +3104,7 @@ console.log(data);`;
             window.scrollTo({ top: 0, behavior: "smooth" });
         }
 
-        function exitToHub() {
+        function exitToHub(updateHash = true) {
             currentLevel = "hub";
             currentProjectId = null;
             currentSubProjectId = null;
@@ -3091,11 +3116,11 @@ console.log(data);`;
             document.getElementById("sidebar-parent-nav").style.display = "none";
             document.getElementById("sidebar-sub-nav").style.display = "none";
 
-            switchHubRoute("hub-projects");
+            switchHubRoute("hub-projects", updateHash);
             fetchProjects();
         }
 
-        function enterSubProject(subId) {
+        function enterSubProject(subId, targetMenu = "sub-account-info", updateHash = true) {
             currentSubProjectId = subId;
             currentLevel = "sub";
             localStorage.setItem("active_sub_id", subId);
@@ -3125,8 +3150,8 @@ console.log(data);`;
 
             adaptSubMenuForPlatform(subType, pCfg, subId);
 
-            // Mặc định mở Thông Tin Tài Khoản & Session
-            switchSubMenu("sub-account-info");
+            // Mở menu chỉ định (mặc định sub-account-info)
+            switchSubMenu(targetMenu || "sub-account-info", updateHash);
 
             if (sub) renderSubProjectWorkspace(sub);
 
@@ -3207,11 +3232,11 @@ console.log(data);`;
             }
         }
 
-        function exitToParentProject() {
+        function exitToParentProject(updateHash = true) {
             if (currentProjectId) {
-                enterParentProject(currentProjectId);
+                enterParentProject(currentProjectId, "parent-subprojects", updateHash);
             } else {
-                exitToHub();
+                exitToHub(updateHash);
             }
         }
 
@@ -6025,26 +6050,122 @@ console.log(data);`;
             }
         }
 
+        // =========================================================
+        // CLIENT-SIDE ROUTER (URL HASH ROUTING & F5 PERSISTENCE)
+        // =========================================================
+
+        function parseHashRoute() {
+            const raw = window.location.hash || "";
+            if (!raw || raw === "#" || raw === "#/") {
+                return null;
+            }
+            const clean = raw.replace(/^#\/?/, "");
+            const parts = clean.split("/").filter(Boolean);
+            if (parts.length === 0) return null;
+
+            // 1. Hub routes: #/hub/projects, #/hub/api, #/hub/vps, #/hub/manifest, #/hub/system
+            if (parts[0] === "hub") {
+                const sub = parts[1] || "projects";
+                return { type: "hub", routeKey: `hub-${sub}` };
+            }
+
+            // 2. Project routes:
+            // #/project/:projId
+            // #/project/:projId/machine
+            // #/project/:projId/sub/:subId
+            // #/project/:projId/sub/:subId/autopost
+            // #/project/:projId/sub/:subId/api-doc
+            if (parts[0] === "project" && parts[1]) {
+                const projId = parts[1];
+                if (parts[2] === "sub" && parts[3]) {
+                    const subId = parts[3];
+                    const menu = parts[4] || "account-info";
+                    const subKey = menu.startsWith("sub-") ? menu : `sub-${menu}`;
+                    return { type: "sub", projId: projId, subId: subId, subKey: subKey };
+                } else {
+                    const parentMenu = parts[2] || "subprojects";
+                    const parentKey = parentMenu.startsWith("parent-") ? parentMenu : `parent-${parentMenu}`;
+                    return { type: "parent", projId: projId, parentKey: parentKey };
+                }
+            }
+
+            return null;
+        }
+
+        async function applyHashRoute() {
+            const route = parseHashRoute();
+            isRoutingFromHash = true;
+
+            try {
+                if (!route) {
+                    // Nếu không có hash trong URL, kiểm tra xem có phiên làm việc trước trong localStorage không
+                    const savedParentId = localStorage.getItem("active_parent_id");
+                    const savedSubId = localStorage.getItem("active_sub_id");
+                    if (savedParentId && allProjects.some(p => p.id === savedParentId)) {
+                        enterParentProject(savedParentId, "parent-subprojects", true);
+                        if (savedSubId) {
+                            const p = allProjects.find(x => x.id === savedParentId);
+                            if (p && (p.subProjects || []).some(s => s.id === savedSubId)) {
+                                enterSubProject(savedSubId, "sub-account-info", true);
+                            }
+                        }
+                    } else {
+                        switchHubRoute("hub-projects", true);
+                    }
+                    return;
+                }
+
+                if (route.type === "hub") {
+                    if (currentLevel !== "hub") {
+                        exitToHub(false);
+                    }
+                    switchHubRoute(route.routeKey || "hub-projects", false);
+                } else if (route.type === "parent") {
+                    const proj = allProjects.find(p => p.id === route.projId);
+                    if (!proj) {
+                        exitToHub(true);
+                        return;
+                    }
+                    enterParentProject(route.projId, route.parentKey || "parent-subprojects", false);
+                } else if (route.type === "sub") {
+                    const proj = allProjects.find(p => p.id === route.projId);
+                    if (!proj) {
+                        exitToHub(true);
+                        return;
+                    }
+                    const sub = (proj.subProjects || []).find(s => s.id === route.subId);
+                    if (!sub) {
+                        enterParentProject(route.projId, "parent-subprojects", true);
+                        return;
+                    }
+
+                    if (currentProjectId !== route.projId) {
+                        currentProjectId = route.projId;
+                        fetchParentProjectData(route.projId);
+                    }
+                    enterSubProject(route.subId, route.subKey || "sub-account-info", false);
+                }
+            } finally {
+                isRoutingFromHash = false;
+            }
+        }
+
         // INITIALIZE APP
         window.addEventListener("DOMContentLoaded", async () => {
             await fetchProjects();
             fetchStatus();
             loadManifestConfig();
 
-            const savedParentId = localStorage.getItem("active_parent_id");
-            const savedSubId = localStorage.getItem("active_sub_id");
+            // Thực thi Router dựa trên URL hash hiện tại (Hỗ trợ F5 lưu đúng trang)
+            await applyHashRoute();
 
-            if (savedParentId && allProjects.some(p => p.id === savedParentId)) {
-                enterParentProject(savedParentId);
-                if (savedSubId) {
-                    const p = allProjects.find(x => x.id === savedParentId);
-                    if (p && (p.subProjects || []).some(s => s.id === savedSubId)) {
-                        enterSubProject(savedSubId);
-                    }
-                }
-            } else {
-                switchHubRoute("hub-projects");
-            }
+            // Lắng nghe sự kiện chuyển trang bằng Back / Forward hoặc thay đổi Hash
+            window.addEventListener("popstate", () => {
+                applyHashRoute();
+            });
+            window.addEventListener("hashchange", () => {
+                applyHashRoute();
+            });
 
             setInterval(() => {
                 fetchStatus();

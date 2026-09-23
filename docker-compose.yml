@@ -1,9 +1,10 @@
 version: '3.8'
 
 services:
-  autopostfb:
+  bawuiEXPRO:
     build: .
-    container_name: autopostfb
+    container_name: bawuiEXPRO
+    image: bawuiexpro:latest
     restart: always
     ports:
       - "127.0.0.1:9999:9999"

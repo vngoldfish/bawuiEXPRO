@@ -6227,7 +6227,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
 
 def run():
-    server_address = ("127.0.0.1", PORT)
+    host = os.environ.get("HOST", "0.0.0.0")
+    server_address = (host, PORT)
     httpd = ThreadingHTTPServer(server_address, BridgeHandler)
     print("=======================================================")
     print("[*] BAWUI EXTENSION PRO -- FOLDER CONTROLLER RUNNING!")

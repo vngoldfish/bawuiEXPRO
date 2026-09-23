@@ -6,10 +6,17 @@ services:
     container_name: autopostfb
     restart: always
     ports:
-      - "9999:9999"
+      - "127.0.0.1:9999:9999"
     volumes:
       # Giữ lại dữ liệu projects và config trên máy chủ khi container restart/rebuild
       - ./projects.json:/app/projects.json
       - ./bridge_config.json:/app/bridge_config.json
     environment:
       - PYTHONUNBUFFERED=1
+      - HOST=0.0.0.0
+    networks:
+      - bawui-net
+
+networks:
+  bawui-net:
+    external: true

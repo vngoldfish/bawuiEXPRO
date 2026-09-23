@@ -2662,7 +2662,7 @@ Authorization: Bearer <MÃ_TOKEN_DỰ_ÁN></pre>
                 return;
             }
 
-            const seedingComments = seedingText.split("\n").map(s => s.trim()).filter(Boolean);
+            const seedingComments = seedingText.split("\\n").map(s => s.trim()).filter(Boolean);
 
             btn.disabled = true;
             btn.innerHTML = `<span>⏳</span> <span>ĐANG GỬI YÊU CẦU TỚI BACKEND API...</span>`;

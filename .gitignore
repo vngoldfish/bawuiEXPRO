@@ -41,5 +41,9 @@ Desktop.ini
 *.log
 logs/
 
+# Data and capture files
+DATA/
+*.har
+
 # Sensitive or user runtime state (optional: uncomment if you prefer fresh projects.json per clone)
 # projects.json

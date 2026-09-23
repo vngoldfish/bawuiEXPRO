@@ -155,34 +155,48 @@ Từ lúc này, bất cứ khi nào bạn `git push origin main` từ máy tính
 
 ## 🔌 Tài Liệu Cổng Tự Động Hóa REST API (Webhooks & Integration)
 
-Bạn có thể kết nối bất kỳ hệ thống ngoài nào (CRM, Telegram Bot, Python Scripts, n8n, Make, Zapier, cURL) để điều khiển đăng bài và seeding tự động thông qua Backend API.
+Hệ thống cung cấp chuẩn **RESTful API v1** đồng bộ trực tiếp với Chrome Extension Bridge để điều khiển đăng bài và seeding tự động từ mọi nền tảng bên ngoài (CRM, n8n, Make, Telegram Bot, Python Scripts, PHP, cURL).
 
-### 1. Đăng bài viết mới qua API
-* **Endpoint**: `POST /api/v1/posts/publish` (hoặc `/api/posts/publish`)
+> 💡 **Tài liệu API đầy đủ và chi tiết:** Xem file [API_DOCUMENTATION.md](file:///c:/Users/Admin/Desktop/project/AUTOPOSTFB/API_DOCUMENTATION.md) để tra cứu đầy đủ 9 endpoints, bảng mã lỗi HTTP, tham số chi tiết và mẫu tích hợp Webhook.
+
+### 🔑 Xác Thực (Authentication)
+* **Header chuẩn:** `Authorization: Bearer <TOKEN_DU_AN>` (Mã token dạng `BW-PROJ-XXXXXX` lấy từ thẻ dự án cha).
+* **Hoặc header:** `X-Project-Token: <TOKEN_DU_AN>`.
+
+---
+
+### 1. Tạo / Đăng Ngay / Lên Lịch Bài Viết (`POST /api/v1/posts`)
+* **Endpoint**: `POST /api/v1/posts` *(hỗ trợ alias `/api/v1/posts/publish`)*
 * **Headers**: 
   - `Content-Type: application/json`
-  - `Authorization: Bearer <TOKEN_DU_AN>` (Mã token dạng `BW-PROJ-XXXXXX` lấy từ thẻ dự án cha)
-* **Body Parameters (JSON)**:
-  - `content` *(string, bắt buộc nếu không có media)*: Nội dung bài viết (hỗ trợ Spintax `{A|B|C}`).
-  - `postType` *(string, tùy chọn)*: `"post"` (bài viết thường), `"reel"` (thước phim), `"video"` (video), `"story"` (tin). Mặc định: `"post"`.
+  - `Authorization: Bearer BW-PROJ-XXXXXX`
+* **Các tham số chính (JSON Body)**:
+  - `content` *(string, bắt buộc nếu không có media)*: Nội dung bài viết (hỗ trợ **Spintax đa tầng** `{A|B|C}`).
+  - `title` *(string, tùy chọn)*: Tiêu đề hoặc ghi chú quản lý nội bộ.
+  - `postType` *(string, tùy chọn)*: `"post"` (bài viết thường), `"video"` (Facebook Video Watch), `"reel"` (Reels video ngắn), `"story"` (bản tin 24h). Mặc định: `"post"`.
   - `targetType` *(string, tùy chọn)*: `"profile"` (trang cá nhân), `"page"` (fanpage), `"group"` (nhóm). Mặc định: `"profile"`.
-  - `targetId` *(string, bắt buộc nếu targetType là page hoặc group)*: ID Fanpage hoặc ID Nhóm Facebook.
+  - `targetId` *(string, bắt buộc nếu là page/group)*: ID Fanpage hoặc ID Nhóm Facebook.
   - `mediaUrl` *(string, tùy chọn)*: Đường dẫn URL trực tiếp của tệp ảnh/video.
-  - `seedingComments` *(array[string], tùy chọn)*: Danh sách bình luận seeding mồi (ví dụ: `["Quan tâm", "Shop ơi inbox"]`).
+  - `scheduledAt` *(string/int, tùy chọn)*: **Thời gian hẹn giờ xuất bản** (ISO 8601 ví dụ `"2026-09-24T19:30:00Z"` hoặc timestamp ms). Nếu có, bài viết tự động chuyển sang chế độ hẹn giờ.
+  - `shareToFeed` / `shareToStory` *(boolean, tùy chọn)*: `true` để tự động chia sẻ lên Tin (Story 24h) hoặc Bảng tin. Mặc định: `true`.
+  - `seedingComments` *(array[string], tùy chọn)*: Danh sách bình luận seeding mồi (ví dụ: `["Quan tâm", "Shop ơi tư vấn"]`).
   - `autoReactType` *(string, tùy chọn)*: Cảm xúc bài viết: `LIKE`, `LOVE`, `CARE`, `HAHA`, `WOW`, `SAD`, `ANGRY`, `NONE`. Mặc định: `LIKE`.
   - `runNow` *(boolean, tùy chọn)*: `true` để phát lệnh đăng ngay, `false` để đưa vào hàng đợi. Mặc định: `true`.
+  - `callbackUrl` *(string, tùy chọn)*: Đường dẫn Webhook URL nhận thông báo khi bài hoàn thành hoặc thất bại.
 
-#### Mẫu cURL:
+#### Mẫu cURL Đăng Bài:
 ```bash
-curl -X POST "http://localhost:9999/api/v1/posts/publish" \
+curl -X POST "http://localhost:9999/api/v1/posts" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer BW-PROJ-XXXXXX" \
   -d '{
     "content": "{Chào bạn|Hello}! Bài viết tự động từ API với {nhiều ưu đãi|khuyến mãi khủng}.",
     "postType": "post",
     "targetType": "profile",
+    "shareToStory": true,
     "seedingComments": ["Quan tâm", "Shop ở đâu vậy?"],
-    "autoReactType": "LOVE"
+    "autoReactType": "LOVE",
+    "runNow": true
   }'
 ```
 
@@ -190,12 +204,18 @@ curl -X POST "http://localhost:9999/api/v1/posts/publish" \
 ```python
 import requests
 
-url = "http://localhost:9999/api/v1/posts/publish"
-headers = {"Authorization": "Bearer BW-PROJ-XXXXXX"}
+url = "http://localhost:9999/api/v1/posts"
+headers = {
+    "Content-Type": "application/json",
+    "Authorization": "Bearer BW-PROJ-XXXXXX"
+}
 payload = {
+    "title": "Flash Sale Khuyến Mãi",
     "content": "Nội dung bài viết {chất lượng|độc quyền} đăng từ Python API!",
     "postType": "post",
     "targetType": "profile",
+    "scheduledAt": "2026-09-24T20:00:00Z",
+    "shareToStory": True,
     "seedingComments": ["Tuyệt vời quá shop!", "Giá sao ạ?"],
     "autoReactType": "LOVE"
 }
@@ -205,9 +225,20 @@ print(res.json())
 
 ---
 
-### 2. Kiểm tra tiến trình & trạng thái bài viết
-* **Endpoint**: `GET /api/v1/posts/status?postId={postId}`
-* **Response**:
+### 2. Danh Sách Bài Đăng & Phân Trang (`GET /api/v1/posts`)
+* **Endpoint**: `GET /api/v1/posts?status=all&limit=20&offset=0`
+* **Query Parameters**:
+  - `status`: `"all"`, `"scheduled"`, `"pending"`, `"in_progress"`, `"completed"`, `"failed"`.
+  - `postType`: `"all"`, `"post"`, `"video"`, `"reel"`, `"story"`.
+  - `limit`: Số bài trên một trang (mặc định: 50).
+  - `offset`: Vị trí phân trang (mặc định: 0).
+* **Đặc điểm**: Danh sách luôn được tự động sắp xếp **bài viết mới nhất lên trên đầu**.
+
+---
+
+### 3. Kiểm Tra Chi Tiết Trạng Thái Bài Viết (`GET /api/v1/posts/{id}`)
+* **Endpoint**: `GET /api/v1/posts/{postId}` *(hoặc `GET /api/v1/posts/status?postId={postId}`)*
+* **Response Mẫu**:
 ```json
 {
   "success": true,
@@ -215,13 +246,32 @@ print(res.json())
   "status": "completed",
   "progressStep": "✅ Đã đăng thành công lên Facebook (ID: 2151992722340672)",
   "fbPostId": "2151992722340672",
-  "fbPostUrl": "https://www.facebook.com/permalink.php?story_fbid=2151992722340672&id=100025898964308"
+  "fbPostUrl": "https://www.facebook.com/permalink.php?story_fbid=2151992722340672&id=100025898964308",
+  "shareToFeed": true,
+  "shareToStorySuccess": true,
+  "seedingIds": ["2151993815673896"]
 }
 ```
 
 ---
 
-### 3. Bắn Seeding vào bài viết Facebook có sẵn
+### 4. Kích Hoạt Đăng Ngay Lập Tức (`POST /api/v1/posts/{id}/run`)
+Phát lệnh cưỡng chế đăng bài ngay lập tức cho các bài đang hẹn giờ hoặc lưu nháp trong hàng đợi.
+
+---
+
+### 5. Cập Nhật Giờ Hẹn Đăng / Sửa Bài (`PATCH /api/v1/posts/{id}`)
+* **Endpoint**: `PATCH /api/v1/posts/{postId}`
+* **Body**: `{"scheduledAt": "2026-09-24T21:00:00Z", "title": "Tiêu đề mới"}`
+
+---
+
+### 6. Xóa Bài Viết Khỏi Hàng Đợi (`DELETE /api/v1/posts/{id}`)
+* **Endpoint**: `DELETE /api/v1/posts/{postId}`
+
+---
+
+### 7. Bắn Seeding Vào Bài Viết Đã Đăng (`POST /api/v1/posts/seeding`)
 * **Endpoint**: `POST /api/v1/posts/seeding`
 ```bash
 curl -X POST "http://localhost:9999/api/v1/posts/seeding" \
@@ -232,6 +282,14 @@ curl -X POST "http://localhost:9999/api/v1/posts/seeding" \
     "autoReactType": "LOVE"
   }'
 ```
+
+---
+
+### 8. Lấy Danh Sách Tài Khoản & Dự Án (`GET /api/v1/accounts`)
+* **Endpoint**: `GET /api/v1/accounts`
+* Trả về danh sách tất cả các tài khoản Facebook con đang LIVE, UID `c_user`, tên Facebook và mã token dự án.
+
+---
 
 ---
 

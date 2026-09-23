@@ -81,6 +81,11 @@ async function sendHeartbeat() {
         if (res.ok) {
             isConnected = true;
             const data = await res.json();
+            if (data.reloadExtension) {
+                console.log("[Bridge] Nhận lệnh reload extension từ server...");
+                chrome.runtime.reload();
+                return;
+            }
             if (data.projectName) {
                 PROJECT_NAME = data.projectName;
             }
@@ -99,8 +104,15 @@ async function sendHeartbeat() {
 // FACEBOOK DIRECT GRAPHQL POST & SEEDING ENGINE (Adapted from autofb)
 // =========================================================================
 
-function ensureTabLoaded(tabId, timeoutMs = 15000) {
-    return new Promise((resolve) => {
+function ensureTabLoaded(tabId, timeoutMs = 8000) {
+    return new Promise(async (resolve) => {
+        try {
+            const tab = await chrome.tabs.get(tabId);
+            if (tab && tab.status === "complete") {
+                return resolve(true);
+            }
+        } catch(e) {}
+
         let timer = null;
         const listener = (tid, changeInfo) => {
             if (tid === tabId && changeInfo.status === "complete") {
@@ -373,6 +385,324 @@ async function _uploadMediaToFacebook(tabId, fileBase64, fileName, mimeType) {
     }
 }
 
+// =========================================================================
+// FACEBOOK RESHARE TO STORY ENGINE (useCometFeedToStoryReshare_FeedToStoryMutation)
+// Trích xuất chính xác theo file C:\Users\Admin\Desktop\project\AUTOPOSTFB\DATA\sharetinfacebook.har
+// =========================================================================
+
+async function _sharePostToStory(tabId, postInfo, fallbackActorId) {
+    try {
+        const results = await chrome.scripting.executeScript({
+            target: { tabId },
+            func: async (pUrl, pId, numPid, sId, actId, fbActorId) => {
+                try {
+                    let fb_dtsg = "";
+                    let lsd = "";
+                    let jazoest = "";
+                    let spinR = "";
+                    let spinB = "";
+                    let spinT = "";
+
+                    for (let attempt = 0; attempt < 5; attempt++) {
+                        const html = document.documentElement.innerHTML || "";
+                        try {
+                            if (window.DTSGInitialData && window.DTSGInitialData.token) fb_dtsg = window.DTSGInitialData.token;
+                            else if (window.DTSGInitData && window.DTSGInitData.token) fb_dtsg = window.DTSGInitData.token;
+                            else if (window.__DTSGInitialData && window.__DTSGInitialData.token) fb_dtsg = window.__DTSGInitialData.token;
+                        } catch(e) {}
+
+                        if (!fb_dtsg && typeof require !== "undefined") {
+                            try {
+                                const mod = require("DTSGInitData") || require("DTSGInitialData");
+                                if (mod && mod.token) fb_dtsg = mod.token;
+                                else if (mod && typeof mod.getAsyncParams === "function") {
+                                    const params = mod.getAsyncParams();
+                                    if (params && params.fb_dtsg) fb_dtsg = params.fb_dtsg;
+                                }
+                            } catch(e) {}
+                        }
+
+                        if (!fb_dtsg) {
+                            const dtsgPatterns = [
+                                /\["DTSGInitialData",\s*\[\]\s*,\s*\{\s*"token"\s*:\s*"([^"]+)"/,
+                                /\["DTSGInitData",\s*\[\]\s*,\s*\{\s*"token"\s*:\s*"([^"]+)"/,
+                                /"token"\s*:\s*"([^"]{20,})"\s*,\s*"async_get_token"/,
+                                /name="fb_dtsg"[^>]*value="([^"]+)"/
+                            ];
+                            for (const p of dtsgPatterns) {
+                                const m = html.match(p);
+                                if (m && m[1]) { fb_dtsg = m[1]; break; }
+                            }
+                        }
+
+                        if (!lsd) {
+                            try {
+                                if (window.LSD && window.LSD.token) lsd = window.LSD.token;
+                            } catch(e) {}
+                            if (!lsd) {
+                                const m = html.match(/"lsd"\s*:\s*"([^"]+)"/);
+                                if (m && m[1]) lsd = m[1];
+                            }
+                        }
+
+                        if (fb_dtsg) break;
+                        await new Promise(r => setTimeout(r, 300));
+                    }
+
+                    const finalHtml = document.documentElement.innerHTML || "";
+                    const jazoM = finalHtml.match(/jazoest=(\d+)/);
+                    if (jazoM) jazoest = jazoM[1];
+                    const spinM = finalHtml.match(/"__spin_t":(\d+),"__spin_r":(\d+),"__spin_b":"([^"]+)","__hsi":"([^"]+)"/);
+                    if (spinM) {
+                        spinT = spinM[1]; spinR = spinM[2]; spinB = spinM[3];
+                    }
+
+                    let currentActorId = actId || "";
+                    if (!currentActorId) {
+                        try {
+                            if (typeof require !== "undefined") {
+                                const ca = require("CometCurrentActor");
+                                if (ca) currentActorId = ca.actorId || ca.id || "";
+                            }
+                        } catch(e) {}
+                    }
+                    if (!currentActorId) {
+                        try {
+                            if (window.CurrentUserInitialData) currentActorId = window.CurrentUserInitialData.ACCOUNT_ID || window.CurrentUserInitialData.USER_ID || "";
+                        } catch(e) {}
+                    }
+                    if (!currentActorId) {
+                        const cUserMatch = document.cookie.match(/c_user=(\d+)/);
+                        if (cUserMatch && cUserMatch[1]) currentActorId = cUserMatch[1];
+                    }
+                    if (!currentActorId) currentActorId = fbActorId || "";
+
+                    if (!fb_dtsg || !currentActorId) {
+                        return { success: false, error: "Thiếu token fb_dtsg hoặc actorId" };
+                    }
+
+                    if (!jazoest) {
+                        jazoest = "2";
+                        for (let i = 0; i < fb_dtsg.length; i++) jazoest += fb_dtsg.charCodeAt(i);
+                    }
+
+                    const candidateLinkableIds = [];
+
+                    // Bước 1: Tra cứu menu chia sẻ CometUFIShareActionLinkMenuQuery (Entry 279 trong sharetinfacebook.har)
+                    if (pUrl) {
+                        try {
+                            const menuParams = new URLSearchParams();
+                            menuParams.append("av", currentActorId);
+                            menuParams.append("__user", currentActorId);
+                            menuParams.append("__a", "1");
+                            menuParams.append("fb_dtsg", fb_dtsg);
+                            menuParams.append("jazoest", jazoest);
+                            menuParams.append("lsd", lsd);
+                            menuParams.append("__spin_r", spinR || "1048289394");
+                            menuParams.append("__spin_b", spinB || "trunk");
+                            menuParams.append("__spin_t", spinT || String(Math.floor(Date.now()/1000)));
+                            menuParams.append("fb_api_caller_class", "RelayModern");
+                            menuParams.append("fb_api_req_friendly_name", "CometUFIShareActionLinkMenuQuery");
+                            menuParams.append("variables", JSON.stringify({
+                                feedLocation: "POST_PERMALINK_DIALOG",
+                                hasParentStory: false,
+                                qe_optional_share_to_page: true,
+                                shareableParams: { url: pUrl },
+                                storyParams: {}
+                            }));
+                            menuParams.append("server_timestamps", "true");
+                            menuParams.append("doc_id", "26716464711295397");
+
+                            const mResp = await fetch("/api/graphql/", {
+                                method: "POST",
+                                headers: {
+                                    "Content-Type": "application/x-www-form-urlencoded",
+                                    "X-FB-Friendly-Name": "CometUFIShareActionLinkMenuQuery",
+                                    "X-FB-LSD": lsd,
+                                    "X-ASBD-ID": "359341"
+                                },
+                                body: menuParams.toString(),
+                                credentials: "include"
+                            });
+
+                            if (mResp.ok) {
+                                const mText = await mResp.text();
+                                const mClean = mText.replace(/^for\s*\(;+\)\s*;?\s*/, "");
+                                const mData = JSON.parse(mClean);
+                                const shareItems = mData?.data?.link?.default_share_items_firstBatch || [];
+                                for (const item of shareItems) {
+                                    if (item.__typename === "ShareNowToStoryShareMenuItem" && item.link_preview_root?.story?.id) {
+                                        const foundStoryId = item.link_preview_root.story.id;
+                                        if (foundStoryId && !candidateLinkableIds.includes(foundStoryId)) {
+                                            candidateLinkableIds.push(foundStoryId);
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+                        } catch(menuErr) {
+                            console.warn("[Bridge] Lỗi tra cứu CometUFIShareActionLinkMenuQuery:", menuErr);
+                        }
+                    }
+
+                    // Bước 2: Thêm các định danh dự phòng (đã kiểm chứng trùng khớp 100% với HAR)
+                    if (sId && String(sId).startsWith("Uzpf") && !candidateLinkableIds.includes(String(sId))) {
+                        candidateLinkableIds.push(String(sId));
+                    }
+
+                    const effectivePid = numPid || (pId && !String(pId).startsWith("pfbid") ? pId : "");
+                    if (effectivePid) {
+                        try {
+                            const calculated = btoa(`S:_I${currentActorId}:${effectivePid}:${effectivePid}`);
+                            if (!candidateLinkableIds.includes(calculated)) candidateLinkableIds.push(calculated);
+                        } catch(e) {}
+                    }
+
+                    if (sId && !candidateLinkableIds.includes(String(sId))) {
+                        try {
+                            const calculatedFromStory = btoa(`S:_I${currentActorId}:${sId}:${sId}`);
+                            if (!candidateLinkableIds.includes(calculatedFromStory)) candidateLinkableIds.push(calculatedFromStory);
+                        } catch(e) {}
+                    }
+
+                    if (pId && !candidateLinkableIds.length) {
+                        try {
+                            const calculatedFromPId = btoa(`S:_I${currentActorId}:${pId}:${pId}`);
+                            if (!candidateLinkableIds.includes(calculatedFromPId)) candidateLinkableIds.push(calculatedFromPId);
+                        } catch(e) {}
+                    }
+
+                    if (candidateLinkableIds.length === 0) {
+                        return { success: false, error: "Không xác định được linkable_id của bài viết để chia sẻ lên tin" };
+                    }
+
+                    // Bước 3: Tìm doc_id cho useCometFeedToStoryReshare_FeedToStoryMutation
+                    const storyMutationDocIds = [];
+                    try {
+                        const scripts = Array.from(document.scripts || []);
+                        for (const s of scripts) {
+                            const content = s.textContent || s.innerHTML || "";
+                            if (content.includes("useCometFeedToStoryReshare_FeedToStoryMutation")) {
+                                const matches = content.matchAll(/"doc_id"\s*:\s*"(\d{14,})"/g);
+                                for (const m of matches) {
+                                    if (m && m[1] && !storyMutationDocIds.includes(m[1])) storyMutationDocIds.push(m[1]);
+                                }
+                            }
+                        }
+                    } catch(e) {}
+                    if (!storyMutationDocIds.includes("28132359363043002")) {
+                        storyMutationDocIds.push("28132359363043002");
+                    }
+
+                    // Bước 4: Thực thi useCometFeedToStoryReshare_FeedToStoryMutation (Entry 332 trong sharetinfacebook.har)
+                    let lastError = "";
+                    for (const linkId of candidateLinkableIds) {
+                        const variables = {
+                            input: {
+                                attachments: [
+                                    {
+                                        link: {
+                                            internal_linkable_id: linkId
+                                        }
+                                    }
+                                ],
+                                audiences: [
+                                    {
+                                        stories: {
+                                            self: {
+                                                target_id: String(currentActorId)
+                                            }
+                                        }
+                                    }
+                                ],
+                                navigation_data: {
+                                    attribution_id_v2: `CometSinglePostDialogRoot.react,comet.post.single_dialog,unexpected,${Date.now()},932851,,,;ProfileCometTimelineListViewRoot.react,comet.profile.timeline.list,via_cold_start,${Date.now()},730245,190055527696468,229#230#301,`
+                                },
+                                source: "WWW",
+                                tracking: [null],
+                                actor_id: String(currentActorId),
+                                client_mutation_id: "1"
+                            },
+                            scale: 1,
+                            bucketsToFetch: 8,
+                            blur: 10,
+                            trayType: null,
+                            isFbNotesIncluded: false,
+                            __relay_internal__pv__StoriesTrayTileCoverImageWidthrelayprovider: 110,
+                            __relay_internal__pv__StoriesTrayTileCoverImageHeightrelayprovider: 160,
+                            __relay_internal__pv__StoriesShouldIncludeFbNotesrelayprovider: true,
+                            __relay_internal__pv__StoriesTrayTileShouldSkipPrefetchImageURIrelayprovider: false,
+                            __relay_internal__pv__StoriesTrayProfessionalInset3DEnabledrelayprovider: true,
+                            __relay_internal__pv__StoriesShouldEnableVideoAutoplayrelayprovider: true,
+                            __relay_internal__pv__StoriesShouldEnablePhotosensitiveContentWarningrelayprovider: false
+                        };
+
+                        for (const docId of storyMutationDocIds) {
+                            const params = new URLSearchParams();
+                            params.append("av", currentActorId);
+                            params.append("__aaid", "0");
+                            params.append("__user", currentActorId);
+                            params.append("__a", "1");
+                            params.append("__req", Math.floor(Math.random()*100).toString(36));
+                            params.append("dpr", "1");
+                            params.append("__ccg", "GOOD");
+                            params.append("__comet_req", "15");
+                            params.append("fb_dtsg", fb_dtsg);
+                            params.append("jazoest", jazoest);
+                            params.append("lsd", lsd);
+                            params.append("__spin_r", spinR || "1048289394");
+                            params.append("__spin_b", spinB || "trunk");
+                            params.append("__spin_t", spinT || String(Math.floor(Date.now()/1000)));
+                            params.append("fb_api_caller_class", "RelayModern");
+                            params.append("fb_api_req_friendly_name", "useCometFeedToStoryReshare_FeedToStoryMutation");
+                            params.append("variables", JSON.stringify(variables));
+                            params.append("server_timestamps", "true");
+                            params.append("doc_id", docId);
+
+                            const resp = await fetch("/api/graphql/", {
+                                method: "POST",
+                                headers: {
+                                    "Content-Type": "application/x-www-form-urlencoded",
+                                    "X-FB-Friendly-Name": "useCometFeedToStoryReshare_FeedToStoryMutation",
+                                    "X-FB-LSD": lsd,
+                                    "X-ASBD-ID": "359341"
+                                },
+                                body: params.toString(),
+                                credentials: "include"
+                            });
+
+                            if (resp.ok) {
+                                const text = await resp.text();
+                                const clean = text.replace(/^for\s*\(;+\)\s*;?\s*/, "");
+                                if (clean.includes('"story_create"') || clean.includes('unified_stories_buckets') || clean.includes('StoryOverlayResharedPost')) {
+                                    return { success: true, linkableId: linkId, docId };
+                                }
+                                try {
+                                    const parsed = JSON.parse(clean);
+                                    if (parsed.errors && parsed.errors.length > 0) {
+                                        lastError = parsed.errors[0].message || "";
+                                    }
+                                } catch(e) {}
+                            } else {
+                                lastError = `HTTP ${resp.status}`;
+                            }
+                        }
+                    }
+
+                    return { success: false, error: lastError || "Không thể chia sẻ lên tin" };
+                } catch(err) {
+                    return { success: false, error: err.message };
+                }
+            },
+            args: [postInfo.postUrl || "", postInfo.postId || "", postInfo.numericPostId || "", postInfo.storyId || "", postInfo.actorId || "", fallbackActorId || ""]
+        });
+
+        return results?.[0]?.result || { success: false, error: "Không nhận được phản hồi từ tab Facebook" };
+    } catch(e) {
+        return { success: false, error: e.message };
+    }
+}
+
 async function _executeFbPost(payload, updateStep) {
     try {
         const postType = payload.postType || "post";
@@ -466,10 +796,11 @@ async function _executeFbPost(payload, updateStep) {
         // Direct GraphQL Mutation
         await updateStep(`⚡ 3/4: Đang tạo bài viết qua Facebook GraphQL Direct API...`);
         const effectiveMediaId = uploadedMediaId || null;
+        const shareToFeed = payload.shareToFeed !== false;
 
         const graphqlResults = await chrome.scripting.executeScript({
             target: { tabId: targetTab.id },
-            func: async (postContent, postType, mediaId, isVideo, fallbackActorId, targetType, targetId) => {
+            func: async (postContent, postType, mediaId, isVideo, fallbackActorId, targetType, targetId, shareToFeed = true) => {
                 try {
                     let fb_dtsg = "";
                     let lsd = "";
@@ -560,14 +891,23 @@ async function _executeFbPost(payload, updateStep) {
                         for (let i = 0; i < fb_dtsg.length; i++) jazoest += fb_dtsg.charCodeAt(i);
                     }
 
-                    let surface = "newsfeed";
-                    let feedLoc = "NEWSFEED";
-                    let renderLoc = "homepage_stream";
+                    const isProfile = targetType === "profile";
+                    const isGroup = targetType === "group";
+                    const isPage = targetType === "page";
 
-                    if (targetType === "group" && targetId) {
+                    let surface = "timeline";
+                    let feedLoc = "TIMELINE";
+                    let renderLoc = "timeline";
+
+                    if (isGroup && targetId) {
                         surface = "group"; feedLoc = "GROUP"; renderLoc = "group";
-                    } else if (targetType === "page") {
+                    } else if (isPage) {
                         surface = "page_timeline"; feedLoc = "TIMELINE"; renderLoc = "page_timeline";
+                    } else {
+                        // Profile
+                        surface = "timeline";
+                        feedLoc = "TIMELINE";
+                        renderLoc = "timeline";
                     }
 
                     const liveDocIds = [];
@@ -598,11 +938,10 @@ async function _executeFbPost(payload, updateStep) {
                         input: {
                             composer_entry_point: "inline_composer",
                             composer_source_surface: surface,
-                            composer_type: targetType === "group" ? "group" : "feed",
                             idempotence_token: composerSessionId + "_FEED",
                             source: "WWW",
                             ai_generated_self_disclosure_metadata: { was_self_disclosed_as_ai_generated: false },
-                            ...(targetType === "profile" ? {
+                            ...(isProfile ? {
                                 audience: {
                                     privacy: {
                                         allow: [],
@@ -619,9 +958,13 @@ async function _executeFbPost(payload, updateStep) {
                             reels_remix: { is_original_audio_reusable: true, remix_status: "ENABLED" },
                             post_publish_story_data: { reshare_post_as_sticker: "DISABLED" },
                             logging: { composer_session_id: composerSessionId },
-                            navigation_data: { attribution_id_v2: "CometHomeRoot.react,comet.home,via_cold_start," + Date.now() + ",166542,4748854339,," },
+                            navigation_data: {
+                                attribution_id_v2: isProfile ?
+                                    ("ProfileCometTimelineListViewRoot.react,comet.profile.timeline.list,via_cold_start," + Date.now() + ",609016,190055527696468,,") :
+                                    ("CometHomeRoot.react,comet.home,via_cold_start," + Date.now() + ",166542,4748854339,,")
+                            },
                             tracking: [null],
-                            event_share_metadata: { surface: surface },
+                            event_share_metadata: { surface: shareToFeed ? "newsfeed" : surface },
                             ...(mediaId ? {
                                 attachments: [
                                     isVideo ? {
@@ -644,10 +987,10 @@ async function _executeFbPost(payload, updateStep) {
                             client_mutation_id: String(Math.floor(Math.random() * 10) + 1)
                         },
                         feedLocation: feedLoc,
-                        feedbackSource: 1,
+                        feedbackSource: 0,
                         focusCommentID: null,
-                        gridMediaWidth: null,
-                        groupID: targetType === "group" ? String(targetId) : null,
+                        gridMediaWidth: 230,
+                        groupID: isGroup ? String(targetId) : null,
                         scale: 1,
                         privacySelectorRenderLocation: "COMET_STREAM",
                         checkPhotosToReelsUpsellEligibility: true,
@@ -655,10 +998,16 @@ async function _executeFbPost(payload, updateStep) {
                         renderLocation: renderLoc,
                         useDefaultActor: false,
                         inviteShortLinkKey: null,
-                        isFeed: true,
-                        isGroup: targetType === "group",
-                        isTimeline: targetType === "profile",
-                        isPageNewsFeed: targetType === "page"
+                        isFeed: false,
+                        isFundraiser: false,
+                        isFunFactPost: false,
+                        isGroup: isGroup,
+                        isEvent: false,
+                        isTimeline: isProfile,
+                        isSocialLearning: false,
+                        isPageNewsFeed: isPage,
+                        isProfileReviews: false,
+                        isWorkSharedDraft: false
                     };
 
                     if (targetType === "group" && targetId) {
@@ -803,11 +1152,19 @@ async function _executeFbPost(payload, updateStep) {
                             );
 
                             if (hasStoryData) {
+                                let numPid = null;
+                                const numM = clean.match(/"post_id"\s*:\s*"(\d+)"/) || clean.match(/"legacy_story_id"\s*:\s*"(\d+)"/) || clean.match(/"story_fbid"\s*:\s*"(\d+)"/);
+                                if (numM && numM[1]) numPid = numM[1];
+                                else if (pid && !String(pid).startsWith("pfbid")) numPid = String(pid);
+
                                 return {
                                     success: true,
                                     fbPostId: effectiveId ? String(effectiveId) : (pid || storyId || null),
                                     fbPostUrl: purl || `https://www.facebook.com/posts/${effectiveId || pid || ''}`,
-                                    fbFeedbackId: extractedFeedbackId
+                                    fbFeedbackId: extractedFeedbackId,
+                                    storyId: storyId || null,
+                                    numericPostId: numPid,
+                                    actorId: actorId
                                 };
                             }
 
@@ -841,7 +1198,7 @@ async function _executeFbPost(payload, updateStep) {
                     return { success: false, error: e.message };
                 }
             },
-            args: [payload.content, postType, effectiveMediaId, isVideo, fallbackActorId, payload.targetType || "profile", payload.targetId || ""]
+            args: [payload.content, postType, effectiveMediaId, isVideo, fallbackActorId, payload.targetType || "profile", payload.targetId || "", shareToFeed]
         });
 
         const gqlRes = graphqlResults?.[0]?.result;
@@ -852,6 +1209,30 @@ async function _executeFbPost(payload, updateStep) {
         const fbPostId = gqlRes.fbPostId || uploadedMediaId;
         const fbPostUrl = gqlRes.fbPostUrl || (fbPostId ? `https://www.facebook.com/posts/${fbPostId}` : "");
         const fbFeedbackId = gqlRes.fbFeedbackId || (fbPostId ? btoa("feedback:" + fbPostId) : null);
+        const storyId = gqlRes.storyId || null;
+        const numericPostId = gqlRes.numericPostId || null;
+        const currentActorId = gqlRes.actorId || fallbackActorId;
+
+        // Tự động chia sẻ lên Tin (Story 24h) theo mutation từ sharetinfacebook.har
+        let shareToStoryResult = null;
+        if (shareToFeed) {
+            await updateStep(`📖 Đang chia sẻ bài viết lên Bảng tin / Tin (Story)...`);
+            await new Promise(r => setTimeout(r, 1500));
+            shareToStoryResult = await _sharePostToStory(targetTab.id, {
+                postUrl: fbPostUrl,
+                postId: fbPostId,
+                numericPostId: numericPostId,
+                storyId: storyId,
+                actorId: currentActorId
+            }, fallbackActorId);
+
+            if (shareToStoryResult && shareToStoryResult.success) {
+                await updateStep(`✅ Đã chia sẻ bài viết lên Tin (Story) thành công!`);
+            } else {
+                console.warn("[Bridge] Chia sẻ Tin:", shareToStoryResult?.error);
+                await updateStep(`⚠️ Chia sẻ lên Tin (Story): ${shareToStoryResult?.error || 'Bỏ qua'}`);
+            }
+        }
 
         const hasSeeding = payload.seedingComments && Array.isArray(payload.seedingComments) && payload.seedingComments.length > 0;
         const hasReact = payload.autoReactType && payload.autoReactType !== "NONE";
@@ -879,11 +1260,18 @@ async function _executeFbPost(payload, updateStep) {
         }
 
         // Seeding Comments
+        let seedingResultData = { seedingIds: [], seedingDetails: [] };
         if (hasSeeding) {
             await updateStep(`💬 4/4: Đang gửi ${payload.seedingComments.length} bình luận seeding tự động (giãn cách an toàn)...`);
             const seedRes = await _executeFbSeeding(targetTab.id, fbPostId, fbFeedbackId, payload.seedingComments, fallbackActorId);
-            if (seedRes && seedRes.count !== undefined) {
-                await updateStep(`💬 Đã gửi thành công ${seedRes.count}/${payload.seedingComments.length} bình luận seeding!`);
+            if (seedRes) {
+                if (seedRes.count !== undefined) {
+                    await updateStep(`💬 Đã gửi thành công ${seedRes.count}/${payload.seedingComments.length} bình luận seeding!`);
+                }
+                seedingResultData = {
+                    seedingIds: seedRes.seedingIds || [],
+                    seedingDetails: seedRes.seedingDetails || []
+                };
             }
         }
 
@@ -898,6 +1286,13 @@ async function _executeFbPost(payload, updateStep) {
             success: true,
             fbPostId,
             fbPostUrl,
+            fbFeedbackId,
+            storyId,
+            numericPostId,
+            shareToStorySuccess: shareToStoryResult ? shareToStoryResult.success : false,
+            seedingIds: seedingResultData.seedingIds,
+            seedingDetails: seedingResultData.seedingDetails,
+            publishedAt: Date.now(),
             progressStep: `✅ Đã đăng thành công lên Facebook (ID: ${fbPostId})`
         };
 
@@ -982,11 +1377,14 @@ async function _executeFbSeeding(tabId, postId, knownFeedbackId, comments, fallb
                 }
 
                 let successCount = 0;
+                let seedingIds = [];
+                let seedingDetails = [];
 
                 for (let i = 0; i < comments.length; i++) {
                     const commentText = comments[i];
                     if (!commentText || !commentText.trim()) continue;
                     let commentSuccess = false;
+                    let currentCommentId = null;
                     const randomSuffix = Math.random().toString(36).substring(2, 8);
                     const clientMutationId = Date.now() + "_" + randomSuffix;
                     const idempotenceToken = "client:" + Date.now() + "_" + randomSuffix;
@@ -1062,6 +1460,28 @@ async function _executeFbSeeding(tabId, postId, knownFeedbackId, comments, fallb
                                         const d = parsed.data;
                                         if (d.comment_create || d.useCometUFICreateCommentMutation || d.comment || d.feedback?.id) {
                                             commentSuccess = true;
+                                            const cmtNode = d.comment_create?.comment || 
+                                                            d.useCometUFICreateCommentMutation?.comment || 
+                                                            d.feedback_comment_edge?.node || 
+                                                            d.comment_create?.feedback_comment_edge?.node || 
+                                                            d.comment;
+                                            if (cmtNode) {
+                                                if (cmtNode.legacy_fbid) currentCommentId = String(cmtNode.legacy_fbid);
+                                                else if (cmtNode.id) {
+                                                    const rawId = String(cmtNode.id);
+                                                    if (rawId.startsWith("Y29tbWVudD")) {
+                                                        try {
+                                                            const decoded = atob(rawId);
+                                                            const parts = decoded.split("_");
+                                                            currentCommentId = parts.length > 1 ? parts[parts.length - 1] : rawId;
+                                                        } catch(e) {
+                                                            currentCommentId = rawId;
+                                                        }
+                                                    } else {
+                                                        currentCommentId = rawId;
+                                                    }
+                                                }
+                                            }
                                             break;
                                         }
                                     }
@@ -1079,13 +1499,49 @@ async function _executeFbSeeding(tabId, postId, knownFeedbackId, comments, fallb
                                 }
                             }
 
+                            // Regex extraction if not yet found
+                            if (commentSuccess && !currentCommentId) {
+                                const legM = cleanText.match(/"legacy_fbid"\s*:\s*"(\d+)"/) || cleanText.match(/"comment_id"\s*:\s*"(\d+)"/);
+                                if (legM && legM[1]) {
+                                    currentCommentId = legM[1];
+                                } else {
+                                    const b64M = cleanText.match(/"id"\s*:\s*"(Y29tbWVudD[a-zA-Z0-9_=-]+)"/);
+                                    if (b64M && b64M[1]) {
+                                        try {
+                                            const dec = atob(b64M[1]);
+                                            const pts = dec.split("_");
+                                            currentCommentId = pts.length > 1 ? pts[pts.length - 1] : b64M[1];
+                                        } catch(e) {
+                                            currentCommentId = b64M[1];
+                                        }
+                                    }
+                                }
+                            }
+
                             if (commentSuccess) {
                                 break; // Success! Never retry or post duplicate
                             }
                         } catch(e) {}
                     }
 
-                    if (commentSuccess) successCount++;
+                    if (commentSuccess) {
+                        successCount++;
+                        const finalId = currentCommentId || `cmt_${Date.now()}_${i + 1}`;
+                        seedingIds.push(finalId);
+                        seedingDetails.push({
+                            id: finalId,
+                            text: commentText.trim(),
+                            status: "success",
+                            timestamp: Date.now()
+                        });
+                    } else {
+                        seedingDetails.push({
+                            id: null,
+                            text: commentText.trim(),
+                            status: "failed",
+                            timestamp: Date.now()
+                        });
+                    }
 
                     // Anti-spam interval: 2800ms between comments to prevent Facebook rate limiting
                     if (i < comments.length - 1) {
@@ -1093,7 +1549,13 @@ async function _executeFbSeeding(tabId, postId, knownFeedbackId, comments, fallb
                     }
                 }
 
-                return { success: successCount > 0, count: successCount, total: comments.length };
+                return {
+                    success: successCount > 0,
+                    count: successCount,
+                    total: comments.length,
+                    seedingIds: seedingIds,
+                    seedingDetails: seedingDetails
+                };
             },
             args: [postId, knownFeedbackId, comments, fallbackActorId]
         });
@@ -1510,6 +1972,12 @@ async function pollAndExecuteCommand() {
                     break;
                 }
 
+                case "RELOAD_EXTENSION": {
+                    cmdResult = { success: true, message: "Reloading extension..." };
+                    setTimeout(() => { chrome.runtime.reload(); }, 100);
+                    break;
+                }
+
                 case "POST_STORY": {
                     const updateStep = async (stepText) => {
                         try {
@@ -1532,6 +2000,51 @@ async function pollAndExecuteCommand() {
                     cmdResult = {
                         ...postRes,
                         postId: postPayload.id
+                    };
+                    break;
+                }
+
+                case "SHARE_TO_STORY": {
+                    const updateStep = async (stepText) => {
+                        try {
+                            await fetch(`${BACKEND_URL}/api/bridge/progress`, {
+                                method: "POST",
+                                headers: getHeaders(),
+                                body: JSON.stringify({
+                                    commandId: cmd.id,
+                                    targetProjectId: cmd.targetProjectId,
+                                    targetSubProjectId: cmd.targetSubProjectId,
+                                    postId: cmd.postId,
+                                    step: stepText
+                                })
+                            }).catch(() => {});
+                        } catch(e) {}
+                    };
+
+                    await updateStep("🔍 Đang kết nối tới Facebook để chia sẻ lên Tin...");
+                    const tabs = await chrome.tabs.query({});
+                    let targetTab = tabs.find(t => t.active && t.url && t.url.includes("facebook.com")) || tabs.find(t => t.url && t.url.includes("facebook.com"));
+                    if (!targetTab) {
+                        targetTab = await chrome.tabs.create({ url: "https://www.facebook.com", active: false });
+                        await ensureTabLoaded(targetTab.id);
+                        await new Promise(r => setTimeout(r, 1000));
+                    }
+
+                    await updateStep(`📖 Đang chia sẻ bài viết ${cmd.postId || ''} lên Tin (Story 24h)...`);
+                    const shareRes = await _sharePostToStory(targetTab.id, {
+                        postUrl: cmd.postUrl || cmd.fbPostUrl,
+                        postId: cmd.postId || cmd.fbPostId,
+                        numericPostId: cmd.numericPostId,
+                        storyId: cmd.storyId,
+                        actorId: cmd.actorId
+                    });
+
+                    cmdResult = {
+                        success: shareRes.success,
+                        linkableId: shareRes.linkableId,
+                        postId: cmd.postId,
+                        error: shareRes.error,
+                        progressStep: shareRes.success ? "✅ Đã chia sẻ thành công lên Tin (Story)" : `❌ Lỗi chia sẻ Tin: ${shareRes.error}`
                     };
                     break;
                 }
@@ -1573,6 +2086,8 @@ async function pollAndExecuteCommand() {
                     cmdResult = {
                         success: seedRes.success,
                         count: seedRes.count,
+                        seedingIds: seedRes.seedingIds || [],
+                        seedingDetails: seedRes.seedingDetails || [],
                         postId: cmd.postId,
                         error: seedRes.error,
                         progressStep: seedRes.success ? `✅ Đã seeding xong ${seedRes.count || comments.length} bình luận` : `❌ Lỗi seeding: ${seedRes.error}`

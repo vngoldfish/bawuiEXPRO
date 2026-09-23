@@ -24,6 +24,8 @@ import time
 import uuid
 import platform
 import random
+import threading
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
@@ -54,6 +56,64 @@ def resolve_spintax(text):
             break
         text = pattern.sub(lambda m: random.choice(m.group(1).split("|")), text)
     return text
+
+def parse_scheduled_time(val):
+    """
+    Phân tích linh hoạt giá trị thời gian đặt lịch từ client/API.
+    Hỗ trợ:
+    - Số timestamp (giây hoặc mili-giây)
+    - Chuỗi ISO 8601: '2026-09-24T15:30:00Z', '2026-09-24T15:30:00+07:00', '2026-09-24T15:30:00'
+    - Chuỗi HTML5 datetime-local: '2026-09-24T15:30'
+    - Chuỗi thông dụng: '2026-09-24 15:30:00', '2026-09-24 15:30'
+    Trả về timestamp mili-giây (int) hoặc None nếu không hợp lệ / không có.
+    """
+    if not val:
+        return None
+    if isinstance(val, (int, float)):
+        return int(val * 1000) if val < 10000000000 else int(val)
+    if isinstance(val, str):
+        val = val.strip()
+        if not val:
+            return None
+        if val.isdigit():
+            v = int(val)
+            return int(v * 1000) if v < 10000000000 else v
+        clean_val = val.replace("Z", "+00:00")
+        for fmt in (
+            "%Y-%m-%dT%H:%M:%S%z",
+            "%Y-%m-%dT%H:%M%z",
+            "%Y-%m-%dT%H:%M:%S",
+            "%Y-%m-%dT%H:%M",
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%d %H:%M"
+        ):
+            try:
+                dt = datetime.strptime(clean_val, fmt)
+                if dt.tzinfo is not None:
+                    return int(dt.timestamp() * 1000)
+                else:
+                    return int(dt.astimezone().timestamp() * 1000)
+            except ValueError:
+                continue
+        try:
+            dt = datetime.fromisoformat(val)
+            if dt.tzinfo is not None:
+                return int(dt.timestamp() * 1000)
+            else:
+                return int(dt.astimezone().timestamp() * 1000)
+        except Exception:
+            pass
+    return None
+
+def format_scheduled_time(ms):
+    """Định dạng timestamp mili-giây sang chuỗi hiển thị 'HH:mm:ss dd/MM/yyyy'"""
+    if not ms or ms <= 0:
+        return ""
+    try:
+        dt = datetime.fromtimestamp(ms / 1000.0)
+        return dt.strftime("%H:%M:%S %d/%m/%Y")
+    except Exception:
+        return ""
 
 def get_projects():
     if os.path.exists(PROJECTS_PATH):
@@ -179,6 +239,7 @@ def save_server_config(cfg):
 connected_nodes = {}
 pending_commands = []
 recent_issued_commands = {}
+pending_extension_reloads = set()
 live_logs = []
 latest_project_results = {}
 
@@ -192,6 +253,271 @@ def push_log(message, log_type="", project_id=None, subproject_id=None):
     })
     if len(live_logs) > 300:
         live_logs.pop(0)
+
+def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, source="dashboard", token=None):
+    """
+    Tạo hoặc lên lịch bài viết mới theo chuẩn REST API.
+    Hỗ trợ: Đăng ngay (run_now=True), Lên lịch (scheduledAt / scheduledTime), hoặc Lưu nháp (pending).
+    Trả về tuple: (status_code, response_dict)
+    """
+    if post_data is None:
+        post_data = {}
+
+    all_projs = get_projects()
+    target_proj = None
+
+    if token:
+        token_clean = token.strip()
+        for p in all_projs:
+            if p.get("token") and p.get("token").strip() == token_clean:
+                target_proj = p
+                break
+        if not target_proj:
+            return (401, {
+                "success": False,
+                "error": {
+                    "code": "INVALID_TOKEN",
+                    "message": "Token dự án không hợp lệ hoặc không tồn tại!"
+                }
+            })
+    elif proj_id:
+        for p in all_projs:
+            if p.get("id") == proj_id:
+                target_proj = p
+                break
+    else:
+        if len(all_projs) == 1:
+            target_proj = all_projs[0]
+
+    if not target_proj:
+        return (404, {
+            "success": False,
+            "error": {
+                "code": "PROJECT_NOT_FOUND",
+                "message": "Không tìm thấy dự án tương ứng"
+            }
+        })
+
+    target_sub = None
+    subs = target_proj.get("subProjects", [])
+    if sub_id:
+        for s in subs:
+            if s.get("id") == sub_id:
+                target_sub = s
+                break
+    else:
+        for s in subs:
+            if s.get("type", "facebook") == "facebook":
+                target_sub = s
+                break
+        if not target_sub and len(subs) > 0:
+            target_sub = subs[0]
+
+    if not target_sub:
+        return (404, {
+            "success": False,
+            "error": {
+                "code": "SUBPROJECT_NOT_FOUND",
+                "message": f"Dự án '{target_proj.get('name')}' chưa có tài khoản Facebook / thư mục con nào"
+            }
+        })
+
+    raw_content = post_data.get("content", "")
+    media_url = (post_data.get("mediaUrl") or "").strip()
+    media_data = post_data.get("mediaData")
+
+    if not raw_content and not media_url and not media_data and not post_data.get("title"):
+        return (400, {
+            "success": False,
+            "error": {
+                "code": "MISSING_CONTENT",
+                "message": "Vui lòng nhập nội dung bài viết ('content') hoặc đính kèm tệp media ('mediaUrl')!"
+            }
+        })
+
+    content = resolve_spintax(raw_content)
+
+    post_type = str(post_data.get("postType", "post")).lower()
+    if post_type not in ("post", "reel", "video", "story"):
+        post_type = "post"
+
+    target_type = str(post_data.get("targetType", "profile")).lower()
+    if target_type not in ("profile", "page", "group"):
+        target_type = "profile"
+
+    target_id = str(post_data.get("targetId", "")).strip()
+    if target_type in ("page", "group") and not target_id:
+        return (400, {
+            "success": False,
+            "error": {
+                "code": "MISSING_TARGET_ID",
+                "message": f"Khi đăng bài lên {target_type.upper()}, bắt buộc phải cung cấp 'targetId' (ID Fanpage hoặc ID Nhóm)!"
+            }
+        })
+
+    raw_seeding = post_data.get("seedingComments", [])
+    seeding_comments = []
+    if isinstance(raw_seeding, str):
+        seeding_comments = [c.strip() for c in raw_seeding.split("\n") if c.strip()]
+    elif isinstance(raw_seeding, list):
+        seeding_comments = [str(c).strip() for c in raw_seeding if str(c).strip()]
+
+    auto_react = str(post_data.get("autoReactType") or "LIKE").upper()
+    if auto_react not in ("LIKE", "LOVE", "CARE", "HAHA", "WOW", "SAD", "ANGRY", "NONE"):
+        auto_react = "LIKE"
+
+    share_to_feed_raw = post_data.get("shareToFeed")
+    if share_to_feed_raw is None:
+        share_to_feed_raw = post_data.get("shareToStory")
+    share_to_feed = True if share_to_feed_raw is None else bool(share_to_feed_raw)
+
+    # Xử lý Đặt Giờ Đăng (Post Scheduling)
+    sched_val = post_data.get("scheduledAt") or post_data.get("scheduledTime")
+    sched_ms = parse_scheduled_time(sched_val)
+    now_ms = int(time.time() * 1000)
+
+    is_scheduled = False
+    if sched_ms:
+        if sched_ms > now_ms:
+            is_scheduled = True
+            run_now = False
+        else:
+            if not run_now:
+                return (422, {
+                    "success": False,
+                    "error": {
+                        "code": "INVALID_SCHEDULE_TIME",
+                        "message": "Thời gian đặt lịch phải ở thời điểm tương lai!"
+                    }
+                })
+
+    if "postQueue" not in target_sub:
+        target_sub["postQueue"] = []
+
+    post_id = f"post_{int(time.time())}_{uuid.uuid4().hex[:4]}"
+    scheduled_iso = datetime.fromtimestamp(sched_ms / 1000.0, tz=timezone.utc).isoformat() if sched_ms else ""
+
+    if is_scheduled:
+        status = "scheduled"
+        formatted_sched = format_scheduled_time(sched_ms)
+        progress_step = f"⏳ Đã lên lịch đăng lúc {formatted_sched}"
+    elif run_now:
+        status = "in_progress"
+        progress_step = "Đang chuyển lệnh sang Extension..."
+    else:
+        status = "pending"
+        progress_step = "Đã lưu vào hàng đợi (chờ phát lệnh)"
+
+    post_entry = {
+        "id": post_id,
+        "title": post_data.get("title", ""),
+        "content": content,
+        "postType": post_type,
+        "targetType": target_type,
+        "targetId": target_id,
+        "targetUrl": post_data.get("targetUrl") or "https://www.facebook.com",
+        "shareToFeed": share_to_feed,
+        "mediaUrl": media_url,
+        "mediaData": media_data,
+        "seedingComments": seeding_comments,
+        "autoReactType": auto_react,
+        "status": status,
+        "progressStep": progress_step,
+        "fbPostId": "",
+        "fbPostUrl": "",
+        "scheduledTime": sched_ms if is_scheduled else 0,
+        "scheduledTimeStr": format_scheduled_time(sched_ms) if is_scheduled else "",
+        "scheduledAt": scheduled_iso if is_scheduled else "",
+        "lastError": "",
+        "createdAt": now_ms,
+        "callbackUrl": post_data.get("callbackUrl", ""),
+        "source": source
+    }
+
+    target_sub["postQueue"].insert(0, post_entry)
+    save_projects(all_projs)
+
+    cmd_id = None
+    if run_now and status == "in_progress":
+        cmd_id = f"cmd_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+        cmd = {
+            "id": cmd_id,
+            "action": "POST_STORY",
+            "targetProjectId": target_proj["id"],
+            "targetSubProjectId": target_sub["id"],
+            "targetNodeId": "*",
+            "post": post_entry
+        }
+        pending_commands.append(cmd)
+        recent_issued_commands[cmd_id] = cmd
+        push_log(f"Đã phát lệnh đăng ngay bài viết '{post_id}' lên Facebook cho '{target_sub['name']}'", "step", project_id=target_proj["id"], subproject_id=target_sub["id"])
+    elif is_scheduled:
+        push_log(f"⏰ Đã lên lịch đăng bài '{post_entry['title'] or post_id}' vào lúc {format_scheduled_time(sched_ms)} cho '{target_sub['name']}'", "step", project_id=target_proj["id"], subproject_id=target_sub["id"])
+    else:
+        push_log(f"Đã thêm bài viết mới vào hàng đợi của '{target_sub['name']}'", "success", project_id=target_proj["id"], subproject_id=target_sub["id"])
+
+    msg = f"Đã lên lịch đăng bài thành công vào lúc {format_scheduled_time(sched_ms)}" if is_scheduled else ("Đã phát lệnh đăng ngay sang Extension!" if run_now else "Đã thêm bài viết vào hàng đợi đăng!")
+
+    response_payload = {
+        "success": True,
+        "message": msg,
+        "data": post_entry,
+        "post": post_entry,
+        "postId": post_id,
+        "cmdId": cmd_id,
+        "status": status,
+        "targetAccount": {
+            "projectId": target_proj["id"],
+            "projectName": target_proj["name"],
+            "subProjectId": target_sub["id"],
+            "subProjectName": target_sub["name"],
+            "c_user": target_sub.get("c_user", ""),
+            "fbName": target_sub.get("fbName", "")
+        }
+    }
+    return (201 if is_scheduled or not run_now else 200, response_payload)
+
+def start_post_scheduler():
+    """Bộ máy lập lịch chạy ngầm quét hàng đợi bài viết mỗi 10 giây"""
+    def _scheduler_loop():
+        while True:
+            try:
+                now_ms = int(time.time() * 1000)
+                projs = get_projects()
+                modified = False
+                for p in projs:
+                    proj_id = p.get("id")
+                    for s in p.get("subProjects", []):
+                        sub_id = s.get("id")
+                        for post in s.get("postQueue", []):
+                            if post.get("status") == "scheduled":
+                                sched_time = post.get("scheduledTime", 0)
+                                if sched_time and sched_time <= now_ms:
+                                    post["status"] = "in_progress"
+                                    post["progressStep"] = "⏰ Đến giờ hẹn! Đang chuyển lệnh đăng sang Extension..."
+                                    modified = True
+                                    cmd_id = f"cmd_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+                                    cmd = {
+                                        "id": cmd_id,
+                                        "action": "POST_STORY",
+                                        "targetProjectId": proj_id,
+                                        "targetSubProjectId": sub_id,
+                                        "targetNodeId": "*",
+                                        "post": post
+                                    }
+                                    pending_commands.append(cmd)
+                                    recent_issued_commands[cmd_id] = cmd
+                                    post_title = post.get("title") or post.get("id")
+                                    push_log(f"⏰ ĐẾN GIỜ HẸN: Tự động kích hoạt đăng bài '{post_title}' lên Facebook cho '{s.get('name')}'", "success", project_id=proj_id, subproject_id=sub_id)
+                if modified:
+                    save_projects(projs)
+            except Exception as e:
+                print(f"[Scheduler Error] {e}")
+            time.sleep(10)
+
+    sched_thread = threading.Thread(target=_scheduler_loop, daemon=True, name="PostSchedulerThread")
+    sched_thread.start()
+    print("[*] POST SCHEDULER STARTED (interval: 10s)")
 
 def read_manifest_info():
     try:
@@ -1076,10 +1402,28 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                     </button>
                 </li>
                 <div id="postFbSubTree" class="menu-sub-tree">
-                    <li class="menu-item menu-sub-item" data-sub-menu="sub-autopost" id="sideMenuAutopostItem">
+                    <li class="menu-item menu-sub-item active" data-sub-menu="sub-autopost" id="sideMenuAutopostItem">
                         <button onclick="switchSubMenu('sub-autopost')">
-                            <span class="nav-icon">✍️</span>
-                            <span class="menu-title" id="sideMenuAutopostTitle">Tự Động Đăng Bài</span>
+                            <span class="nav-icon">📝</span>
+                            <span class="menu-title" id="sideMenuAutopostTitle">Đăng Bài Viết Thường</span>
+                        </button>
+                    </li>
+                    <li class="menu-item menu-sub-item" data-sub-menu="sub-post-video" id="sideMenuPostVideoItem">
+                        <button onclick="switchSubMenu('sub-post-video')">
+                            <span class="nav-icon">🎬</span>
+                            <span class="menu-title" id="sideMenuPostVideoTitle">Facebook Video Watch</span>
+                        </button>
+                    </li>
+                    <li class="menu-item menu-sub-item" data-sub-menu="sub-post-reels" id="sideMenuPostReelsItem">
+                        <button onclick="switchSubMenu('sub-post-reels')">
+                            <span class="nav-icon">⚡</span>
+                            <span class="menu-title" id="sideMenuPostReelsTitle">Facebook Reels</span>
+                        </button>
+                    </li>
+                    <li class="menu-item menu-sub-item" data-sub-menu="sub-post-story" id="sideMenuPostStoryItem">
+                        <button onclick="switchSubMenu('sub-post-story')">
+                            <span class="nav-icon">📖</span>
+                            <span class="menu-title" id="sideMenuPostStoryTitle">Facebook Story</span>
                         </button>
                     </li>
                     <li class="menu-item menu-sub-item" data-sub-menu="sub-api-doc" id="sideMenuApiDocItem">
@@ -1293,6 +1637,24 @@ Authorization: Bearer BW-PROJ-XXXXXX</pre>
                                         <td style="padding:6px; color:#a78bfa;">array[string]</td>
                                         <td style="padding:6px; color:var(--text-muted);">Không</td>
                                         <td style="padding:6px; color:var(--text-muted);">Mảng các bình luận seeding bắn mồi tự động</td>
+                                    </tr>
+                                    <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                                        <td style="padding:6px;"><code>scheduledAt</code></td>
+                                        <td style="padding:6px; color:#38bdf8;">string / int</td>
+                                        <td style="padding:6px; color:var(--text-muted);">Không</td>
+                                        <td style="padding:6px; color:var(--text-muted);">Hẹn giờ đăng (ISO 8601 hoặc timestamp ms)</td>
+                                    </tr>
+                                    <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                                        <td style="padding:6px;"><code>shareToStory</code></td>
+                                        <td style="padding:6px; color:#a78bfa;">boolean</td>
+                                        <td style="padding:6px; color:var(--text-muted);">Không</td>
+                                        <td style="padding:6px; color:var(--text-muted);">Chia sẻ lên Tin Story (mặc định: <code>true</code>)</td>
+                                    </tr>
+                                    <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                                        <td style="padding:6px;"><code>callbackUrl</code></td>
+                                        <td style="padding:6px; color:#a78bfa;">string</td>
+                                        <td style="padding:6px; color:var(--text-muted);">Không</td>
+                                        <td style="padding:6px; color:var(--text-muted);">Webhook URL nhận kết quả tự động</td>
                                     </tr>
                                     <tr>
                                         <td style="padding:6px;"><code>autoReactType</code></td>
@@ -1724,10 +2086,19 @@ Sản phẩm tuyệt vời quá</textarea>
                     <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
                         <span style="font-size:12px; font-weight:800; color:#38bdf8; margin-right:4px;">🚀 POST FACEBOOK:</span>
                         <button class="btn-sm active" style="background:#0284c7; color:#fff; font-weight:700; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-autopost')">
-                            ✍️ Soạn Thảo & Đăng Bài
+                            📝 Đăng Bài Viết Thường
+                        </button>
+                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-post-video')">
+                            🎬 Facebook Video Watch
+                        </button>
+                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-post-reels')">
+                            ⚡ Facebook Reels
+                        </button>
+                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-post-story')">
+                            📖 Facebook Story
                         </button>
                         <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-api-doc')">
-                            📖 Tài Liệu Endpoint API
+                            📖 Tài Liệu API
                         </button>
                     </div>
                     <div style="font-size:11px; color:#34d399; font-weight:600;">
@@ -1740,10 +2111,10 @@ Sản phẩm tuyệt vời quá</textarea>
                     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px;">
                         <div>
                             <h2 style="font-size:18px; font-weight:800; color:#fff; display:flex; align-items:center; gap:8px;">
-                                <span>🚀</span> <span id="autopostBannerTitle">Studio Đăng Bài Viết & Seeding Facebook Tự Động</span>
+                                <span>📝</span> <span id="autopostBannerTitle">Studio Đăng Bài Viết Thường & Đính Kèm Ảnh / Video</span>
                             </h2>
                             <p style="font-size:13px; color:#cbd5e1; margin-top:4px;" id="autopostBannerDesc">
-                                Soạn thảo bài đăng đa định dạng (Post, Video, Reels, Story), nạp tệp media trực tiếp hoặc link, tự động seeding bình luận và thả cảm xúc ngầm qua Direct GraphQL Engine.
+                                Soạn thảo bài đăng bảng tin (Feed) lên Profile, Fanpage hoặc Nhóm. Đính kèm nhiều ảnh hoặc video, Spintax {A|B|C} chống trùng lặp nội dung, tự động seeding bình luận và thả like cảm xúc ngầm.
                             </p>
                         </div>
                         <span class="badge-folder" style="background:rgba(52,211,153,0.2); color:#34d399; border:1px solid rgba(52,211,153,0.4); padding:6px 14px; font-size:12px;">
@@ -1785,31 +2156,10 @@ Sản phẩm tuyệt vời quá</textarea>
                         <span style="font-size:11px; color:var(--text-muted);">Hỗ trợ đa định dạng & Spintax</span>
                     </div>
 
-                    <!-- 1. CHỌN ĐỊNH DẠNG ĐĂNG BÀI (POST TYPE PILLS) -->
+                    <!-- 1. CHỌN ĐÍCH ĐĂNG (TARGET TYPE PILLS) -->
                     <div style="margin-bottom:14px;">
                         <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-bottom:6px; display:block;">
-                            📌 1. Định Dạng Bài Đăng Facebook:
-                        </label>
-                        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:10px;">
-                            <button type="button" class="type-pill-btn active" data-type="post" onclick="selectPostTypePill('post', this)">
-                                <span>📝</span> <span>Bài Viết Thường / Ảnh</span>
-                            </button>
-                            <button type="button" class="type-pill-btn" data-type="video" onclick="selectPostTypePill('video', this)">
-                                <span>🎬</span> <span>Facebook Video (Watch)</span>
-                            </button>
-                            <button type="button" class="type-pill-btn" data-type="reel" onclick="selectPostTypePill('reel', this)">
-                                <span>⚡</span> <span>Facebook Reels (Ngắn)</span>
-                            </button>
-                            <button type="button" class="type-pill-btn" data-type="story" onclick="selectPostTypePill('story', this)">
-                                <span>📖</span> <span>Facebook Story (24h)</span>
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- 2. CHỌN ĐÍCH ĐĂNG (TARGET TYPE PILLS) -->
-                    <div style="margin-bottom:14px;">
-                        <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-bottom:6px; display:block;">
-                            🎯 2. Đích Đăng Bài Viết (Target):
+                            🎯 1. Đích Đăng Bài Viết (Target):
                         </label>
                         <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap:10px; margin-bottom:10px;">
                             <button type="button" class="target-pill-btn active" data-target="profile" onclick="selectTargetTypePill('profile', this)">
@@ -1828,17 +2178,17 @@ Sản phẩm tuyệt vời quá</textarea>
                         </div>
                     </div>
 
-                    <!-- 3. TIÊU ĐỀ BÀI ĐĂNG (TÙY CHỌN) -->
+                    <!-- 2. TIÊU ĐỀ BÀI ĐĂNG (TÙY CHỌN) -->
                     <div style="margin-bottom:12px;">
-                        <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">📝 Tiêu Đề Bài Viết / Ghi Chú Chiến Dịch:</label>
+                        <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">📝 2. Tiêu Đề Bài Viết / Ghi Chú Chiến Dịch:</label>
                         <input type="text" id="postTitleInput" placeholder="Ví dụ: Bài đăng giới thiệu sản phẩm #01 / Flash Sale" />
                     </div>
 
-                    <!-- 4. NỘI DUNG VĂN BẢN (CAPTION & SPINTAX) -->
+                    <!-- 3. NỘI DUNG VĂN BẢN (CAPTION & SPINTAX) -->
                     <div style="margin-bottom:14px;">
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
                             <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">
-                                ✍️ Nội Dung Chi Tiết (Hỗ trợ Spintax {A|B|C}):
+                                ✍️ 3. Nội Dung Chi Tiết (Hỗ trợ Spintax {A|B|C}):
                             </label>
                             <div style="display:flex; gap:10px; align-items:center;">
                                 <button type="button" class="btn-sm" style="background:#1e293b; color:#38bdf8;" onclick="testSpintaxPreview()">🎲 Thử Xoay Spintax</button>
@@ -1848,10 +2198,10 @@ Sản phẩm tuyệt vời quá</textarea>
                         <textarea id="postContentInput" rows="5" placeholder="{Chào bạn|Hello quý khách|Hi cả nhà}! Hôm nay bên mình {giảm giá|ưu đãi khủng|tri ân khách hàng}...&#10;#sanpham #khuyenmai" oninput="updatePostCharCount(this)"></textarea>
                     </div>
 
-                    <!-- 5. TỆP MEDIA (HÌNH ẢNH / VIDEO) -->
+                    <!-- 4. TỆP MEDIA (HÌNH ẢNH / VIDEO) -->
                     <div style="margin-bottom:16px;">
                         <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-bottom:6px; display:block;">
-                            🖼️ 3. Tệp Hình Ảnh / Video (Media Attachment):
+                            🖼️ 4. Tệp Hình Ảnh / Video (Media Attachment):
                         </label>
                         <div style="display:flex; flex-direction:column; gap:10px;">
                             <!-- File Picker Dropzone -->
@@ -1878,11 +2228,11 @@ Sản phẩm tuyệt vời quá</textarea>
                         </div>
                     </div>
 
-                    <!-- 6. KỊCH BẢN BÌNH LUẬN SEEDING & CẢM XÚC -->
+                    <!-- 5. KỊCH BẢN BÌNH LUẬN SEEDING & CẢM XÚC -->
                     <div style="margin-bottom:16px; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.06); border-radius:12px; padding:14px;">
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
                             <label style="font-size:12px; font-weight:700; color:#34d399; display:flex; align-items:center; gap:6px;">
-                                <span>💬</span> <span>4. Kịch Bản Bình Luận Seeding Ngay Sau Khi Đăng:</span>
+                                <span>💬</span> <span>5. Kịch Bản Bình Luận Seeding Ngay Sau Khi Đăng:</span>
                             </label>
                             <div style="display:flex; gap:6px;">
                                 <button type="button" class="btn-sm" style="background:#1e293b; color:#a78bfa;" onclick="insertSeedingPreset('inquiry')">✨ Mẫu Hỏi Giá</button>
@@ -1913,14 +2263,45 @@ Sản phẩm tuyệt vời quá</textarea>
                         </div>
                     </div>
 
+                    <!-- 6. ĐẶT GIỜ ĐĂNG BÀI TỰ ĐỘNG (LÊN LỊCH HẸN GIỜ) -->
+                    <div style="margin-bottom:16px; background:rgba(15,23,42,0.6); border:1px solid #1e293b; border-radius:12px; padding:14px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
+                            <label style="font-size:12px; font-weight:700; color:#38bdf8; display:flex; align-items:center; gap:6px;">
+                                <span>⏰</span> <span>6. Đặt Giờ Đăng Bài Tự Động (Lên Lịch Hẹn Giờ):</span>
+                            </label>
+                            <span style="font-size:11px; color:var(--text-muted);">Tùy chọn — Để trống nếu muốn đăng ngay</span>
+                        </div>
+                        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">
+                            <input type="datetime-local" id="postScheduleTimeInput" style="max-width:240px; margin:0; padding:8px 12px; font-size:13px; font-weight:600;" />
+                            <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                                <button type="button" class="btn-sm" style="background:#1e293b; color:#38bdf8;" onclick="setSchedulePreset(15, 'postScheduleTimeInput')">+15 phút</button>
+                                <button type="button" class="btn-sm" style="background:#1e293b; color:#38bdf8;" onclick="setSchedulePreset(60, 'postScheduleTimeInput')">+1 giờ</button>
+                                <button type="button" class="btn-sm" style="background:#1e293b; color:#38bdf8;" onclick="setSchedulePreset(180, 'postScheduleTimeInput')">+3 giờ</button>
+                                <button type="button" class="btn-sm" style="background:#1e293b; color:#a78bfa;" onclick="setSchedulePresetNamed('tomorrow_morning', 'postScheduleTimeInput')">☀️ Sáng mai 8h</button>
+                                <button type="button" class="btn-sm" style="background:#1e293b; color:#f59e0b;" onclick="setSchedulePresetNamed('tonight_evening', 'postScheduleTimeInput')">🌙 Tối nay 20h</button>
+                                <button type="button" class="btn-sm btn-danger" style="padding:4px 8px;" onclick="clearScheduleTime('postScheduleTimeInput')" title="Xóa giờ hẹn">✕ Hủy Hẹn Giờ</button>
+                            </div>
+                        </div>
+                        <div id="autopostScheduleHint" style="font-size:11px; color:#94a3b8;">
+                            ℹ️ Để trống để phát lệnh ngay. Nếu chọn thời gian, bài sẽ được lưu vào hàng đợi và tự động kích hoạt đăng lên Facebook khi đến giờ hẹn.
+                        </div>
+                    </div>
+
                     <!-- SUBMIT BUTTONS -->
                     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
-                        <div style="display:flex; gap:10px; flex-wrap:wrap;">
-                            <button type="button" class="btn-green btn-lg" onclick="submitAutoPost(true)" style="background:linear-gradient(135deg,#059669,#10b981); box-shadow:0 4px 15px rgba(16,185,129,0.35);">
+                        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; background:rgba(30,41,59,0.7); padding:8px 14px; border-radius:8px; border:1px solid #334155; font-size:13px; font-weight:600; color:#38bdf8; user-select:none; transition:all 0.2s;" title="Tự động chia sẻ bài viết lên Bảng tin & Tin Story (theo mutation useCometFeedToStoryReshare trong sharetinfacebook.har)">
+                                <input type="checkbox" id="postShareToFeed" checked style="width:17px; height:17px; accent-color:#0284c7; cursor:pointer;" />
+                                <span>📰 Chia sẻ lên bảng tin / Tin (Story)</span>
+                            </label>
+                            <button type="button" class="btn-green btn-lg" onclick="submitAutoPost('now')" style="background:linear-gradient(135deg,#059669,#10b981); box-shadow:0 4px 15px rgba(16,185,129,0.35);">
                                 <span>🚀</span> <span>PHÁT LỆNH ĐĂNG BÀI & SEEDING NGAY</span>
                             </button>
-                            <button type="button" class="btn-purple btn-lg" onclick="submitAutoPost(false)">
-                                <span>➕</span> <span>Thêm Vào Hàng Đợi (Post Queue)</span>
+                            <button type="button" class="btn-purple btn-lg" onclick="submitAutoPost('schedule')" style="background:linear-gradient(135deg,#0284c7,#2563eb); box-shadow:0 4px 15px rgba(37,99,235,0.35);">
+                                <span>⏰</span> <span>LÊN LỊCH ĐĂNG (SCHEDULE)</span>
+                            </button>
+                            <button type="button" class="btn-purple btn-lg" onclick="submitAutoPost('queue')">
+                                <span>➕</span> <span>Thêm Vào Hàng Đợi (Lưu Nháp)</span>
                             </button>
                         </div>
                         <span id="autopostStatusText" style="font-size:13px; font-weight:700;"></span>
@@ -1943,8 +2324,9 @@ Sản phẩm tuyệt vời quá</textarea>
                     <!-- FILTER TABS -->
                     <div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
                         <button type="button" class="preset-chip active" id="filterBtnAll" onclick="setPostFilter('all', this)">🌐 Tất Cả</button>
+                        <button type="button" class="preset-chip" id="filterBtnScheduled" onclick="setPostFilter('scheduled', this)" style="border-color:#38bdf8; color:#38bdf8;">⏰ Đã Lên Lịch</button>
+                        <button type="button" class="preset-chip" id="filterBtnPending" onclick="setPostFilter('pending', this)">⏳ Chờ Lệnh / Đang Đăng</button>
                         <button type="button" class="preset-chip" id="filterBtnCompleted" onclick="setPostFilter('completed', this)">✅ Đã Đăng Thành Công</button>
-                        <button type="button" class="preset-chip" id="filterBtnPending" onclick="setPostFilter('pending', this)">⏳ Đang Chờ / Đang Đăng</button>
                         <button type="button" class="preset-chip" id="filterBtnFailed" onclick="setPostFilter('failed', this)">❌ Thất Bại</button>
                     </div>
 
@@ -1957,6 +2339,705 @@ Sản phẩm tuyệt vời quá</textarea>
                 </div>
             </section>
 
+            <!-- MENU TỰ ĐỘNG HÓA: FACEBOOK VIDEO WATCH -->
+            <section class="route-view" id="view-sub-post-video">
+                <!-- THANH CHUYỂN NHANH TRONG CHỨC NĂNG POST FACEBOOK -->
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; background:#070d1e; border:1px solid #1e293b; padding:8px 14px; border-radius:8px; flex-wrap:wrap; gap:10px;">
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <span style="font-size:12px; font-weight:800; color:#38bdf8; margin-right:4px;">🚀 POST FACEBOOK:</span>
+                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-autopost')">
+                            📝 Đăng Bài Viết Thường
+                        </button>
+                        <button class="btn-sm active" style="background:#0284c7; color:#fff; font-weight:700; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-post-video')">
+                            🎬 Facebook Video Watch
+                        </button>
+                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-post-reels')">
+                            ⚡ Facebook Reels
+                        </button>
+                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-post-story')">
+                            📖 Facebook Story
+                        </button>
+                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-api-doc')">
+                            📖 Tài Liệu API
+                        </button>
+                    </div>
+                    <div style="font-size:11px; color:#38bdf8; font-weight:600;">
+                        🎬 Facebook Video & Watch Vupload Engine
+                    </div>
+                </div>
+
+                <!-- BANNER -->
+                <div class="card" style="margin-bottom:20px; background:linear-gradient(135deg, #172554 0%, #1e3a8a 100%); border-color:#3b82f6;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px;">
+                        <div>
+                            <h2 style="font-size:18px; font-weight:800; color:#fff; display:flex; align-items:center; gap:8px;">
+                                <span>🎬</span> <span>Studio Đăng Facebook Video Watch & Video Dài</span>
+                            </h2>
+                            <p style="font-size:13px; color:#cbd5e1; margin-top:4px;">
+                                Đăng tải video dài chất lượng cao lên Facebook Watch, Fanpage hoặc Group. Xử lý qua giao thức Native Vupload-Edge 3 bước, tự động phân giải video, seeding tương tác.
+                            </p>
+                        </div>
+                        <span class="badge-folder" style="background:rgba(59,130,246,0.25); color:#60a5fa; border:1px solid rgba(59,130,246,0.4); padding:6px 14px; font-size:12px;">
+                            ⚡ NATIVE VUPLOAD PROTOCOL
+                        </span>
+                    </div>
+                </div>
+
+                <!-- 4 KPI CARDS -->
+                <div class="grid-cards" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:14px; margin-bottom:20px;">
+                    <div class="card" style="border-color:#38bdf8;">
+                        <div class="card-title">🎬 Tổng Video Watch</div>
+                        <div class="card-value" id="kpiTotalVideoPosts" style="color:#38bdf8;">0</div>
+                        <div class="card-sub">Tổng số video trong dự án</div>
+                    </div>
+                    <div class="card" style="border-color:#fbbf24;">
+                        <div class="card-title">⏳ Đang Chờ / Đang Upload</div>
+                        <div class="card-value" id="kpiPendingVideoPosts" style="color:#fbbf24;">0</div>
+                        <div class="card-sub">Video đang chờ xử lý</div>
+                    </div>
+                    <div class="card" style="border-color:#34d399;">
+                        <div class="card-title">✅ Đã Đăng Thành Công</div>
+                        <div class="card-value" id="kpiCompletedVideoPosts" style="color:#34d399;">0</div>
+                        <div class="card-sub">Video đã xuất bản lên Watch</div>
+                    </div>
+                    <div class="card" style="border-color:#a855f7;">
+                        <div class="card-title">💬 Bình Luận Seeding</div>
+                        <div class="card-value" id="kpiTotalVideoSeeding" style="color:#a855f7;">0</div>
+                        <div class="card-sub">Tổng câu seeding cho Video</div>
+                    </div>
+                </div>
+
+                <!-- SOẠN THẢO VIDEO WATCH -->
+                <div class="card" style="margin-bottom:24px; border-color:#202d46;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                        <h3 style="font-size:16px; color:#60a5fa; margin:0; display:flex; align-items:center; gap:8px;">
+                            <span>🎬</span> <span>Soạn Thảo Video Watch Mới</span>
+                        </h3>
+                        <span style="font-size:11px; color:var(--text-muted);">Giao thức tải lên Vupload-Edge 3 bước</span>
+                    </div>
+
+                    <!-- 1. ĐÍCH ĐĂNG (TARGET) -->
+                    <div style="margin-bottom:14px;">
+                        <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-bottom:6px; display:block;">
+                            🎯 1. Đích Đăng Video (Target):
+                        </label>
+                        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap:10px; margin-bottom:10px;">
+                            <button type="button" class="target-pill-btn active" data-target="profile" onclick="selectCustomTargetPill('video', 'profile', this)">
+                                <span>👤</span> <span>Trang Cá Nhân (Watch)</span>
+                            </button>
+                            <button type="button" class="target-pill-btn" data-target="page" onclick="selectCustomTargetPill('video', 'page', this)">
+                                <span>🚩</span> <span>Fanpage Quản Lý</span>
+                            </button>
+                            <button type="button" class="target-pill-btn" data-target="group" onclick="selectCustomTargetPill('video', 'group', this)">
+                                <span>👥</span> <span>Nhóm Facebook (Group)</span>
+                            </button>
+                        </div>
+                        <div id="videoTargetIdContainer" style="display:none;">
+                            <label style="font-size:11px; font-weight:700; color:var(--accent); text-transform:uppercase;">ID Nhóm hoặc Fanpage Đích (Target ID):</label>
+                            <input type="text" id="videoTargetIdInput" placeholder="Ví dụ: 123456789012345 (Group ID hoặc Page ID)" style="margin-top:4px;" />
+                        </div>
+                    </div>
+
+                    <!-- 2. TIÊU ĐỀ VIDEO WATCH -->
+                    <div style="margin-bottom:12px;">
+                        <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">🎬 2. Tiêu Đề Video (Hiển Thị Trên Facebook Watch):</label>
+                        <input type="text" id="videoTitleInput" placeholder="Nhập tiêu đề hấp dẫn cho Video Watch..." />
+                    </div>
+
+                    <!-- 3. TỆP VIDEO -->
+                    <div style="margin-bottom:16px;">
+                        <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-bottom:6px; display:block;">
+                            📁 3. Tệp Video (.mp4, .mov, .mkv &le; 100MB):
+                        </label>
+                        <div style="display:flex; flex-direction:column; gap:10px;">
+                            <div id="videoDropZone" class="dropzone" onclick="document.getElementById('videoFileInput').click()">
+                                <div id="videoPreview" style="display:none; width:100%; max-height:220px; overflow:hidden; border-radius:10px; margin-bottom:8px;"></div>
+                                <div id="videoDropText">
+                                    <div class="btn" style="background:linear-gradient(135deg,#2563eb,#1d4ed8); pointer-events:none; padding:8px 20px; font-weight:700;">
+                                        📁 CHỌN TỆP VIDEO TỪ MÁY
+                                    </div>
+                                    <div style="font-size:12px; color:var(--text-muted); margin-top:6px;">Kéo thả tệp video vào đây hoặc bấm để chọn (MP4, MOV, MKV &le; 100MB)</div>
+                                </div>
+                                <input type="file" id="videoFileInput" accept="video/*,.mp4,.mov,.mkv,.avi" style="display:none;" onchange="handleCustomMediaFile('video', this.files[0])">
+                            </div>
+
+                            <div id="videoFileInfo" style="display:none; padding:8px 12px; background:rgba(59,130,246,0.12); border:1px solid rgba(59,130,246,0.3); border-radius:8px; align-items:center; justify-content:space-between;">
+                                <span id="videoFileName" style="font-size:12px; color:#60a5fa; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:80%;"></span>
+                                <button type="button" class="btn-sm btn-danger" onclick="clearCustomMedia('video')" style="padding:3px 8px;">✕ Xóa File</button>
+                            </div>
+
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <span style="font-size:11px; color:var(--text-muted); white-space:nowrap;">Hoặc Dán Link Video URL:</span>
+                                <input type="url" id="videoMediaInput" placeholder="https://domain.com/video.mp4 direct link" style="margin:0;" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 4. MÔ TẢ / CAPTION VIDEO -->
+                    <div style="margin-bottom:14px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                            <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">
+                                ✍️ 4. Mô Tả Nội Dung Video (Hỗ trợ Spintax {A|B|C}):
+                            </label>
+                            <button type="button" class="btn-sm" style="background:#1e293b; color:#38bdf8;" onclick="testSpintaxForEl('videoContentInput')">🎲 Thử Xoay Spintax</button>
+                        </div>
+                        <textarea id="videoContentInput" rows="4" placeholder="{Xem ngay|Cực hot|Đừng bỏ lỡ}! Nội dung video hôm nay...&#10;#watch #video #viral"></textarea>
+                    </div>
+
+                    <!-- 5. KỊCH BẢN SEEDING & AUTO-REACT -->
+                    <div style="margin-bottom:16px; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.06); border-radius:12px; padding:14px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
+                            <label style="font-size:12px; font-weight:700; color:#34d399; display:flex; align-items:center; gap:6px;">
+                                <span>💬</span> <span>5. Bình Luận Seeding Video Tự Động:</span>
+                            </label>
+                            <div style="display:flex; gap:6px;">
+                                <button type="button" class="btn-sm" style="background:#1e293b; color:#a78bfa;" onclick="insertCustomSeedingPreset('video', 'inquiry')">✨ Mẫu Hỏi Giá</button>
+                                <button type="button" class="btn-sm" style="background:#1e293b; color:#34d399;" onclick="insertCustomSeedingPreset('video', 'feedback')">✨ Mẫu Khen Video</button>
+                                <button type="button" class="btn-sm" style="background:#1e293b; color:#94a3b8;" onclick="insertCustomSeedingPreset('video', 'clear')">✕ Xóa</button>
+                            </div>
+                        </div>
+                        <textarea id="videoSeedingInput" rows="3" placeholder="💬 Mỗi dòng một bình luận seeding cho video...&#10;Video hay quá shop ơi!&#10;Chia sẻ thêm nhiều nội dung như này nhé!"></textarea>
+
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-top:8px;">
+                            <div>
+                                <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">❤️ Thả Cảm Xúc Tự Động (Auto-React):</label>
+                                <select id="videoAutoReactInput" style="margin:4px 0 0 0;">
+                                    <option value="LIKE" selected>👍 LIKE (Thích)</option>
+                                    <option value="LOVE">❤️ LOVE (Yêu thích)</option>
+                                    <option value="CARE">🥰 CARE (Thương thương)</option>
+                                    <option value="HAHA">😆 HAHA (Cười)</option>
+                                    <option value="WOW">😮 WOW (Ngạc nhiên)</option>
+                                    <option value="NONE">🚫 Không thả cảm xúc</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">🎯 URL Đích (Tùy chọn):</label>
+                                <input type="text" id="videoTargetUrlInput" placeholder="https://www.facebook.com" style="margin:4px 0 0 0;" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 6. ĐẶT GIỜ ĐĂNG VIDEO TỰ ĐỘNG (LÊN LỊCH HẸN GIỜ) -->
+                    <div style="margin-bottom:16px; background:rgba(15,23,42,0.6); border:1px solid #1e293b; border-radius:12px; padding:14px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
+                            <label style="font-size:12px; font-weight:700; color:#38bdf8; display:flex; align-items:center; gap:6px;">
+                                <span>⏰</span> <span>6. Đặt Giờ Đăng Video Watch (Lên Lịch Hẹn Giờ):</span>
+                            </label>
+                            <span style="font-size:11px; color:var(--text-muted);">Tùy chọn — Để trống nếu muốn đăng ngay</span>
+                        </div>
+                        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">
+                            <input type="datetime-local" id="videoScheduleTimeInput" style="max-width:240px; margin:0; padding:8px 12px; font-size:13px; font-weight:600;" />
+                            <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                                <button type="button" class="btn-sm" style="background:#1e293b; color:#38bdf8;" onclick="setSchedulePreset(15, 'videoScheduleTimeInput')">+15 phút</button>
+                                <button type="button" class="btn-sm" style="background:#1e293b; color:#38bdf8;" onclick="setSchedulePreset(60, 'videoScheduleTimeInput')">+1 giờ</button>
+                                <button type="button" class="btn-sm" style="background:#1e293b; color:#38bdf8;" onclick="setSchedulePreset(180, 'videoScheduleTimeInput')">+3 giờ</button>
+                                <button type="button" class="btn-sm" style="background:#1e293b; color:#a78bfa;" onclick="setSchedulePresetNamed('tomorrow_morning', 'videoScheduleTimeInput')">☀️ Sáng mai 8h</button>
+                                <button type="button" class="btn-sm" style="background:#1e293b; color:#f59e0b;" onclick="setSchedulePresetNamed('tonight_evening', 'videoScheduleTimeInput')">🌙 Tối nay 20h</button>
+                                <button type="button" class="btn-sm btn-danger" style="padding:4px 8px;" onclick="clearScheduleTime('videoScheduleTimeInput')" title="Xóa giờ hẹn">✕ Hủy Hẹn Giờ</button>
+                            </div>
+                        </div>
+                        <div id="videoScheduleHint" style="font-size:11px; color:#94a3b8;">
+                            ℹ️ Để trống để phát lệnh ngay. Nếu chọn thời gian, video sẽ được lưu vào hàng đợi và tự động đăng lên Facebook khi đến giờ hẹn.
+                        </div>
+                    </div>
+
+                    <!-- SUBMIT BUTTONS -->
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; background:rgba(30,41,59,0.7); padding:8px 14px; border-radius:8px; border:1px solid #334155; font-size:13px; font-weight:600; color:#38bdf8; user-select:none; transition:all 0.2s;" title="Tự động chia sẻ video lên Bảng tin & Tin Story (theo mutation useCometFeedToStoryReshare trong sharetinfacebook.har)">
+                                <input type="checkbox" id="videoShareToFeed" checked style="width:17px; height:17px; accent-color:#0284c7; cursor:pointer;" />
+                                <span>📰 Chia sẻ lên bảng tin / Tin (Story)</span>
+                            </label>
+                            <button type="button" class="btn-green btn-lg" onclick="submitCustomPost('video', 'video', 'now')" style="background:linear-gradient(135deg,#1d4ed8,#2563eb); box-shadow:0 4px 15px rgba(37,99,235,0.35);">
+                                <span>🎬</span> <span>PHÁT LỆNH ĐĂNG VIDEO WATCH NGAY</span>
+                            </button>
+                            <button type="button" class="btn-purple btn-lg" onclick="submitCustomPost('video', 'video', 'schedule')" style="background:linear-gradient(135deg,#0284c7,#2563eb); box-shadow:0 4px 15px rgba(37,99,235,0.35);">
+                                <span>⏰</span> <span>LÊN LỊCH ĐĂNG VIDEO</span>
+                            </button>
+                            <button type="button" class="btn-purple btn-lg" onclick="submitCustomPost('video', 'video', 'queue')">
+                                <span>➕</span> <span>Thêm Vào Hàng Đợi (Lưu Nháp)</span>
+                            </button>
+                        </div>
+                        <span id="videoStatusText" style="font-size:13px; font-weight:700;"></span>
+                    </div>
+                </div>
+
+                <!-- QUẢN LÝ VIDEO WATCH -->
+                <div class="card" style="border-color:#202d46;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:12px;">
+                        <h4 style="font-size:16px; color:#fff; margin:0; display:flex; align-items:center; gap:8px;">
+                            <span>🎬</span> <span>Danh Sách Video Watch Đã Đăng & Hàng Đợi</span>
+                            <span class="badge-folder" style="background:rgba(59,130,246,0.2); color:#60a5fa; border:1px solid rgba(59,130,246,0.4);" id="videoQueueCountBadge">0 Video</span>
+                        </h4>
+                        <div style="display:flex; gap:8px; align-items:center; min-width:260px;">
+                            <input type="text" placeholder="🔍 Tìm video theo tiêu đề, ID..." oninput="filterPostList(this.value)" style="margin:0; padding:6px 12px; font-size:12px;" />
+                        </div>
+                    </div>
+
+                    <!-- FILTER TABS -->
+                    <div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
+                        <button type="button" class="preset-chip active" onclick="setPostFilter('all', this)">🌐 Tất Cả</button>
+                        <button type="button" class="preset-chip" onclick="setPostFilter('scheduled', this)" style="border-color:#38bdf8; color:#38bdf8;">⏰ Đã Lên Lịch</button>
+                        <button type="button" class="preset-chip" onclick="setPostFilter('pending', this)">⏳ Chờ Lệnh / Đang Đăng</button>
+                        <button type="button" class="preset-chip" onclick="setPostFilter('completed', this)">✅ Đã Đăng Thành Công</button>
+                        <button type="button" class="preset-chip" onclick="setPostFilter('failed', this)">❌ Thất Bại</button>
+                    </div>
+                    <div id="videoPostQueueTableContainer">
+                        <div style="color:var(--text-muted); font-size:13px; padding:32px 20px; text-align:center;">
+                            Chưa có Video Watch nào trong hàng đợi.
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- MENU TỰ ĐỘNG HÓA: FACEBOOK REELS -->
+            <section class="route-view" id="view-sub-post-reels">
+                <!-- THANH CHUYỂN NHANH TRONG CHỨC NĂNG POST FACEBOOK -->
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; background:#070d1e; border:1px solid #1e293b; padding:8px 14px; border-radius:8px; flex-wrap:wrap; gap:10px;">
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <span style="font-size:12px; font-weight:800; color:#38bdf8; margin-right:4px;">🚀 POST FACEBOOK:</span>
+                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-autopost')">
+                            📝 Đăng Bài Viết Thường
+                        </button>
+                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-post-video')">
+                            🎬 Facebook Video Watch
+                        </button>
+                        <button class="btn-sm active" style="background:#0284c7; color:#fff; font-weight:700; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-post-reels')">
+                            ⚡ Facebook Reels
+                        </button>
+                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-post-story')">
+                            📖 Facebook Story
+                        </button>
+                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-api-doc')">
+                            📖 Tài Liệu API
+                        </button>
+                    </div>
+                    <div style="font-size:11px; color:#eab308; font-weight:600;">
+                        ⚡ Facebook Reels Composer Flow
+                    </div>
+                </div>
+
+                <!-- BANNER -->
+                <div class="card" style="margin-bottom:20px; background:linear-gradient(135deg, #422006 0%, #713f12 100%); border-color:#eab308;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px;">
+                        <div>
+                            <h2 style="font-size:18px; font-weight:800; color:#fff; display:flex; align-items:center; gap:8px;">
+                                <span>⚡</span> <span>Studio Đăng Facebook Reels (Thước Phim Ngắn)</span>
+                            </h2>
+                            <p style="font-size:13px; color:#cbd5e1; margin-top:4px;">
+                                Sáng tạo và xuất bản Thước phim Reels định dạng dọc (9:16) lên Trang cá nhân hoặc Fanpage. Tự động bật âm thanh gốc, seeding bình luận kéo lượt xem đề xuất.
+                            </p>
+                        </div>
+                        <span class="badge-folder" style="background:rgba(234,179,8,0.25); color:#facc15; border:1px solid rgba(234,179,8,0.4); padding:6px 14px; font-size:12px;">
+                            ⚡ REELS COMPOSER ENGINE
+                        </span>
+                    </div>
+                </div>
+
+                <!-- 4 KPI CARDS -->
+                <div class="grid-cards" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:14px; margin-bottom:20px;">
+                    <div class="card" style="border-color:#facc15;">
+                        <div class="card-title">⚡ Tổng Thước Phim Reels</div>
+                        <div class="card-value" id="kpiTotalReelsPosts" style="color:#facc15;">0</div>
+                        <div class="card-sub">Tổng số Reels trong dự án</div>
+                    </div>
+                    <div class="card" style="border-color:#fbbf24;">
+                        <div class="card-title">⏳ Đang Chờ / Đang Đăng</div>
+                        <div class="card-value" id="kpiPendingReelsPosts" style="color:#fbbf24;">0</div>
+                        <div class="card-sub">Reels đang xử lý</div>
+                    </div>
+                    <div class="card" style="border-color:#34d399;">
+                        <div class="card-title">✅ Đã Đăng Thành Công</div>
+                        <div class="card-value" id="kpiCompletedReelsPosts" style="color:#34d399;">0</div>
+                        <div class="card-sub">Đã xuất bản lên Reels</div>
+                    </div>
+                    <div class="card" style="border-color:#a855f7;">
+                        <div class="card-title">💬 Bình Luận Seeding</div>
+                        <div class="card-value" id="kpiTotalReelsSeeding" style="color:#a855f7;">0</div>
+                        <div class="card-sub">Tổng bình luận seeding Reels</div>
+                    </div>
+                </div>
+
+                <!-- SOẠN THẢO REELS -->
+                <div class="card" style="margin-bottom:24px; border-color:#202d46;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                        <h3 style="font-size:16px; color:#facc15; margin:0; display:flex; align-items:center; gap:8px;">
+                            <span>⚡</span> <span>Tạo Thước Phim Facebook Reels Mới</span>
+                        </h3>
+                        <span style="font-size:11px; color:var(--text-muted);">Tỉ lệ chuẩn 9:16 (1080x1920)</span>
+                    </div>
+
+                    <!-- 1. ĐÍCH ĐĂNG (TARGET) -->
+                    <div style="margin-bottom:14px;">
+                        <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-bottom:6px; display:block;">
+                            🎯 1. Đích Đăng Reels:
+                        </label>
+                        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap:10px; margin-bottom:10px;">
+                            <button type="button" class="target-pill-btn active" data-target="profile" onclick="selectCustomTargetPill('reels', 'profile', this)">
+                                <span>👤</span> <span>Trang Cá Nhân (Reels)</span>
+                            </button>
+                            <button type="button" class="target-pill-btn" data-target="page" onclick="selectCustomTargetPill('reels', 'page', this)">
+                                <span>🚩</span> <span>Fanpage Reels</span>
+                            </button>
+                        </div>
+                        <div id="reelsTargetIdContainer" style="display:none;">
+                            <label style="font-size:11px; font-weight:700; color:var(--accent); text-transform:uppercase;">ID Fanpage Đích (Page ID):</label>
+                            <input type="text" id="reelsTargetIdInput" placeholder="Ví dụ: 123456789012345" style="margin-top:4px;" />
+                        </div>
+                    </div>
+
+                    <!-- 2. TỆP VIDEO REELS DỌC -->
+                    <div style="margin-bottom:16px;">
+                        <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-bottom:6px; display:block;">
+                            🎬 2. Tệp Video Reels Dọc 9:16 (MP4, MOV &le; 100MB):
+                        </label>
+                        <div style="display:flex; flex-direction:column; gap:10px;">
+                            <div id="reelsDropZone" class="dropzone" onclick="document.getElementById('reelsFileInput').click()">
+                                <div id="reelsPreview" style="display:none; width:100%; max-height:220px; overflow:hidden; border-radius:10px; margin-bottom:8px;"></div>
+                                <div id="reelsDropText">
+                                    <div class="btn" style="background:linear-gradient(135deg,#ca8a04,#eab308); pointer-events:none; padding:8px 20px; font-weight:700; color:#000;">
+                                        📁 CHỌN VIDEO REELS DỌC
+                                    </div>
+                                    <div style="font-size:12px; color:var(--text-muted); margin-top:6px;">Khuyên dùng video dọc 9:16, thời lượng 15s - 90s (.mp4, .mov)</div>
+                                </div>
+                                <input type="file" id="reelsFileInput" accept="video/*,.mp4,.mov" style="display:none;" onchange="handleCustomMediaFile('reels', this.files[0])">
+                            </div>
+
+                            <div id="reelsFileInfo" style="display:none; padding:8px 12px; background:rgba(234,179,8,0.12); border:1px solid rgba(234,179,8,0.3); border-radius:8px; align-items:center; justify-content:space-between;">
+                                <span id="reelsFileName" style="font-size:12px; color:#facc15; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:80%;"></span>
+                                <button type="button" class="btn-sm btn-danger" onclick="clearCustomMedia('reels')" style="padding:3px 8px;">✕ Xóa File</button>
+                            </div>
+
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <span style="font-size:11px; color:var(--text-muted); white-space:nowrap;">Hoặc Dán Link URL:</span>
+                                <input type="url" id="reelsMediaInput" placeholder="https://domain.com/reels.mp4 direct link" style="margin:0;" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3. CAPTION REELS -->
+                    <div style="margin-bottom:14px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                            <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">
+                                ✍️ 3. Caption Thước Phim & Hashtags (Spintax {A|B|C}):
+                            </label>
+                            <button type="button" class="btn-sm" style="background:#1e293b; color:#38bdf8;" onclick="testSpintaxForEl('reelsContentInput')">🎲 Thử Xoay Spintax</button>
+                        </div>
+                        <input type="text" id="reelsTitleInput" placeholder="Tiêu đề / Ghi chú Reels (tùy chọn)" style="margin-bottom:8px;" />
+                        <textarea id="reelsContentInput" rows="3" placeholder="{Bật mí|Siêu phẩm|Đỉnh chóp}! Xem ngay mẹo này...&#10;#reels #reelsfb #trending #viral #xuhuong"></textarea>
+                    </div>
+
+                    <!-- 4. SEEDING & AUTO-REACT -->
+                    <div style="margin-bottom:16px; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.06); border-radius:12px; padding:14px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
+                            <label style="font-size:12px; font-weight:700; color:#34d399; display:flex; align-items:center; gap:6px;">
+                                <span>💬</span> <span>4. Bình Luận Seeding Reels Tự Động:</span>
+                            </label>
+                            <div style="display:flex; gap:6px;">
+                                <button type="button" class="btn-sm" style="background:#1e293b; color:#a78bfa;" onclick="insertCustomSeedingPreset('reels', 'feedback')">✨ Mẫu Khen Reels</button>
+                                <button type="button" class="btn-sm" style="background:#1e293b; color:#94a3b8;" onclick="insertCustomSeedingPreset('reels', 'clear')">✕ Xóa</button>
+                            </div>
+                        </div>
+                        <textarea id="reelsSeedingInput" rows="2" placeholder="💬 Bình luận seeding kéo tương tác Reels...&#10;Video đỉnh quá ạ!&#10;Kênh làm nội dung chất lượng ghê"></textarea>
+
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-top:8px;">
+                            <div>
+                                <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">❤️ Thả Cảm Xúc Tự Động:</label>
+                                <select id="reelsAutoReactInput" style="margin:4px 0 0 0;">
+                                    <option value="LOVE" selected>❤️ LOVE (Yêu thích)</option>
+                                    <option value="LIKE">👍 LIKE (Thích)</option>
+                                    <option value="CARE">🥰 CARE (Thương thương)</option>
+                                    <option value="HAHA">😆 HAHA (Cười)</option>
+                                    <option value="NONE">🚫 Không thả cảm xúc</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">🎯 URL Đích (Mặc định Facebook Reels):</label>
+                                <input type="text" id="reelsTargetUrlInput" value="https://www.facebook.com/reels/create" style="margin:4px 0 0 0;" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 5. ĐẶT GIỜ ĐĂNG REELS TỰ ĐỘNG (LÊN LỊCH HẸN GIỜ) -->
+                    <div style="margin-bottom:16px; background:rgba(15,23,42,0.6); border:1px solid #1e293b; border-radius:12px; padding:14px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
+                            <label style="font-size:12px; font-weight:700; color:#facc15; display:flex; align-items:center; gap:6px;">
+                                <span>⏰</span> <span>5. Đặt Giờ Đăng Facebook Reels (Lên Lịch Hẹn Giờ):</span>
+                            </label>
+                            <span style="font-size:11px; color:var(--text-muted);">Tùy chọn — Để trống nếu muốn đăng ngay</span>
+                        </div>
+                        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">
+                            <input type="datetime-local" id="reelsScheduleTimeInput" style="max-width:240px; margin:0; padding:8px 12px; font-size:13px; font-weight:600;" />
+                            <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                                <button type="button" class="btn-sm" style="background:#1e293b; color:#38bdf8;" onclick="setSchedulePreset(15, 'reelsScheduleTimeInput')">+15 phút</button>
+                                <button type="button" class="btn-sm" style="background:#1e293b; color:#38bdf8;" onclick="setSchedulePreset(60, 'reelsScheduleTimeInput')">+1 giờ</button>
+                                <button type="button" class="btn-sm" style="background:#1e293b; color:#38bdf8;" onclick="setSchedulePreset(180, 'reelsScheduleTimeInput')">+3 giờ</button>
+                                <button type="button" class="btn-sm" style="background:#1e293b; color:#a78bfa;" onclick="setSchedulePresetNamed('tomorrow_morning', 'reelsScheduleTimeInput')">☀️ Sáng mai 8h</button>
+                                <button type="button" class="btn-sm" style="background:#1e293b; color:#f59e0b;" onclick="setSchedulePresetNamed('tonight_evening', 'reelsScheduleTimeInput')">🌙 Tối nay 20h</button>
+                                <button type="button" class="btn-sm btn-danger" style="padding:4px 8px;" onclick="clearScheduleTime('reelsScheduleTimeInput')" title="Xóa giờ hẹn">✕ Hủy Hẹn Giờ</button>
+                            </div>
+                        </div>
+                        <div id="reelsScheduleHint" style="font-size:11px; color:#94a3b8;">
+                            ℹ️ Để trống để phát lệnh ngay. Nếu chọn thời gian, Reels sẽ được lưu vào hàng đợi và tự động xuất bản lên Facebook khi đến giờ hẹn.
+                        </div>
+                    </div>
+
+                    <!-- SUBMIT BUTTONS -->
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; background:rgba(30,41,59,0.7); padding:8px 14px; border-radius:8px; border:1px solid #334155; font-size:13px; font-weight:600; color:#38bdf8; user-select:none; transition:all 0.2s;" title="Tự động chia sẻ Reels lên Bảng tin & Tin Story (theo mutation useCometFeedToStoryReshare trong sharetinfacebook.har)">
+                                <input type="checkbox" id="reelsShareToFeed" checked style="width:17px; height:17px; accent-color:#0284c7; cursor:pointer;" />
+                                <span>📰 Chia sẻ lên bảng tin / Tin (Story)</span>
+                            </label>
+                            <button type="button" class="btn-green btn-lg" onclick="submitCustomPost('reel', 'reels', 'now')" style="background:linear-gradient(135deg,#d97706,#f59e0b); box-shadow:0 4px 15px rgba(245,158,11,0.35); color:#000;">
+                                <span>⚡</span> <span>PHÁT LỆNH ĐĂNG REELS NGAY</span>
+                            </button>
+                            <button type="button" class="btn-purple btn-lg" onclick="submitCustomPost('reel', 'reels', 'schedule')" style="background:linear-gradient(135deg,#0284c7,#2563eb); box-shadow:0 4px 15px rgba(37,99,235,0.35);">
+                                <span>⏰</span> <span>LÊN LỊCH ĐĂNG REELS</span>
+                            </button>
+                            <button type="button" class="btn-purple btn-lg" onclick="submitCustomPost('reel', 'reels', 'queue')">
+                                <span>➕</span> <span>Thêm Reels Vào Hàng Đợi (Lưu Nháp)</span>
+                            </button>
+                        </div>
+                        <span id="reelsStatusText" style="font-size:13px; font-weight:700;"></span>
+                    </div>
+                </div>
+
+                <!-- QUẢN LÝ REELS -->
+                <div class="card" style="border-color:#202d46;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:12px;">
+                        <h4 style="font-size:16px; color:#fff; margin:0; display:flex; align-items:center; gap:8px;">
+                            <span>⚡</span> <span>Danh Sách Reels Đã Đăng & Hàng Đợi</span>
+                            <span class="badge-folder" style="background:rgba(234,179,8,0.2); color:#facc15; border:1px solid rgba(234,179,8,0.4);" id="reelsQueueCountBadge">0 Reels</span>
+                        </h4>
+                        <div style="display:flex; gap:8px; align-items:center; min-width:260px;">
+                            <input type="text" placeholder="🔍 Tìm reels theo tiêu đề, ID..." oninput="filterPostList(this.value)" style="margin:0; padding:6px 12px; font-size:12px;" />
+                        </div>
+                    </div>
+
+                    <!-- FILTER TABS -->
+                    <div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
+                        <button type="button" class="preset-chip active" onclick="setPostFilter('all', this)">🌐 Tất Cả</button>
+                        <button type="button" class="preset-chip" onclick="setPostFilter('scheduled', this)" style="border-color:#38bdf8; color:#38bdf8;">⏰ Đã Lên Lịch</button>
+                        <button type="button" class="preset-chip" onclick="setPostFilter('pending', this)">⏳ Chờ Lệnh / Đang Đăng</button>
+                        <button type="button" class="preset-chip" onclick="setPostFilter('completed', this)">✅ Đã Đăng Thành Công</button>
+                        <button type="button" class="preset-chip" onclick="setPostFilter('failed', this)">❌ Thất Bại</button>
+                    </div>
+                    <div id="reelsPostQueueTableContainer">
+                        <div style="color:var(--text-muted); font-size:13px; padding:32px 20px; text-align:center;">
+                            Chưa có Reels nào trong hàng đợi.
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- MENU TỰ ĐỘNG HÓA: FACEBOOK STORY -->
+            <section class="route-view" id="view-sub-post-story">
+                <!-- THANH CHUYỂN NHANH TRONG CHỨC NĂNG POST FACEBOOK -->
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; background:#070d1e; border:1px solid #1e293b; padding:8px 14px; border-radius:8px; flex-wrap:wrap; gap:10px;">
+                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <span style="font-size:12px; font-weight:800; color:#38bdf8; margin-right:4px;">🚀 POST FACEBOOK:</span>
+                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-autopost')">
+                            📝 Đăng Bài Viết Thường
+                        </button>
+                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-post-video')">
+                            🎬 Facebook Video Watch
+                        </button>
+                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-post-reels')">
+                            ⚡ Facebook Reels
+                        </button>
+                        <button class="btn-sm active" style="background:#0284c7; color:#fff; font-weight:700; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-post-story')">
+                            📖 Facebook Story
+                        </button>
+                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-api-doc')">
+                            📖 Tài Liệu API
+                        </button>
+                    </div>
+                    <div style="font-size:11px; color:#ec4899; font-weight:600;">
+                        📖 Facebook Stories 24h Engine
+                    </div>
+                </div>
+
+                <!-- BANNER -->
+                <div class="card" style="margin-bottom:20px; background:linear-gradient(135deg, #500724 0%, #831843 100%); border-color:#ec4899;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px;">
+                        <div>
+                            <h2 style="font-size:18px; font-weight:800; color:#fff; display:flex; align-items:center; gap:8px;">
+                                <span>📖</span> <span>Studio Đăng Facebook Story (Bản Tin 24 Giờ)</span>
+                            </h2>
+                            <p style="font-size:13px; color:#cbd5e1; margin-top:4px;">
+                                Đăng tải bản tin Story tự biến mất sau 24h cho Trang cá nhân hoặc Fanpage. Xuất hiện nổi bật ngay đầu trang chủ của bạn bè và khách hàng tiềm năng.
+                            </p>
+                        </div>
+                        <span class="badge-folder" style="background:rgba(236,72,153,0.25); color:#f472b6; border:1px solid rgba(236,72,153,0.4); padding:6px 14px; font-size:12px;">
+                            ⚡ STORY COMPOSER MUTATION
+                        </span>
+                    </div>
+                </div>
+
+                <!-- 4 KPI CARDS -->
+                <div class="grid-cards" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:14px; margin-bottom:20px;">
+                    <div class="card" style="border-color:#ec4899;">
+                        <div class="card-title">📖 Tổng Bản Tin Story</div>
+                        <div class="card-value" id="kpiTotalStoryPosts" style="color:#ec4899;">0</div>
+                        <div class="card-sub">Tổng số Story trong dự án</div>
+                    </div>
+                    <div class="card" style="border-color:#fbbf24;">
+                        <div class="card-title">⏳ Đang Chờ / Đang Đăng</div>
+                        <div class="card-value" id="kpiPendingStoryPosts" style="color:#fbbf24;">0</div>
+                        <div class="card-sub">Story đang xử lý</div>
+                    </div>
+                    <div class="card" style="border-color:#34d399;">
+                        <div class="card-title">✅ Đã Đăng Thành Công</div>
+                        <div class="card-value" id="kpiCompletedStoryPosts" style="color:#34d399;">0</div>
+                        <div class="card-sub">Story đang phát trực tiếp 24h</div>
+                    </div>
+                    <div class="card" style="border-color:#38bdf8;">
+                        <div class="card-title">⏱️ Chu Kỳ Hiển Thị</div>
+                        <div class="card-value" style="color:#38bdf8; font-size:18px;">24 GIỜ</div>
+                        <div class="card-sub">Tự động lưu trữ sau 24h</div>
+                    </div>
+                </div>
+
+                <!-- SOẠN THẢO STORY -->
+                <div class="card" style="margin-bottom:24px; border-color:#202d46;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                        <h3 style="font-size:16px; color:#f472b6; margin:0; display:flex; align-items:center; gap:8px;">
+                            <span>📖</span> <span>Tạo Bản Tin Facebook Story 24h Mới</span>
+                        </h3>
+                        <span style="font-size:11px; color:var(--text-muted);">Ảnh hoặc Video ngắn &le; 15s</span>
+                    </div>
+
+                    <!-- 1. ĐÍCH ĐĂNG (TARGET) -->
+                    <div style="margin-bottom:14px;">
+                        <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-bottom:6px; display:block;">
+                            🎯 1. Đích Đăng Story:
+                        </label>
+                        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap:10px; margin-bottom:10px;">
+                            <button type="button" class="target-pill-btn active" data-target="profile" onclick="selectCustomTargetPill('story', 'profile', this)">
+                                <span>👤</span> <span>Trang Cá Nhân (Story)</span>
+                            </button>
+                            <button type="button" class="target-pill-btn" data-target="page" onclick="selectCustomTargetPill('story', 'page', this)">
+                                <span>🚩</span> <span>Fanpage Story</span>
+                            </button>
+                        </div>
+                        <div id="storyTargetIdContainer" style="display:none;">
+                            <label style="font-size:11px; font-weight:700; color:var(--accent); text-transform:uppercase;">ID Fanpage Đích (Page ID):</label>
+                            <input type="text" id="storyTargetIdInput" placeholder="Ví dụ: 123456789012345" style="margin-top:4px;" />
+                        </div>
+                    </div>
+
+                    <!-- 2. TỆP MEDIA STORY -->
+                    <div style="margin-bottom:16px;">
+                        <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-bottom:6px; display:block;">
+                            🖼️ 2. Tệp Hình Ảnh hoặc Video Ngắn Cho Story (Dọc 9:16):
+                        </label>
+                        <div style="display:flex; flex-direction:column; gap:10px;">
+                            <div id="storyDropZone" class="dropzone" onclick="document.getElementById('storyFileInput').click()">
+                                <div id="storyPreview" style="display:none; width:100%; max-height:220px; overflow:hidden; border-radius:10px; margin-bottom:8px;"></div>
+                                <div id="storyDropText">
+                                    <div class="btn" style="background:linear-gradient(135deg,#db2777,#ec4899); pointer-events:none; padding:8px 20px; font-weight:700; color:#fff;">
+                                        📁 CHỌN ẢNH HOẶC VIDEO STORY
+                                    </div>
+                                    <div style="font-size:12px; color:var(--text-muted); margin-top:6px;">Ảnh hoặc Video ngắn &le; 15s (JPG, PNG, MP4, MOV)</div>
+                                </div>
+                                <input type="file" id="storyFileInput" accept="image/*,video/*" style="display:none;" onchange="handleCustomMediaFile('story', this.files[0])">
+                            </div>
+
+                            <div id="storyFileInfo" style="display:none; padding:8px 12px; background:rgba(236,72,153,0.12); border:1px solid rgba(236,72,153,0.3); border-radius:8px; align-items:center; justify-content:space-between;">
+                                <span id="storyFileName" style="font-size:12px; color:#f472b6; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:80%;"></span>
+                                <button type="button" class="btn-sm btn-danger" onclick="clearCustomMedia('story')" style="padding:3px 8px;">✕ Xóa File</button>
+                            </div>
+
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <span style="font-size:11px; color:var(--text-muted); white-space:nowrap;">Hoặc Dán Link URL:</span>
+                                <input type="url" id="storyMediaInput" placeholder="https://domain.com/story.jpg direct link" style="margin:0;" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3. CHÚ THÍCH STORY -->
+                    <div style="margin-bottom:14px;">
+                        <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-bottom:4px; display:block;">
+                            ✍️ 3. Chú Thích Bản Tin Story:
+                        </label>
+                        <input type="text" id="storyTitleInput" placeholder="Tiêu đề / Ghi chú quản lý Story (tùy chọn)" style="margin-bottom:8px;" />
+                        <textarea id="storyContentInput" rows="2" placeholder="Nhập chữ hiển thị trên Story (Spintax {A|B|C})..."></textarea>
+                    </div>
+
+                    <!-- 4. ĐẶT GIỜ ĐĂNG STORY TỰ ĐỘNG (LÊN LỊCH HẸN GIỜ) -->
+                    <div style="margin-bottom:16px; background:rgba(15,23,42,0.6); border:1px solid #1e293b; border-radius:12px; padding:14px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
+                            <label style="font-size:12px; font-weight:700; color:#f472b6; display:flex; align-items:center; gap:6px;">
+                                <span>⏰</span> <span>4. Đặt Giờ Đăng Facebook Story (Lên Lịch Hẹn Giờ):</span>
+                            </label>
+                            <span style="font-size:11px; color:var(--text-muted);">Tùy chọn — Để trống nếu muốn đăng ngay</span>
+                        </div>
+                        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">
+                            <input type="datetime-local" id="storyScheduleTimeInput" style="max-width:240px; margin:0; padding:8px 12px; font-size:13px; font-weight:600;" />
+                            <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                                <button type="button" class="btn-sm" style="background:#1e293b; color:#38bdf8;" onclick="setSchedulePreset(15, 'storyScheduleTimeInput')">+15 phút</button>
+                                <button type="button" class="btn-sm" style="background:#1e293b; color:#38bdf8;" onclick="setSchedulePreset(60, 'storyScheduleTimeInput')">+1 giờ</button>
+                                <button type="button" class="btn-sm" style="background:#1e293b; color:#38bdf8;" onclick="setSchedulePreset(180, 'storyScheduleTimeInput')">+3 giờ</button>
+                                <button type="button" class="btn-sm" style="background:#1e293b; color:#a78bfa;" onclick="setSchedulePresetNamed('tomorrow_morning', 'storyScheduleTimeInput')">☀️ Sáng mai 8h</button>
+                                <button type="button" class="btn-sm" style="background:#1e293b; color:#f59e0b;" onclick="setSchedulePresetNamed('tonight_evening', 'storyScheduleTimeInput')">🌙 Tối nay 20h</button>
+                                <button type="button" class="btn-sm btn-danger" style="padding:4px 8px;" onclick="clearScheduleTime('storyScheduleTimeInput')" title="Xóa giờ hẹn">✕ Hủy Hẹn Giờ</button>
+                            </div>
+                        </div>
+                        <div id="storyScheduleHint" style="font-size:11px; color:#94a3b8;">
+                            ℹ️ Để trống để phát lệnh ngay. Nếu chọn thời gian, Story sẽ được lưu vào hàng đợi và tự động xuất bản lên Facebook khi đến giờ hẹn.
+                        </div>
+                    </div>
+
+                    <!-- SUBMIT BUTTONS -->
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; background:rgba(30,41,59,0.7); padding:8px 14px; border-radius:8px; border:1px solid #334155; font-size:13px; font-weight:600; color:#38bdf8; user-select:none; transition:all 0.2s;" title="Tự động chia sẻ lên Bảng tin & Tin (Story 24h)">
+                                <input type="checkbox" id="storyShareToFeed" checked style="width:17px; height:17px; accent-color:#0284c7; cursor:pointer;" />
+                                <span>📰 Chia sẻ lên bảng tin / Tin (Story)</span>
+                            </label>
+                            <button type="button" class="btn-green btn-lg" onclick="submitCustomPost('story', 'story', 'now')" style="background:linear-gradient(135deg,#db2777,#ec4899); box-shadow:0 4px 15px rgba(236,72,153,0.35);">
+                                <span>📖</span> <span>PHÁT LỆNH ĐĂNG STORY 24H NGAY</span>
+                            </button>
+                            <button type="button" class="btn-purple btn-lg" onclick="submitCustomPost('story', 'story', 'schedule')" style="background:linear-gradient(135deg,#0284c7,#2563eb); box-shadow:0 4px 15px rgba(37,99,235,0.35);">
+                                <span>⏰</span> <span>LÊN LỊCH ĐĂNG STORY</span>
+                            </button>
+                            <button type="button" class="btn-purple btn-lg" onclick="submitCustomPost('story', 'story', 'queue')">
+                                <span>➕</span> <span>Thêm Story Vào Hàng Đợi (Lưu Nháp)</span>
+                            </button>
+                        </div>
+                        <span id="storyStatusText" style="font-size:13px; font-weight:700;"></span>
+                    </div>
+                </div>
+
+                <!-- QUẢN LÝ STORY -->
+                <div class="card" style="border-color:#202d46;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:12px;">
+                        <h4 style="font-size:16px; color:#fff; margin:0; display:flex; align-items:center; gap:8px;">
+                            <span>📖</span> <span>Danh Sách Story Đã Đăng & Hàng Đợi</span>
+                            <span class="badge-folder" style="background:rgba(236,72,153,0.2); color:#f472b6; border:1px solid rgba(236,72,153,0.4);" id="storyQueueCountBadge">0 Story</span>
+                        </h4>
+                        <div style="display:flex; gap:8px; align-items:center; min-width:260px;">
+                            <input type="text" placeholder="🔍 Tìm story theo tiêu đề, ID..." oninput="filterPostList(this.value)" style="margin:0; padding:6px 12px; font-size:12px;" />
+                        </div>
+                    </div>
+
+                    <!-- FILTER TABS -->
+                    <div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
+                        <button type="button" class="preset-chip active" onclick="setPostFilter('all', this)">🌐 Tất Cả</button>
+                        <button type="button" class="preset-chip" onclick="setPostFilter('scheduled', this)" style="border-color:#38bdf8; color:#38bdf8;">⏰ Đã Lên Lịch</button>
+                        <button type="button" class="preset-chip" onclick="setPostFilter('pending', this)">⏳ Chờ Lệnh / Đang Đăng</button>
+                        <button type="button" class="preset-chip" onclick="setPostFilter('completed', this)">✅ Đã Đăng Thành Công</button>
+                        <button type="button" class="preset-chip" onclick="setPostFilter('failed', this)">❌ Thất Bại</button>
+                    </div>
+                    <div id="storyPostQueueTableContainer">
+                        <div style="color:var(--text-muted); font-size:13px; padding:32px 20px; text-align:center;">
+                            Chưa có Story nào trong hàng đợi.
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <!-- MENU TỰ ĐỘNG HÓA 2.5: TÀI LIỆU ENDPOINT API CHO DỰ ÁN FB NÀY -->
             <section class="route-view" id="view-sub-api-doc">
                 <!-- THANH CHUYỂN NHANH TRONG CHỨC NĂNG POST FACEBOOK -->
@@ -1964,10 +3045,19 @@ Sản phẩm tuyệt vời quá</textarea>
                     <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
                         <span style="font-size:12px; font-weight:800; color:#38bdf8; margin-right:4px;">🚀 POST FACEBOOK:</span>
                         <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-autopost')">
-                            ✍️ Soạn Thảo & Đăng Bài
+                            📝 Đăng Bài Viết Thường
+                        </button>
+                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-post-video')">
+                            🎬 Facebook Video Watch
+                        </button>
+                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-post-reels')">
+                            ⚡ Facebook Reels
+                        </button>
+                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-post-story')">
+                            📖 Facebook Story
                         </button>
                         <button class="btn-sm active" style="background:#0284c7; color:#fff; font-weight:700; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-api-doc')">
-                            📖 Tài Liệu Endpoint API
+                            📖 Tài Liệu API
                         </button>
                     </div>
                     <div style="font-size:11px; color:#38bdf8; font-weight:600;">
@@ -2013,24 +3103,55 @@ Sản phẩm tuyệt vời quá</textarea>
                     </div>
                 </div>
 
-                <!-- DANH SÁCH CHI TIẾT CÁC ENDPOINT -->
+                <!-- BẢNG TỔNG QUAN CHUẨN REST API & HTTP STATUS CODES -->
+                <div class="card" style="margin-bottom:20px; border-color:#38bdf8;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                        <h3 style="font-size:15px; color:#38bdf8; margin:0; display:flex; align-items:center; gap:8px;">
+                            <span>🌐</span> <span>Tiêu Chuẩn REST API & Quy Ước Mã Trạng Thái HTTP</span>
+                        </h3>
+                        <span class="badge-folder" style="background:rgba(56,189,248,0.2); color:#38bdf8;">RESTful v1</span>
+                    </div>
+                    <p style="font-size:12px; color:var(--text-muted); line-height:1.6; margin-bottom:12px;">
+                        Tất cả các API tuân thủ tiêu chuẩn RESTful HTTP. Mọi response đều trả về cấu trúc JSON đồng nhất: 
+                        <code>{"success": true|false, "message": "...", "data": {...}, "error": null|"..."}</code>.
+                    </p>
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:12px;">
+                        <div style="background:#090e1c; padding:10px 14px; border-radius:8px; border:1px solid var(--border-color);">
+                            <div style="font-size:12px; font-weight:700; color:#fff; margin-bottom:6px;">🔑 Header Xác Thực (Authentication):</div>
+                            <div style="font-size:11px; color:#cbd5e1; font-family:monospace; line-height:1.6;">
+                                Content-Type: application/json<br/>
+                                Authorization: Bearer <span style="color:#a78bfa;">&lt;PROJECT_TOKEN&gt;</span><br/>
+                                <span style="color:var(--text-muted);">(Hoặc header: X-Project-Token: &lt;PROJECT_TOKEN&gt;)</span>
+                            </div>
+                        </div>
+                        <div style="background:#090e1c; padding:10px 14px; border-radius:8px; border:1px solid var(--border-color);">
+                            <div style="font-size:12px; font-weight:700; color:#fff; margin-bottom:6px;">🚥 Bảng Mã Phản Hồi HTTP (Status Codes):</div>
+                            <div style="font-size:11px; color:#cbd5e1; line-height:1.5;">
+                                <b style="color:#34d399;">200 OK</b>: Thành công truy vấn / cập nhật<br/>
+                                <b style="color:#38bdf8;">201 Created</b>: Tạo bài đăng / lên lịch thành công<br/>
+                                <b style="color:#f59e0b;">400 Bad Request</b>: Thiếu tham số hoặc JSON sai<br/>
+                                <b style="color:#f87171;">401 Unauthorized</b>: Token không hợp lệ<br/>
+                                <b style="color:#f43f5e;">404 Not Found</b>: Không tìm thấy bài viết / ID<br/>
+                                <b style="color:#eab308;">422 Unprocessable</b>: Giờ hẹn ở quá khứ
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- DANH SÁCH CHI TIẾT CÁC ENDPOINT REST API -->
                 <div style="display:flex; flex-direction:column; gap:20px;">
-                    <!-- ENDPOINT 1: PUBLISH POST -->
+                    <!-- ENDPOINT 1: POST /api/v1/posts -->
                     <div class="card" style="border-left:4px solid #10b981;">
                         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
                             <div style="display:flex; align-items:center; gap:10px;">
                                 <span style="background:#059669; color:#fff; font-size:12px; font-weight:800; padding:4px 10px; border-radius:4px;">POST</span>
-                                <code style="font-size:15px; color:#38bdf8; font-weight:800;">/api/v1/posts/publish</code>
+                                <code style="font-size:15px; color:#38bdf8; font-weight:800;">/api/v1/posts</code>
                             </div>
-                            <span style="font-size:12px; color:#10b981; font-weight:700;">🚀 Đăng Bài Viết & Seeding Tự Động</span>
+                            <span style="font-size:12px; color:#10b981; font-weight:700;">🚀 Đăng Ngay hoặc ⏰ Đặt Giờ Hẹn Lên Lịch Tự Động</span>
                         </div>
                         <p style="font-size:13px; color:var(--text-muted); line-height:1.6; margin-bottom:14px;">
-                            Phát lệnh cho Extension trên máy Chrome đăng ngay hoặc lên lịch xuất bản bài viết lên <b>Trang Cá Nhân (Profile), Fanpage</b> hoặc <b>Nhóm (Group)</b>. Hệ thống tự động bóc tách ID bài viết và bắn kịch bản bình luận seeding ngay sau khi đăng.
+                            Tạo bài viết mới cho Facebook. Hỗ trợ phát lệnh đăng ngay, lưu nháp vào hàng đợi, hoặc truyền tham số <code>scheduledAt</code> để lên lịch tự động xuất bản khi đến giờ hẹn.
                         </p>
-
-                        <div style="font-size:12px; font-weight:700; color:#fff; margin-bottom:6px;">Headers Yêu Cầu:</div>
-                        <pre style="background:#090e1c; padding:10px; border-radius:6px; font-size:12px; color:#a78bfa; margin-bottom:14px;">Content-Type: application/json
-Authorization: Bearer <MÃ_TOKEN_DỰ_ÁN></pre>
 
                         <div style="font-size:12px; font-weight:700; color:#fff; margin-bottom:8px;">Bảng Tham Số Body (JSON):</div>
                         <div style="overflow-x:auto; margin-bottom:16px;">
@@ -2050,54 +3171,66 @@ Authorization: Bearer <MÃ_TOKEN_DỰ_ÁN></pre>
                                         <td style="padding:8px 10px; color:#f87171;">Có (hoặc media)</td>
                                         <td style="padding:8px 10px; color:var(--text-muted);">Nội dung bài viết. <b>Hỗ trợ Spintax đa tầng <code>{A|B|C}</code></b> tự xoay nội dung chống trùng lặp.</td>
                                     </tr>
+                                    <tr style="border-bottom:1px solid rgba(255,255,255,0.05); background:rgba(14,165,233,0.07);">
+                                        <td style="padding:8px 10px;"><code>scheduledAt</code></td>
+                                        <td style="padding:8px 10px; color:#38bdf8; font-weight:700;">string / int</td>
+                                        <td style="padding:8px 10px; color:#94a3b8;">Không</td>
+                                        <td style="padding:8px 10px; color:#cbd5e1;"><b>Thời gian hẹn giờ đăng tự động</b>. Chấp nhận ISO 8601 (ví dụ <code>"2026-09-24T18:00:00Z"</code>), <code>"YYYY-MM-DDTHH:mm"</code> hoặc epoch timestamp (giây / ms).</td>
+                                    </tr>
                                     <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
                                         <td style="padding:8px 10px;"><code>postType</code></td>
                                         <td style="padding:8px 10px; color:#a78bfa;">string</td>
                                         <td style="padding:8px 10px; color:#94a3b8;">Không</td>
-                                        <td style="padding:8px 10px; color:var(--text-muted);">Định dạng bài đăng: <code>post</code> (bài viết thường), <code>reel</code> (thước phim), <code>video</code> (video bảng tin), <code>story</code> (bản tin). Mặc định: <code>post</code>.</td>
+                                        <td style="padding:8px 10px; color:var(--text-muted);">Định dạng: <code>post</code> (bài viết thường), <code>video</code> (Video Watch), <code>reel</code> (Reels ngắn), <code>story</code> (bản tin 24h). Mặc định: <code>post</code>.</td>
                                     </tr>
                                     <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
                                         <td style="padding:8px 10px;"><code>targetType</code></td>
                                         <td style="padding:8px 10px; color:#a78bfa;">string</td>
                                         <td style="padding:8px 10px; color:#94a3b8;">Không</td>
-                                        <td style="padding:8px 10px; color:var(--text-muted);">Đích đăng bài: <code>profile</code> (trang cá nhân), <code>page</code> (fanpage), <code>group</code> (nhóm). Mặc định: <code>profile</code>.</td>
+                                        <td style="padding:8px 10px; color:var(--text-muted);">Đích đăng: <code>profile</code> (trang cá nhân), <code>page</code> (fanpage), <code>group</code> (nhóm). Mặc định: <code>profile</code>.</td>
                                     </tr>
                                     <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
                                         <td style="padding:8px 10px;"><code>targetId</code></td>
                                         <td style="padding:8px 10px; color:#a78bfa;">string</td>
                                         <td style="padding:8px 10px; color:#f87171;">Khi page/group</td>
-                                        <td style="padding:8px 10px; color:var(--text-muted);">ID của Fanpage hoặc ID của Nhóm Facebook cần đăng vào.</td>
+                                        <td style="padding:8px 10px; color:var(--text-muted);">ID của Fanpage hoặc ID Nhóm Facebook cần đăng vào.</td>
                                     </tr>
                                     <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
                                         <td style="padding:8px 10px;"><code>mediaUrl</code></td>
                                         <td style="padding:8px 10px; color:#a78bfa;">string</td>
                                         <td style="padding:8px 10px; color:#94a3b8;">Không</td>
-                                        <td style="padding:8px 10px; color:var(--text-muted);">URL trực tiếp của tệp ảnh hoặc video (hệ thống tự động tải và upload qua Facebook Comet API).</td>
+                                        <td style="padding:8px 10px; color:var(--text-muted);">Link URL ảnh hoặc video trực tiếp để hệ thống tự động tải và upload lên Facebook.</td>
                                     </tr>
                                     <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
                                         <td style="padding:8px 10px;"><code>seedingComments</code></td>
                                         <td style="padding:8px 10px; color:#a78bfa;">array[string]</td>
                                         <td style="padding:8px 10px; color:#94a3b8;">Không</td>
-                                        <td style="padding:8px 10px; color:var(--text-muted);">Mảng các câu bình luận seeding mồi (ví dụ: <code>["Tư vấn mình với", "Sản phẩm tốt quá"]</code>).</td>
+                                        <td style="padding:8px 10px; color:var(--text-muted);">Mảng câu bình luận seeding mồi (ví dụ: <code>["Tư vấn mình với", "Sản phẩm tốt quá"]</code>).</td>
+                                    </tr>
+                                    <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                                        <td style="padding:8px 10px;"><code>shareToFeed</code></td>
+                                        <td style="padding:8px 10px; color:#a78bfa;">boolean</td>
+                                        <td style="padding:8px 10px; color:#94a3b8;">Không</td>
+                                        <td style="padding:8px 10px; color:var(--text-muted);"><code>true</code> = Chia sẻ bài viết/video/reels/story lên Bảng tin (Newsfeed); <code>false</code> = Không chia sẻ lên bảng tin. Mặc định: <code>true</code>.</td>
                                     </tr>
                                     <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
                                         <td style="padding:8px 10px;"><code>autoReactType</code></td>
                                         <td style="padding:8px 10px; color:#a78bfa;">string</td>
                                         <td style="padding:8px 10px; color:#94a3b8;">Không</td>
-                                        <td style="padding:8px 10px; color:var(--text-muted);">Cảm xúc thả vào bài viết: <code>LOVE</code>, <code>LIKE</code>, <code>CARE</code>, <code>HAHA</code>, <code>WOW</code>, <code>SAD</code>, <code>ANGRY</code>, <code>NONE</code>. Mặc định: <code>LIKE</code>.</td>
+                                        <td style="padding:8px 10px; color:var(--text-muted);">Cảm xúc: <code>LOVE</code>, <code>LIKE</code>, <code>CARE</code>, <code>HAHA</code>, <code>WOW</code>, <code>NONE</code>. Mặc định: <code>LIKE</code>.</td>
                                     </tr>
                                     <tr>
                                         <td style="padding:8px 10px;"><code>runNow</code></td>
                                         <td style="padding:8px 10px; color:#a78bfa;">boolean</td>
                                         <td style="padding:8px 10px; color:#94a3b8;">Không</td>
-                                        <td style="padding:8px 10px; color:var(--text-muted);"><code>true</code> = Đăng ngay lập tức; <code>false</code> = Lưu vào hàng đợi chờ phát lệnh sau. Mặc định: <code>true</code>.</td>
+                                        <td style="padding:8px 10px; color:var(--text-muted);"><code>true</code> = Đăng ngay; <code>false</code> = Lưu nháp (hoặc lên lịch nếu có <code>scheduledAt</code>). Mặc định: <code>true</code>.</td>
                                     </tr>
                                 </tbody>
                             </table>
                         </div>
 
-                        <!-- CODE MẪU ĐÃ ĐIỀN SẴN TOKEN CỦA DỰ ÁN NÀY -->
-                        <div style="font-size:13px; font-weight:800; color:#38bdf8; margin-bottom:10px;">💻 Mẫu Code Sẵn Sàng Copy Cho Tài Khoản Này:</div>
+                        <!-- CODE MẪU SẴN SÀNG COPY -->
+                        <div style="font-size:13px; font-weight:800; color:#38bdf8; margin-bottom:10px;">💻 Mẫu Code Đăng Bài & Lên Lịch Cho Tài Khoản Này:</div>
                         
                         <div style="font-size:11px; color:#94a3b8; font-weight:700; margin-bottom:4px;">Terminal / cURL:</div>
                         <pre id="subApiCurlCode" style="background:#090e1c; padding:12px; border-radius:6px; font-size:11px; color:#e2e8f0; overflow-x:auto; margin-bottom:12px; border:1px solid var(--border-color);"></pre>
@@ -2109,30 +3242,116 @@ Authorization: Bearer <MÃ_TOKEN_DỰ_ÁN></pre>
                         <pre id="subApiJsCode" style="background:#090e1c; padding:12px; border-radius:6px; font-size:11px; color:#e2e8f0; overflow-x:auto; border:1px solid var(--border-color);"></pre>
                     </div>
 
-                    <!-- ENDPOINT 2: GET STATUS -->
+                    <!-- ENDPOINT 2: GET /api/v1/posts -->
+                    <div class="card" style="border-left:4px solid #f59e0b;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+                            <div style="display:flex; align-items:center; gap:10px;">
+                                <span style="background:#d97706; color:#fff; font-size:12px; font-weight:800; padding:4px 10px; border-radius:4px;">GET</span>
+                                <code style="font-size:15px; color:#38bdf8; font-weight:800;">/api/v1/posts?status=scheduled&limit=20</code>
+                            </div>
+                            <span style="font-size:12px; color:#f59e0b; font-weight:700;">📋 Lấy Danh Sách Bài Đăng & Hàng Đợi (Filter & Pagination)</span>
+                        </div>
+                        <p style="font-size:13px; color:var(--text-muted); line-height:1.6; margin-bottom:10px;">
+                            Truy vấn danh sách bài viết trong hàng đợi của dự án. Hỗ trợ lọc theo <code>status</code> (<code>scheduled</code>, <code>pending</code>, <code>in_progress</code>, <code>completed</code>, <code>failed</code>), <code>postType</code> (<code>post</code>, <code>video</code>, <code>reel</code>, <code>story</code>), và phân trang với <code>limit</code>, <code>offset</code>.
+                        </p>
+                        <div style="font-size:11px; color:#94a3b8; font-weight:700; margin-bottom:4px;">Response Mẫu:</div>
+                        <pre style="background:#090e1c; padding:12px; border-radius:6px; font-size:12px; color:#34d399; overflow-x:auto; border:1px solid var(--border-color);">{
+  "success": true,
+  "message": "Lấy danh sách bài đăng thành công",
+  "data": {
+    "total": 5,
+    "limit": 20,
+    "offset": 0,
+    "posts": [
+      {
+        "id": "post_1790198000_1234",
+        "title": "Khai trương chi nhánh mới",
+        "content": "Chào mừng bạn ghé thăm...",
+        "postType": "post",
+        "status": "scheduled",
+        "scheduledTime": 1790200800000,
+        "scheduledTimeStr": "18:00:00 24/09/2026",
+        "createdAt": "2026-09-24T06:00:00.000Z"
+      }
+    ]
+  }
+}</pre>
+                    </div>
+
+                    <!-- ENDPOINT 3: GET /api/v1/posts/{id} -->
                     <div class="card" style="border-left:4px solid #0284c7;">
                         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
                             <div style="display:flex; align-items:center; gap:10px;">
                                 <span style="background:#0284c7; color:#fff; font-size:12px; font-weight:800; padding:4px 10px; border-radius:4px;">GET</span>
-                                <code style="font-size:15px; color:#38bdf8; font-weight:800;">/api/v1/posts/status?postId={postId}</code>
+                                <code style="font-size:15px; color:#38bdf8; font-weight:800;">/api/v1/posts/{id}</code>
                             </div>
-                            <span style="font-size:12px; color:#38bdf8; font-weight:700;">📊 Kiểm Tra Tiến Trình & Lấy Link Bài Viết</span>
+                            <span style="font-size:12px; color:#38bdf8; font-weight:700;">📊 Chi Tiết Bài Đăng & Link Facebook</span>
                         </div>
-                        <p style="font-size:13px; color:var(--text-muted); line-height:1.6; margin-bottom:12px;">
-                            Truy vấn trạng thái thời gian thực của bài đăng (<code>pending</code>, <code>in_progress</code>, <code>completed</code>, <code>failed</code>) và nhận link bài viết Facebook (<code>fbPostUrl</code>) ngay sau khi đăng thành công.
+                        <p style="font-size:13px; color:var(--text-muted); line-height:1.6; margin-bottom:10px;">
+                            Lấy thông tin chi tiết, tiến trình đăng và link bài viết Facebook (<code>fbPostUrl</code>) ngay sau khi đăng thành công.
                         </p>
-                        <div style="font-size:11px; color:#94a3b8; font-weight:700; margin-bottom:4px;">Response Mẫu Khi Thành Công:</div>
+                        <div style="font-size:11px; color:#94a3b8; font-weight:700; margin-bottom:4px;">Response Mẫu Khi Hoàn Thành:</div>
                         <pre style="background:#090e1c; padding:12px; border-radius:6px; font-size:12px; color:#34d399; overflow-x:auto; border:1px solid var(--border-color);">{
   "success": true,
-  "postId": "post_1790192594_206a",
-  "status": "completed",
-  "progressStep": "✅ Đã đăng thành công lên Facebook (ID: 2151992722340672)",
-  "fbPostId": "2151992722340672",
-  "fbPostUrl": "https://www.facebook.com/permalink.php?story_fbid=2151992722340672&id=100025898964308"
+  "message": "Chi tiết bài đăng",
+  "data": {
+    "id": "post_1790198000_1234",
+    "status": "completed",
+    "progressStep": "✅ Đã đăng thành công lên Facebook",
+    "fbPostId": "2151992722340672",
+    "fbPostUrl": "https://www.facebook.com/permalink.php?story_fbid=2151992722340672&id=100025898964308"
+  }
 }</pre>
                     </div>
 
-                    <!-- ENDPOINT 3: SEEDING EXISTING POST -->
+                    <!-- ENDPOINT 4: POST /api/v1/posts/{id}/run -->
+                    <div class="card" style="border-left:4px solid #10b981;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+                            <div style="display:flex; align-items:center; gap:10px;">
+                                <span style="background:#059669; color:#fff; font-size:12px; font-weight:800; padding:4px 10px; border-radius:4px;">POST</span>
+                                <code style="font-size:15px; color:#38bdf8; font-weight:800;">/api/v1/posts/{id}/run</code>
+                            </div>
+                            <span style="font-size:12px; color:#10b981; font-weight:700;">⚡ Kích Hoạt Đăng Ngay Lập Tức</span>
+                        </div>
+                        <p style="font-size:13px; color:var(--text-muted); line-height:1.6;">
+                            Phát lệnh ngay lập tức cho Chrome Extension đăng bài viết này mà không cần chờ đến giờ hẹn (bỏ qua lịch trình hẹn giờ).
+                        </p>
+                    </div>
+
+                    <!-- ENDPOINT 5: PATCH /api/v1/posts/{id} -->
+                    <div class="card" style="border-left:4px solid #0284c7;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+                            <div style="display:flex; align-items:center; gap:10px;">
+                                <span style="background:#0284c7; color:#fff; font-size:12px; font-weight:800; padding:4px 10px; border-radius:4px;">PATCH</span>
+                                <code style="font-size:15px; color:#38bdf8; font-weight:800;">/api/v1/posts/{id}</code>
+                            </div>
+                            <span style="font-size:12px; color:#38bdf8; font-weight:700;">✏️ Đổi Giờ Hẹn Đăng / Sửa Nội Dung / Hủy Hẹn Giờ</span>
+                        </div>
+                        <p style="font-size:13px; color:var(--text-muted); line-height:1.6; margin-bottom:10px;">
+                            Cập nhật thời gian hẹn giờ đăng mới (<code>scheduledAt: "2026-09-24T20:00:00Z"</code>), sửa nội dung/tiêu đề, hoặc truyền <code>scheduledAt: null</code> để hủy hẹn giờ và chuyển bài viết về dạng lưu nháp.
+                        </p>
+                        <div style="font-size:11px; color:#94a3b8; font-weight:700; margin-bottom:4px;">Body Mẫu (JSON):</div>
+                        <pre style="background:#090e1c; padding:12px; border-radius:6px; font-size:12px; color:#e2e8f0; overflow-x:auto; border:1px solid var(--border-color);">{
+  "scheduledAt": "2026-09-24T20:30:00Z",
+  "title": "Tiêu đề bài viết sau khi sửa"
+}</pre>
+                    </div>
+
+                    <!-- ENDPOINT 6: DELETE /api/v1/posts/{id} -->
+                    <div class="card" style="border-left:4px solid #ef4444;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+                            <div style="display:flex; align-items:center; gap:10px;">
+                                <span style="background:#dc2626; color:#fff; font-size:12px; font-weight:800; padding:4px 10px; border-radius:4px;">DELETE</span>
+                                <code style="font-size:15px; color:#38bdf8; font-weight:800;">/api/v1/posts/{id}</code>
+                            </div>
+                            <span style="font-size:12px; color:#ef4444; font-weight:700;">🗑️ Xóa Bài Viết Khỏi Hàng Đợi</span>
+                        </div>
+                        <p style="font-size:13px; color:var(--text-muted); line-height:1.6;">
+                            Xóa hoàn toàn một bài viết hoặc mục video/reels/story khỏi hàng đợi và lịch trình đăng tự động.
+                        </p>
+                    </div>
+
+                    <!-- ENDPOINT 7: POST /api/v1/posts/seeding -->
                     <div class="card" style="border-left:4px solid #a855f7;">
                         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
                             <div style="display:flex; align-items:center; gap:10px;">
@@ -2141,29 +3360,15 @@ Authorization: Bearer <MÃ_TOKEN_DỰ_ÁN></pre>
                             </div>
                             <span style="font-size:12px; color:#c084fc; font-weight:700;">💬 Bắn Thêm Seeding Vào Bài Viết Đã Đăng</span>
                         </div>
-                        <p style="font-size:13px; color:var(--text-muted); line-height:1.6; margin-bottom:12px;">
-                            Bắn thêm danh sách bình luận seeding mồi và thả cảm xúc vào bất kỳ bài viết nào đã được đăng thành công trên Facebook.
+                        <p style="font-size:13px; color:var(--text-muted); line-height:1.6; margin-bottom:10px;">
+                            Bắn thêm danh sách bình luận seeding mồi và thả cảm xúc vào bài viết đã được đăng trên Facebook.
                         </p>
                         <div style="font-size:11px; color:#94a3b8; font-weight:700; margin-bottom:4px;">Body Mẫu (JSON):</div>
                         <pre style="background:#090e1c; padding:12px; border-radius:6px; font-size:12px; color:#e2e8f0; overflow-x:auto; border:1px solid var(--border-color);">{
-  "postId": "post_1790192594_206a",
+  "postId": "post_1790198000_1234",
   "comments": ["Bình luận seeding thêm 1", "Bình luận seeding thêm 2"],
   "autoReactType": "LOVE"
 }</pre>
-                    </div>
-
-                    <!-- ENDPOINT 4: GET POSTS LIST -->
-                    <div class="card" style="border-left:4px solid #f59e0b;">
-                        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
-                            <div style="display:flex; align-items:center; gap:10px;">
-                                <span style="background:#d97706; color:#fff; font-size:12px; font-weight:800; padding:4px 10px; border-radius:4px;">GET</span>
-                                <code style="font-size:15px; color:#38bdf8; font-weight:800;">/api/v1/posts?limit=20&status=completed</code>
-                            </div>
-                            <span style="font-size:12px; color:#f59e0b; font-weight:700;">📋 Lấy Danh Sách Bài Đăng & Hàng Đợi</span>
-                        </div>
-                        <p style="font-size:13px; color:var(--text-muted); line-height:1.6;">
-                            Lấy lịch sử và danh sách bài đăng gần đây của dự án. Hỗ trợ lọc theo <code>status</code> (<code>pending</code>, <code>in_progress</code>, <code>completed</code>, <code>failed</code>) và phân trang với <code>limit</code>.
-                        </p>
                     </div>
                 </div>
             </section>
@@ -2831,6 +4036,7 @@ Authorization: Bearer <MÃ_TOKEN_DỰ_ÁN></pre>
                     targetType,
                     targetId: (targetType === "page" || targetType === "group") ? targetId : "",
                     mediaUrl,
+                    shareToFeed: true,
                     seedingComments,
                     autoReactType,
                     runNow: true
@@ -2896,7 +4102,10 @@ Authorization: Bearer <MÃ_TOKEN_DỰ_ÁN></pre>
         const subMenus = {
             "sub-account-info": { title: "👤 Thông Tin & Cookie FB", el: document.getElementById("view-sub-account-info") },
             "sub-scraper": { title: "📥 Cào Dữ Liệu Facebook (Scraper)", el: document.getElementById("view-sub-scraper") },
-            "sub-autopost": { title: "🚀 POST FACEBOOK — Đăng Bài & Quản Lý", el: document.getElementById("view-sub-autopost") },
+            "sub-autopost": { title: "📝 POST FACEBOOK — Đăng Bài Viết Thường", el: document.getElementById("view-sub-autopost") },
+            "sub-post-video": { title: "🎬 POST FACEBOOK — Facebook Video Watch", el: document.getElementById("view-sub-post-video") },
+            "sub-post-reels": { title: "⚡ POST FACEBOOK — Facebook Reels", el: document.getElementById("view-sub-post-reels") },
+            "sub-post-story": { title: "📖 POST FACEBOOK — Facebook Story", el: document.getElementById("view-sub-post-story") },
             "sub-api-doc": { title: "📖 POST FACEBOOK — Chi Tiết Các Endpoint API", el: document.getElementById("view-sub-api-doc") },
             "sub-interaction": { title: "💬 Studio Tương Tác / Nuôi Nick FB", el: document.getElementById("view-sub-interaction") },
             "sub-other-notice": { title: "💡 Trạng Thái Tự Động Hóa Nền Tảng", el: document.getElementById("view-sub-other-notice") },
@@ -2914,7 +4123,7 @@ Authorization: Bearer <MÃ_TOKEN_DỰ_ÁN></pre>
 
             // Phân biệt rõ: Nếu không phải Facebook, không mở các menu tự động hóa của Facebook
             if (subType !== 'facebook') {
-                if (targetKey === 'sub-scraper' || targetKey === 'sub-autopost' || targetKey === 'sub-api-doc' || targetKey === 'sub-interaction') {
+                if (targetKey === 'sub-scraper' || targetKey === 'sub-autopost' || targetKey === 'sub-post-video' || targetKey === 'sub-post-reels' || targetKey === 'sub-post-story' || targetKey === 'sub-api-doc' || targetKey === 'sub-interaction') {
                     targetKey = 'sub-other-notice';
                 }
             } else {
@@ -2931,7 +4140,13 @@ Authorization: Bearer <MÃ_TOKEN_DỰ_ÁN></pre>
             const postFbGroup = document.getElementById("sideMenuPostFbGroup");
             const postFbTree = document.getElementById("postFbSubTree");
             if (postFbGroup) {
-                const isUnderPostFb = (targetKey === 'sub-autopost' || targetKey === 'sub-api-doc');
+                const isUnderPostFb = (
+                    targetKey === 'sub-autopost' || 
+                    targetKey === 'sub-post-video' || 
+                    targetKey === 'sub-post-reels' || 
+                    targetKey === 'sub-post-story' || 
+                    targetKey === 'sub-api-doc'
+                );
                 postFbGroup.classList.toggle("active-parent", isUnderPostFb);
                 if (isUnderPostFb && postFbTree) {
                     postFbTree.classList.remove("collapsed");
@@ -2964,11 +4179,8 @@ Authorization: Bearer <MÃ_TOKEN_DỰ_ÁN></pre>
                 const isCollapsed = postFbTree.classList.toggle("collapsed");
                 if (postFbGroup) postFbGroup.classList.toggle("expanded", !isCollapsed);
             }
-            const activeAutopost = document.getElementById("sideMenuAutopostItem");
-            const activeApiDoc = document.getElementById("sideMenuApiDocItem");
-            const isCurrentlyInPostFb = (activeAutopost && activeAutopost.classList.contains("active")) || 
-                                       (activeApiDoc && activeApiDoc.classList.contains("active"));
-            if (!isCurrentlyInPostFb) {
+            const activePostFbItem = document.querySelector("#postFbSubTree .menu-item.active");
+            if (!activePostFbItem) {
                 switchSubMenu('sub-autopost');
             }
         }
@@ -2993,66 +4205,162 @@ Authorization: Bearer <MÃ_TOKEN_DỰ_ÁN></pre>
             const baseEl = document.getElementById("subApiBaseUrlVal");
             if (baseEl) baseEl.innerText = origin;
 
+            // Tính toán thời gian mẫu 1 giờ sau cho scheduledAt
+            const sampleDate = new Date(Date.now() + 3600000);
+            const sampleIso = sampleDate.toISOString();
+
             const curlEl = document.getElementById("subApiCurlCode");
             if (curlEl) {
-                curlEl.innerText = `curl -X POST "${origin}/api/v1/posts/publish" \\
+                curlEl.innerText = `# 1. PHÁT LỆNH ĐĂNG BÀI NGAY LẬP TỨC (RUN NOW):
+curl -X POST "${origin}/api/v1/posts" \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer ${token}" \\
   -d '{
     "subProjectId": "${subId}",
-    "content": "{Chào bạn|Hello quý khách}! Bài viết tự động qua API với {nhiều ưu đãi|khuyến mãi khủng}.",
+    "title": "Bản tin khuyến mãi mới",
+    "content": "{Chào bạn|Hello cả nhà}! Ưu đãi đặc biệt {chỉ hôm nay|trong tuần này}.",
     "postType": "post",
     "targetType": "profile",
-    "seedingComments": ["Quan tâm shop ơi", "Tư vấn mình với ạ"],
+    "seedingComments": ["Sản phẩm còn hàng không shop?", "Tư vấn mình với ạ"],
     "autoReactType": "LOVE",
     "runNow": true
-  }'`;
+  }'
+
+# 2. LÊN LỊCH HẸN GIỜ ĐĂNG TỰ ĐỘNG (SCHEDULED POST):
+curl -X POST "${origin}/api/v1/posts" \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer ${token}" \\
+  -d '{
+    "subProjectId": "${subId}",
+    "content": "Bài viết tự động hẹn giờ xuất bản: {Tuyệt đỉnh|Siêu hot}!",
+    "scheduledAt": "${sampleIso}",
+    "runNow": false
+  }'
+
+# 3. KIỂM TRA TRẠNG THÁI & LẤY LINK FACEBOOK CỦA BÀI ĐĂNG:
+curl -X GET "${origin}/api/v1/posts/<POST_ID>" \\
+  -H "Authorization: Bearer ${token}"
+
+# 4. ĐỔI GIỜ HẸN ĐĂNG (RESCHEDULE) HOẶC KÍCH HOẠT ĐĂNG NGAY:
+# Đổi giờ hẹn:
+curl -X PATCH "${origin}/api/v1/posts/<POST_ID>" \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer ${token}" \\
+  -d '{"scheduledAt": "${sampleIso}"}'
+
+# Kích hoạt đăng ngay không cần chờ:
+curl -X POST "${origin}/api/v1/posts/<POST_ID>/run" \\
+  -H "Authorization: Bearer ${token}"`;
             }
 
             const pyEl = document.getElementById("subApiPythonCode");
             if (pyEl) {
                 pyEl.innerText = `import requests
+from datetime import datetime, timedelta, timezone
 
-url = "${origin}/api/v1/posts/publish"
+BASE_URL = "${origin}"
+TOKEN = "${token}"
+SUB_ID = "${subId}"
+
 headers = {
     "Content-Type": "application/json",
-    "Authorization": "Bearer ${token}"
+    "Authorization": f"Bearer {TOKEN}"
 }
-payload = {
-    "subProjectId": "${subId}",
-    "content": "Nội dung bài viết {chất lượng|độc quyền} đăng từ Python API!",
+
+# --- 1. ĐĂNG BÀI NGAY LẬP TỨC ---
+post_now_payload = {
+    "subProjectId": SUB_ID,
+    "title": "Ưu đãi tri ân khách hàng",
+    "content": "Chào mừng bạn! {Nhiều quà tặng|Ưu đãi sốc} hôm nay!",
     "postType": "post",
     "targetType": "profile",
-    "seedingComments": ["Tuyệt vời quá shop!", "Giá bao nhiêu ạ?"],
+    "seedingComments": ["Sản phẩm tốt lắm", "Inbox giá giúp mình"],
     "autoReactType": "LOVE",
     "runNow": True
 }
+res = requests.post(f"{BASE_URL}/api/v1/posts", json=post_now_payload, headers=headers)
+print("Kết quả đăng ngay:", res.json())
 
-res = requests.post(url, json=payload, headers=headers)
-print(res.json())`;
+# --- 2. LÊN LỊCH HẸN GIỜ ĐĂNG TỰ ĐỘNG (Ví dụ sau 1 giờ) ---
+scheduled_time = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+schedule_payload = {
+    "subProjectId": SUB_ID,
+    "title": "Bài viết lên lịch tự động",
+    "content": "Bài viết được xuất bản tự động theo lịch hẹn giờ {chính xác|an toàn}.",
+    "scheduledAt": scheduled_time,
+    "runNow": False
+}
+res_sched = requests.post(f"{BASE_URL}/api/v1/posts", json=schedule_payload, headers=headers)
+created = res_sched.json()
+print("Kết quả lên lịch:", created)
+post_id = created.get("data", {}).get("postId")
+
+# --- 3. KIỂM TRA TRẠNG THÁI BÀI ĐĂNG ---
+if post_id:
+    res_status = requests.get(f"{BASE_URL}/api/v1/posts/{post_id}", headers=headers)
+    print("Trạng thái bài đăng:", res_status.json())`;
             }
 
             const jsEl = document.getElementById("subApiJsCode");
             if (jsEl) {
-                jsEl.innerText = `const res = await fetch("${origin}/api/v1/posts/publish", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-    "Authorization": "Bearer ${token}"
-  },
-  body: JSON.stringify({
-    subProjectId: "${subId}",
-    content: "Bài viết tự động qua JavaScript API với {nhiều quà tặng|ưu đãi hấp dẫn}!",
-    postType: "post",
-    targetType: "profile",
-    seedingComments: ["Quan tâm shop ơi", "Check inbox giúp mình nhé"],
-    autoReactType: "LOVE",
-    runNow: true
-  })
-});
+                jsEl.innerText = `const BASE_URL = "${origin}";
+const TOKEN = "${token}";
+const SUB_ID = "${subId}";
 
-const data = await res.json();
-console.log(data);`;
+const headers = {
+  "Content-Type": "application/json",
+  "Authorization": \`Bearer \${TOKEN}\`
+};
+
+// 1. Phát lệnh đăng bài ngay lập tức
+async function createPostNow() {
+  const res = await fetch(\`\${BASE_URL}/api/v1/posts\`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      subProjectId: SUB_ID,
+      title: "Bài viết phát hành tức thì",
+      content: "{Chào bạn|Hello}! Bài viết đăng tự động qua REST API với {nhiều ưu đãi|quà tặng hấp dẫn}.",
+      postType: "post",
+      targetType: "profile",
+      seedingComments: ["Quan tâm shop ơi", "Check ib giúp mình nhé"],
+      autoReactType: "LOVE",
+      runNow: true
+    })
+  });
+  return await res.json();
+}
+
+// 2. Lên lịch hẹn giờ đăng tự động (sau 1 giờ)
+async function schedulePost(hoursFromNow = 1) {
+  const scheduledAt = new Date(Date.now() + hoursFromNow * 3600 * 1000).toISOString();
+  const res = await fetch(\`\${BASE_URL}/api/v1/posts\`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      subProjectId: SUB_ID,
+      content: "Bài viết hẹn giờ xuất bản tự động trên Facebook!",
+      scheduledAt: scheduledAt,
+      runNow: false
+    })
+  });
+  return await res.json();
+}
+
+// 3. Kiểm tra trạng thái bài đăng
+async function getPostStatus(postId) {
+  const res = await fetch(\`\${BASE_URL}/api/v1/posts/\${postId}\`, { headers });
+  return await res.json();
+}
+
+// 4. Kích hoạt đăng ngay không cần chờ lịch
+async function triggerRunNow(postId) {
+  const res = await fetch(\`\${BASE_URL}/api/v1/posts/\${postId}/run\`, {
+    method: "POST",
+    headers
+  });
+  return await res.json();
+}`;
             }
         }
 
@@ -4695,6 +6003,12 @@ console.log(data);`;
         let _currentPostFilter = "all";
         let _postSearchQuery = "";
         let _currentAddSeedingPostId = null;
+        let _queuePaginationState = {
+            postQueueTableContainer: { page: 1, pageSize: 10 },
+            videoPostQueueTableContainer: { page: 1, pageSize: 10 },
+            reelsPostQueueTableContainer: { page: 1, pageSize: 10 },
+            storyPostQueueTableContainer: { page: 1, pageSize: 10 }
+        };
 
         function selectPostTypePill(type, btn) {
             _currentPostType = type;
@@ -4832,12 +6146,318 @@ console.log(data);`;
             if (fileInput) fileInput.value = "";
         }
 
+        let _videoMediaData = null;
+        let _reelsMediaData = null;
+        let _storyMediaData = null;
+        let _targetTypeVideo = "profile";
+        let _targetTypeReels = "profile";
+        let _targetTypeStory = "profile";
+
+        function selectCustomTargetPill(prefix, target, btn) {
+            if (prefix === "video") _targetTypeVideo = target;
+            else if (prefix === "reels") _targetTypeReels = target;
+            else if (prefix === "story") _targetTypeStory = target;
+
+            const section = document.getElementById(`view-sub-post-${prefix === 'reels' ? 'reels' : prefix}`);
+            if (section) {
+                section.querySelectorAll(".target-pill-btn").forEach(b => b.classList.remove("active"));
+            }
+            if (btn) btn.classList.add("active");
+
+            const idContainer = document.getElementById(`${prefix}TargetIdContainer`);
+            if (idContainer) {
+                idContainer.style.display = (target === "page" || target === "group") ? "block" : "none";
+            }
+        }
+
+        function testSpintaxForEl(id) {
+            const input = document.getElementById(id);
+            if (!input || !input.value.trim()) {
+                alert("Vui lòng nhập nội dung trước!");
+                return;
+            }
+            const spun = parseSpintax(input.value);
+            alert("🎲 Xem thử nội dung xoay Spintax ngẫu nhiên:\\n\\n" + spun);
+        }
+
+        function insertCustomSeedingPreset(prefix, type) {
+            const input = document.getElementById(`${prefix}SeedingInput`);
+            if (!input) return;
+            if (type === "inquiry") {
+                input.value = "Shop ơi mẫu này còn sẵn không?\\nCho mình xin giá chi tiết với ạ\\nCó ship COD toàn quốc không?";
+            } else if (type === "feedback") {
+                input.value = "Nội dung video xuất sắc quá ạ!\\nKênh làm video chỉn chu, 10 điểm\\nTheo dõi kênh từ lâu rồi, chúc kênh phát triển nha";
+            } else if (type === "clear") {
+                input.value = "";
+            }
+        }
+
+        function handleCustomMediaFile(prefix, file) {
+            if (!file) return;
+            const isImageByType = file.type && file.type.startsWith("image/");
+            const isVideoByType = file.type && file.type.startsWith("video/");
+            const isImageByExt = file.name && file.name.match(/\.(jpg|jpeg|png|gif|webp|bmp)$/i);
+            const isVideoByExt = file.name && file.name.match(/\.(mp4|mov|avi|mkv|webm)$/i);
+            const isImage = isImageByType || isImageByExt;
+            const isVideo = isVideoByType || isVideoByExt;
+
+            if (prefix === "video" || prefix === "reels") {
+                if (!isVideo) {
+                    alert("⚠️ Mục này chỉ hỗ trợ tệp Video (.mp4, .mov, .mkv)!");
+                    return;
+                }
+            } else if (!isImage && !isVideo) {
+                alert("⚠️ Chỉ hỗ trợ tệp hình ảnh hoặc video!");
+                return;
+            }
+
+            const maxSize = 100 * 1024 * 1024;
+            if (file.size > maxSize) {
+                alert("⚠️ File quá lớn! Dung lượng tối đa là 100MB.");
+                return;
+            }
+
+            const preview = document.getElementById(`${prefix}Preview`);
+            const dropText = document.getElementById(`${prefix}DropText`);
+            if (preview) {
+                preview.innerHTML = "";
+                if (isImage) {
+                    const img = document.createElement("img");
+                    img.style.cssText = "width:100%; max-height:200px; object-fit:contain; display:block; border-radius:8px;";
+                    img.src = URL.createObjectURL(file);
+                    preview.appendChild(img);
+                } else {
+                    const video = document.createElement("video");
+                    video.style.cssText = "width:100%; max-height:200px; object-fit:contain; display:block; border-radius:8px;";
+                    video.src = URL.createObjectURL(file);
+                    video.controls = true;
+                    video.muted = true;
+                    preview.appendChild(video);
+                }
+                preview.style.display = "block";
+            }
+            if (dropText) dropText.style.display = "none";
+
+            const fileInfo = document.getElementById(`${prefix}FileInfo`);
+            const fileName = document.getElementById(`${prefix}FileName`);
+            const sizeStr = file.size < 1024 * 1024 ? (file.size / 1024).toFixed(1) + " KB" : (file.size / (1024 * 1024)).toFixed(1) + " MB";
+            if (fileName) fileName.textContent = `📎 ${file.name} (${sizeStr})`;
+            if (fileInfo) fileInfo.style.display = "flex";
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const base64Data = e.target.result.split(",")[1];
+                let resolvedMime = file.type;
+                if (!resolvedMime) {
+                    if (file.name.match(/\.(mp4|mov|avi|mkv|webm)$/i)) resolvedMime = "video/mp4";
+                    else if (file.name.match(/\.(jpg|jpeg|png|gif|webp)$/i)) resolvedMime = "image/jpeg";
+                }
+                const mData = {
+                    base64: base64Data,
+                    fileName: file.name,
+                    mimeType: resolvedMime || (isVideo ? "video/mp4" : "image/jpeg"),
+                    size: file.size
+                };
+                if (prefix === "video") _videoMediaData = mData;
+                else if (prefix === "reels") _reelsMediaData = mData;
+                else if (prefix === "story") _storyMediaData = mData;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function clearCustomMedia(prefix) {
+            if (prefix === "video") _videoMediaData = null;
+            else if (prefix === "reels") _reelsMediaData = null;
+            else if (prefix === "story") _storyMediaData = null;
+
+            const preview = document.getElementById(`${prefix}Preview`);
+            const dropText = document.getElementById(`${prefix}DropText`);
+            const fileInfo = document.getElementById(`${prefix}FileInfo`);
+            const fileInput = document.getElementById(`${prefix}FileInput`);
+            if (preview) { preview.innerHTML = ""; preview.style.display = "none"; }
+            if (dropText) dropText.style.display = "block";
+            if (fileInfo) fileInfo.style.display = "none";
+            if (fileInput) fileInput.value = "";
+        }
+
+        function setSchedulePreset(minutes, inputId) {
+            const el = document.getElementById(inputId);
+            if (!el) return;
+            const now = new Date();
+            now.setMinutes(now.getMinutes() + minutes);
+            const pad = (n) => String(n).padStart(2, '0');
+            el.value = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+        }
+
+        function setSchedulePresetNamed(presetName, inputId) {
+            const el = document.getElementById(inputId);
+            if (!el) return;
+            const now = new Date();
+            const target = new Date();
+            if (presetName === 'tomorrow_morning') {
+                target.setDate(target.getDate() + 1);
+                target.setHours(8, 0, 0, 0);
+            } else if (presetName === 'tonight_evening') {
+                if (now.getHours() >= 20) {
+                    target.setDate(target.getDate() + 1);
+                }
+                target.setHours(20, 0, 0, 0);
+            }
+            const pad = (n) => String(n).padStart(2, '0');
+            el.value = `${target.getFullYear()}-${pad(target.getMonth()+1)}-${pad(target.getDate())}T${pad(target.getHours())}:${pad(target.getMinutes())}`;
+        }
+
+        function clearScheduleTime(inputId) {
+            const el = document.getElementById(inputId);
+            if (el) el.value = "";
+        }
+
+        async function submitCustomPost(postType, prefix, runMode) {
+            if (!currentProjectId || !currentSubProjectId) return;
+            const title = document.getElementById(`${prefix}TitleInput`)?.value.trim() || "";
+            const rawContent = document.getElementById(`${prefix}ContentInput`)?.value.trim() || "";
+            const mediaUrl = document.getElementById(`${prefix}MediaInput`)?.value.trim() || "";
+            const targetUrl = document.getElementById(`${prefix}TargetUrlInput`)?.value.trim() || "https://www.facebook.com";
+            const targetId = document.getElementById(`${prefix}TargetIdInput`)?.value.trim() || "";
+            const rawSeeding = document.getElementById(`${prefix}SeedingInput`)?.value.trim() || "";
+            const autoReactType = document.getElementById(`${prefix}AutoReactInput`)?.value || "LIKE";
+            const statusEl = document.getElementById(`${prefix}StatusText`);
+            const mediaData = (prefix === "video") ? _videoMediaData : (prefix === "reels" ? _reelsMediaData : _storyMediaData);
+            const targetType = (prefix === "video") ? _targetTypeVideo : (prefix === "reels" ? _targetTypeReels : _targetTypeStory);
+            const scheduleInput = document.getElementById(`${prefix}ScheduleTimeInput`);
+            const scheduledVal = scheduleInput ? scheduleInput.value.trim() : "";
+            const shareToFeedEl = document.getElementById(`${prefix}ShareToFeed`);
+            const shareToFeed = shareToFeedEl ? shareToFeedEl.checked : true;
+
+            let runNow = false;
+            let scheduledAt = null;
+
+            if (runMode === "now" || runMode === true) {
+                runNow = true;
+                scheduledAt = null;
+            } else if (runMode === "schedule") {
+                if (!scheduledVal) {
+                    alert("⏰ Vui lòng chọn thời gian hẹn giờ (hoặc bấm chọn nút nhanh +15 phút, +1 giờ...) trước khi bấm [LÊN LỊCH ĐĂNG]!");
+                    if (scheduleInput) scheduleInput.focus();
+                    return;
+                }
+                const schedDate = new Date(scheduledVal);
+                if (isNaN(schedDate.getTime()) || schedDate.getTime() <= Date.now()) {
+                    alert("⚠️ Thời gian lên lịch phải ở tương lai! Vui lòng chọn lại.");
+                    if (scheduleInput) scheduleInput.focus();
+                    return;
+                }
+                runNow = false;
+                scheduledAt = scheduledVal;
+            } else {
+                runNow = false;
+                scheduledAt = scheduledVal || null;
+            }
+
+            if (!rawContent && !title && !mediaData && !mediaUrl) {
+                alert("Vui lòng nhập nội dung bài viết hoặc đính kèm ảnh/video!");
+                return;
+            }
+
+            const content = parseSpintax(rawContent);
+            const seedingComments = rawSeeding ? rawSeeding.split("\\n").map(s => s.trim()).filter(Boolean) : [];
+
+            if (statusEl) {
+                if (runNow) {
+                    statusEl.textContent = "⏳ Đang chuyển lệnh đăng ngầm sang Extension...";
+                } else if (scheduledAt) {
+                    statusEl.textContent = "⏰ Đang lên lịch đăng bài...";
+                } else {
+                    statusEl.textContent = "⏳ Đang lưu vào hàng đợi...";
+                }
+                statusEl.style.color = "var(--accent)";
+            }
+
+            try {
+                const payload = {
+                    title,
+                    content,
+                    postType: postType,
+                    targetType: targetType || "profile",
+                    targetId,
+                    targetUrl,
+                    shareToFeed: !!shareToFeed,
+                    mediaUrl,
+                    mediaData: mediaData ? {
+                        base64: mediaData.base64,
+                        fileName: mediaData.fileName,
+                        mimeType: mediaData.mimeType,
+                        size: mediaData.size
+                    } : null,
+                    seedingComments,
+                    autoReactType,
+                    runNow: !!runNow,
+                    scheduledAt: scheduledAt
+                };
+
+                const res = await fetch("/api/v1/posts", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        projectId: currentProjectId,
+                        subProjectId: currentSubProjectId,
+                        ...payload
+                    })
+                });
+
+                const data = await res.json();
+                if (data.success) {
+                    if (statusEl) {
+                        if (runNow) {
+                            statusEl.textContent = "🚀 Đã phát lệnh đăng thành công sang Extension!";
+                        } else if (scheduledAt) {
+                            statusEl.textContent = "⏰ Đã lên lịch đăng bài thành công!";
+                        } else {
+                            statusEl.textContent = "✅ Đã lưu vào hàng đợi!";
+                        }
+                        statusEl.style.color = "var(--success)";
+                    }
+                    if (document.getElementById(`${prefix}TitleInput`)) document.getElementById(`${prefix}TitleInput`).value = "";
+                    if (document.getElementById(`${prefix}ContentInput`)) document.getElementById(`${prefix}ContentInput`).value = "";
+                    if (document.getElementById(`${prefix}MediaInput`)) document.getElementById(`${prefix}MediaInput`).value = "";
+                    if (document.getElementById(`${prefix}SeedingInput`)) document.getElementById(`${prefix}SeedingInput`).value = "";
+                    if (scheduleInput) scheduleInput.value = "";
+                    if (prefix === "video") clearCustomMedia("video");
+                    else if (prefix === "reels") clearCustomMedia("reels");
+                    else if (prefix === "story") clearCustomMedia("story");
+
+                    setTimeout(() => {
+                        if (currentProjectId) fetchParentProjectData(currentProjectId);
+                    }, 600);
+                } else {
+                    if (statusEl) {
+                        statusEl.textContent = "❌ " + (data.error || "Lỗi tạo bài đăng");
+                        statusEl.style.color = "var(--danger)";
+                    }
+                }
+            } catch(e) {
+                if (statusEl) {
+                    statusEl.textContent = "❌ Lỗi: " + e.message;
+                    statusEl.style.color = "var(--danger)";
+                }
+            }
+        }
+
         function setPostFilter(filterType, btn) {
             _currentPostFilter = filterType;
+            if (typeof _queuePaginationState === "object") {
+                Object.keys(_queuePaginationState).forEach(k => _queuePaginationState[k].page = 1);
+            }
             document.querySelectorAll(".preset-chip").forEach(b => {
-                if (b.id && b.id.startsWith("filterBtn")) b.classList.remove("active");
+                const oc = b.getAttribute("onclick") || "";
+                if (oc.includes("setPostFilter")) {
+                    if (oc.includes(`'${filterType}'`)) {
+                        b.classList.add("active");
+                    } else {
+                        b.classList.remove("active");
+                    }
+                }
             });
-            if (btn) btn.classList.add("active");
             const p = allProjects.find(x => x.id === currentProjectId);
             const sub = p ? (p.subProjects || []).find(s => s.id === currentSubProjectId) : null;
             if (sub) {
@@ -4848,6 +6468,9 @@ console.log(data);`;
 
         function filterPostList(query) {
             _postSearchQuery = query;
+            if (typeof _queuePaginationState === "object") {
+                Object.keys(_queuePaginationState).forEach(k => _queuePaginationState[k].page = 1);
+            }
             const p = allProjects.find(x => x.id === currentProjectId);
             const sub = p ? (p.subProjects || []).find(s => s.id === currentSubProjectId) : null;
             if (sub) {
@@ -4921,7 +6544,7 @@ console.log(data);`;
         async function runPostNow(postId) {
             if (!currentProjectId || !currentSubProjectId || !postId) return;
             try {
-                const res = await fetch("/api/subprojects/run-post", {
+                const res = await fetch(`/api/v1/posts/${postId}/run`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
@@ -4942,6 +6565,130 @@ console.log(data);`;
             }
         }
 
+        let _currentEditSchedulePostId = null;
+
+        function openEditScheduleModal(postId, currentScheduledTime) {
+            _currentEditSchedulePostId = postId;
+            const modal = document.getElementById("editScheduleModal");
+            const input = document.getElementById("modalEditScheduleInput");
+            const title = document.getElementById("editScheduleModalTitle");
+            if (!modal) return;
+            if (title) title.innerHTML = `<span>⏰</span> <span>Đổi Giờ Đăng Cho Bài Viết (${escapeHtml(postId)})</span>`;
+            if (input) {
+                if (currentScheduledTime && currentScheduledTime > 0) {
+                    const d = new Date(currentScheduledTime);
+                    const pad = (n) => String(n).padStart(2, '0');
+                    input.value = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+                } else {
+                    input.value = "";
+                }
+            }
+            modal.classList.add("active");
+        }
+
+        function closeEditScheduleModal() {
+            const modal = document.getElementById("editScheduleModal");
+            if (modal) modal.classList.remove("active");
+            _currentEditSchedulePostId = null;
+        }
+
+        async function submitEditScheduleModal(action) {
+            if (!_currentEditSchedulePostId) return;
+            const input = document.getElementById("modalEditScheduleInput");
+            const val = input ? input.value.trim() : "";
+
+            if (action === 'now') {
+                const pid = _currentEditSchedulePostId;
+                closeEditScheduleModal();
+                await runPostNow(pid);
+                return;
+            }
+
+            let scheduledAt = null;
+            if (action === 'save') {
+                if (!val) {
+                    alert("Vui lòng chọn thời gian muốn lên lịch đăng, hoặc bấm '✕ Hủy Hẹn Giờ (Về Nháp)' nếu muốn lưu nháp!");
+                    return;
+                }
+                const schedDate = new Date(val);
+                if (isNaN(schedDate.getTime()) || schedDate.getTime() <= Date.now()) {
+                    alert("⚠️ Thời gian lên lịch phải ở tương lai! Vui lòng chọn lại.");
+                    return;
+                }
+                scheduledAt = val;
+            } else if (action === 'clear') {
+                scheduledAt = null;
+            }
+
+            try {
+                const res = await fetch(`/api/v1/posts/${_currentEditSchedulePostId}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        scheduledAt: scheduledAt
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert(scheduledAt ? "✅ Đã cập nhật giờ đăng mới thành công!" : "✅ Đã hủy lịch hẹn, chuyển bài viết thành lưu nháp!");
+                    closeEditScheduleModal();
+                    if (currentProjectId) fetchParentProjectData(currentProjectId);
+                } else {
+                    alert("❌ Lỗi: " + (data.error || "Không thể cập nhật lịch đăng"));
+                }
+            } catch(e) {
+                alert("❌ Lỗi kết nối: " + e.message);
+            }
+        }
+
+        async function viewPostDataJson(postId) {
+            try {
+                const res = await fetch(`/api/v1/posts/${postId}`);
+                const json = await res.json();
+                const data = json.data || json.post || json;
+                const formatted = JSON.stringify(data, null, 2);
+                
+                let modalEl = document.getElementById("postJsonModal");
+                if (!modalEl) {
+                    modalEl = document.createElement("div");
+                    modalEl.id = "postJsonModal";
+                    modalEl.className = "modal-overlay";
+                    modalEl.style.display = "none";
+                    modalEl.innerHTML = `
+                        <div class="modal-box" style="max-width:720px; width:95%;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+                                <h3 style="margin:0; font-size:16px; color:#38bdf8;">📊 Dữ Liệu Bài Viết Facebook & Quản Lý</h3>
+                                <button class="btn-sm" style="background:transparent; border:none; color:#cbd5e1; font-size:18px; cursor:pointer;" onclick="document.getElementById('postJsonModal').style.display='none'">&times;</button>
+                            </div>
+                            <div style="margin-bottom:12px; font-size:13px; color:var(--text-muted);">
+                                Dữ liệu chi tiết: ID hệ thống, ID bài viết Facebook, Link bài viết, Feedback ID, Danh sách Seeding ID và thông tin tài khoản.
+                            </div>
+                            <pre id="postJsonContent" style="background:#0f172a; padding:12px 14px; border-radius:10px; border:1px solid rgba(255,255,255,0.1); color:#34d399; font-family:monospace; font-size:12px; max-height:360px; overflow-y:auto; white-space:pre-wrap; word-break:break-all;"></pre>
+                            <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:14px;">
+                                <button class="btn-sm btn-purple" onclick="copyPostJsonContent()">📋 Sao Chép JSON</button>
+                                <button class="btn-sm" style="background:#334155; color:#fff;" onclick="document.getElementById('postJsonModal').style.display='none'">Đóng</button>
+                            </div>
+                        </div>
+                    `;
+                    document.body.appendChild(modalEl);
+                }
+                document.getElementById("postJsonContent").textContent = formatted;
+                modalEl.style.display = "flex";
+            } catch(err) {
+                alert("Lỗi khi tải dữ liệu bài viết: " + err.message);
+            }
+        }
+
+        function copyPostJsonContent() {
+            const txt = document.getElementById("postJsonContent") ? document.getElementById("postJsonContent").textContent : "";
+            if (!txt) return;
+            navigator.clipboard.writeText(txt).then(() => {
+                alert("✅ Đã sao chép toàn bộ dữ liệu bài viết (JSON) vào Clipboard!");
+            }).catch(() => {
+                alert("Vui lòng bôi đen và sao chép thủ công.");
+            });
+        }
+
         function duplicatePost(postId) {
             const p = allProjects.find(x => x.id === currentProjectId);
             const sub = p ? (p.subProjects || []).find(s => s.id === currentSubProjectId) : null;
@@ -4960,7 +6707,7 @@ console.log(data);`;
 
             if (post.postType) {
                 const btn = document.querySelector(`.type-pill-btn[data-type="${post.postType}"]`);
-                selectPostTypePill(post.postType, btn);
+                if (btn) selectPostTypePill(post.postType, btn);
             }
             if (post.targetType) {
                 const btn = document.querySelector(`.target-pill-btn[data-target="${post.targetType}"]`);
@@ -4974,62 +6721,261 @@ console.log(data);`;
             window.scrollTo({ top: 0, behavior: "smooth" });
         }
 
-        function renderAutoPosterStudio(sub, pCfg) {
-            const bannerTitle = document.getElementById("autopostBannerTitle");
-            const targetUrlInput = document.getElementById("postTargetUrlInput");
-            const countBadge = document.getElementById("postQueueCountBadge");
-            const container = document.getElementById("postQueueTableContainer");
+        function renderSinglePostCardHtml(p) {
+            const isCompleted = p.status === "completed";
+            const isInProgress = p.status === "in_progress" || (p.status && p.status.includes("Đang"));
+            const isFailed = p.status === "failed";
+            const isScheduled = p.status === "scheduled";
 
-            const sourceDomain = sub.sourceDomain || pCfg.domain || "facebook.com";
-            if (bannerTitle) bannerTitle.textContent = `Studio Tự Động Đăng Bài Lên: ${pCfg.name} (${sourceDomain})`;
-            if (targetUrlInput && (!targetUrlInput.value || targetUrlInput.value === "https://...")) {
-                targetUrlInput.value = "https://www.facebook.com";
+            let statusBadgeHtml = `<span class="badge-folder" style="background:rgba(251,191,36,0.2); color:#fbbf24; border:1px solid rgba(251,191,36,0.4);">⏳ Đang Chờ</span>`;
+            if (isCompleted) {
+                statusBadgeHtml = `<span class="badge-folder" style="background:rgba(52,211,153,0.2); color:#34d399; border:1px solid rgba(52,211,153,0.4);">✅ Hoàn Thành</span>`;
+            } else if (isInProgress) {
+                statusBadgeHtml = `<span class="badge-folder" style="background:rgba(56,189,248,0.2); color:#38bdf8; border:1px solid rgba(56,189,248,0.4); display:inline-flex; align-items:center; gap:5px;"><div class="pulse-spinner"></div> Đang Xử Lý</span>`;
+            } else if (isScheduled) {
+                statusBadgeHtml = `<span class="badge-folder" style="background:rgba(14,165,233,0.25); color:#38bdf8; border:1px solid rgba(14,165,233,0.5); font-weight:700;">⏰ ĐÃ LÊN LỊCH</span>`;
+            } else if (isFailed) {
+                statusBadgeHtml = `<span class="badge-folder" style="background:rgba(239,68,68,0.2); color:#ef4444; border:1px solid rgba(239,68,68,0.4);">❌ Thất Bại</span>`;
             }
 
-            const queue = sub.postQueue || [];
-            if (countBadge) countBadge.textContent = `${queue.length} Bài`;
+            const typeMap = { "post": "📝 Bài Viết", "video": "🎬 Video", "reel": "⚡ Reels", "story": "📖 Story" };
+            const targetMap = { "profile": "👤 Profile", "page": "🚩 Fanpage", "group": "👥 Group" };
 
-            // Calculate KPIs
-            let pendingCount = 0;
-            let completedCount = 0;
-            let seedingTotal = 0;
+            const typeBadge = typeMap[p.postType || "post"] || "📝 Bài Viết";
+            const targetBadge = targetMap[p.targetType || "profile"] || "👤 Profile";
 
-            queue.forEach(p => {
-                if (p.status === "completed") completedCount++;
-                else if (p.status === "in_progress" || p.status === "pending" || !p.status || p.status.includes("Chờ") || p.status.includes("Đang")) pendingCount++;
-                if (p.seedingComments && Array.isArray(p.seedingComments)) {
-                    seedingTotal += p.seedingComments.length;
+            const fbPostId = p.fbPostId || "";
+            let fbPostUrl = p.fbPostUrl || "";
+            if (!fbPostUrl && fbPostId) {
+                if (fbPostId.startsWith("pfbid")) fbPostUrl = `https://www.facebook.com/posts/${fbPostId}`;
+                else if (p.postType === "reel") fbPostUrl = `https://www.facebook.com/reel/${fbPostId}`;
+                else if (p.postType === "video") fbPostUrl = `https://www.facebook.com/watch/?v=${fbPostId}`;
+                else fbPostUrl = `https://www.facebook.com/photo/?fbid=${fbPostId}`;
+            }
+
+            const seedingCount = (p.seedingComments && Array.isArray(p.seedingComments)) ? p.seedingComments.length : 0;
+            const timeStr = p.createdAt ? new Date(p.createdAt).toLocaleString("vi-VN") : "";
+            const scheduledBadge = (isScheduled && p.scheduledTimeStr) ?
+                `<span class="badge-folder" style="background:rgba(14,165,233,0.2); color:#38bdf8; border:1px solid rgba(14,165,233,0.4); font-weight:700;">⏰ Hẹn Lúc: ${escapeHtml(p.scheduledTimeStr)}</span>` : '';
+
+            return `
+                <div class="smart-post-card" style="${isInProgress ? 'border-color: #38bdf8; box-shadow: 0 0 15px rgba(56,189,248,0.2);' : (isCompleted ? 'border-color: rgba(52,211,153,0.3);' : (isScheduled ? 'border-color: rgba(14,165,233,0.4); box-shadow: 0 0 12px rgba(14,165,233,0.15);' : ''))}">
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                            <span class="badge-folder" style="background:rgba(168,85,247,0.2); color:#c084fc; border:1px solid rgba(168,85,247,0.4);">${typeBadge}</span>
+                            <span class="badge-folder" style="background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3);">${targetBadge}</span>
+                            ${p.shareToFeed !== false ? '<span class="badge-folder" style="background:rgba(14,165,233,0.15); color:#38bdf8;" title="Chia sẻ lên Bảng tin & Tin (Story): BẬT">📰 Bảng tin / Tin: Bật</span>' : '<span class="badge-folder" style="background:rgba(148,163,184,0.15); color:#94a3b8;" title="Chia sẻ lên Bảng tin & Tin (Story): TẮT">📰 Bảng tin / Tin: Tắt</span>'}
+                            ${p.targetId ? `<span class="badge-folder" style="background:rgba(255,255,255,0.06); color:#cbd5e1;">Target ID: ${escapeHtml(p.targetId)}</span>` : ''}
+                            ${scheduledBadge}
+                            <span style="font-size:11px; color:var(--text-muted);">⏰ ${timeStr}</span>
+                        </div>
+                        ${statusBadgeHtml}
+                    </div>
+
+                    ${p.title ? `<div style="font-weight:700; color:#fff; font-size:14px; margin-top:8px;">${escapeHtml(p.title)}</div>` : ''}
+                    <div style="font-size:13px; color:#cbd5e1; margin-top:6px; line-height:1.5; white-space:pre-wrap; max-height:80px; overflow-y:auto;">${escapeHtml(p.content || '(Không có nội dung văn bản)')}</div>
+
+                    <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; align-items:center;">
+                        ${p.mediaData ? `<span class="badge-folder" style="background:rgba(168,85,247,0.15); color:#c084fc;">📎 Tệp: ${escapeHtml(p.mediaData.fileName || 'media')}</span>` : ''}
+                        ${p.mediaUrl && !p.mediaData ? `<span class="badge-folder" style="background:rgba(56,189,248,0.15); color:#38bdf8; max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">🖼️ URL: ${escapeHtml(p.mediaUrl)}</span>` : ''}
+                        ${seedingCount > 0 ? `<span class="badge-folder" style="background:rgba(52,211,153,0.15); color:#34d399;">💬 ${seedingCount} Seeding</span>` : ''}
+                        ${p.autoReactType && p.autoReactType !== "NONE" ? `<span class="badge-folder" style="background:rgba(239,68,68,0.15); color:#f87171;">❤️ React: ${escapeHtml(p.autoReactType)}</span>` : ''}
+                    </div>
+
+                    ${p.progressStep ? `
+                        <div style="margin-top:10px; padding:10px 14px; border-radius:10px; font-size:12px; font-weight:600; background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.3); color:#38bdf8; display:flex; align-items:center; gap:8px;">
+                            ${isInProgress ? '<div class="pulse-spinner"></div>' : '✓'}
+                            <span>${escapeHtml(p.progressStep)}</span>
+                        </div>
+                    ` : ''}
+
+                    ${(fbPostUrl || fbPostId || (p.seedingIds && p.seedingIds.length > 0)) ? `
+                        <div style="margin-top:10px; padding:10px 12px; background:rgba(15,23,42,0.6); border:1px solid rgba(56,189,248,0.25); border-radius:8px;">
+                            <div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center;">
+                                ${fbPostId ? `<span class="badge-folder" style="background:rgba(56,189,248,0.2); color:#38bdf8; font-family:monospace; font-weight:700;">🆔 FB Post: ${escapeHtml(fbPostId)}</span>` : ''}
+                                ${p.fbFeedbackId ? `<span class="badge-folder" style="background:rgba(168,85,247,0.2); color:#c084fc; font-family:monospace;" title="${escapeHtml(p.fbFeedbackId)}">🎯 Feedback ID: ${escapeHtml(p.fbFeedbackId.length > 18 ? p.fbFeedbackId.slice(0, 16) + '...' : p.fbFeedbackId)}</span>` : ''}
+                                ${(p.seedingIds && p.seedingIds.length > 0) ? `<span class="badge-folder" style="background:rgba(52,211,153,0.2); color:#34d399; font-family:monospace;">💬 ${p.seedingIds.length} Comment IDs: ${escapeHtml(p.seedingIds.join(', '))}</span>` : ''}
+                                ${p.publishedAtStr ? `<span class="badge-folder" style="background:rgba(255,255,255,0.06); color:#cbd5e1;">⏱️ Đăng lúc: ${escapeHtml(p.publishedAtStr)}</span>` : ''}
+                            </div>
+                            ${fbPostUrl ? `
+                                <div style="margin-top:8px;">
+                                    <a href="${escapeHtml(fbPostUrl)}" target="_blank" rel="noopener" class="btn-sm btn-green" style="text-decoration:none; display:inline-flex; align-items:center; gap:6px;">
+                                        🔗 Xem Bài Viết Trực Tiếp Trên Facebook
+                                    </a>
+                                </div>
+                            ` : ''}
+                        </div>
+                    ` : ''}
+
+                    ${p.lastError && !isCompleted ? `
+                        <div style="font-size:12px; color:#f87171; margin-top:10px; background:rgba(239,68,68,0.1); padding:8px 12px; border-radius:8px; border:1px solid rgba(239,68,68,0.3);">
+                            ⚠️ Lỗi: ${escapeHtml(p.lastError)}
+                        </div>
+                    ` : ''}
+
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.06); flex-wrap:wrap; gap:8px;">
+                        <span style="font-size:11px; color:var(--text-muted); font-family:monospace;">
+                            ID: ${escapeHtml(p.id)}
+                        </span>
+                        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                            <button type="button" class="btn-sm" style="background:#1e293b; color:#38bdf8; border:1px solid rgba(56,189,248,0.4);" onclick="viewPostDataJson('${p.id}')" title="Xem Toàn Bộ Dữ Liệu Quản Lý JSON">
+                                📊 Dữ Liệu (JSON)
+                            </button>
+                            <button type="button" class="btn-sm ${isCompleted ? 'btn-purple' : 'btn-green'}" onclick="runPostNow('${p.id}')">
+                                ${isCompleted ? '🔄 Đăng Lại' : (isScheduled ? '⚡ Đăng Ngay (Bỏ Hẹn)' : '⚡ Đăng Ngay')}
+                            </button>
+                            ${isScheduled ? `
+                            <button type="button" class="btn-sm" style="background:#0284c7; color:#fff;" onclick="openEditScheduleModal('${p.id}', ${p.scheduledTime || 0})">
+                                ✏️ Đổi Giờ
+                            </button>` : ''}
+                            <button type="button" class="btn-sm" style="background:#0891b2;" onclick="openAddSeedingModal('${p.id}')">
+                                ➕ 💬 Tạo Seeding Mới
+                            </button>
+                            <button type="button" class="btn-sm" style="background:#334155;" onclick="duplicatePost('${p.id}')" title="Nhân Bản">
+                                📋 Nhân Bản
+                            </button>
+                            <button type="button" class="btn-sm btn-danger" onclick="deletePostQueueItem('${p.id}')" title="Xóa">
+                                🗑️
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderPaginationControlsHtml(containerId, currentPage, totalPages, totalItems, startIndex, endIndex, pageSize) {
+            if (totalItems <= 5 && pageSize === 10) return "";
+
+            function getPageNumbers(curr, total) {
+                if (total <= 7) {
+                    const arr = [];
+                    for (let i = 1; i <= total; i++) arr.push(i);
+                    return arr;
                 }
-            });
+                const pages = [1];
+                if (curr > 3) pages.push("...");
+                const start = Math.max(2, curr - 1);
+                const end = Math.min(total - 1, curr + 1);
+                for (let i = start; i <= end; i++) {
+                    if (!pages.includes(i)) pages.push(i);
+                }
+                if (curr < total - 2) pages.push("...");
+                if (!pages.includes(total)) pages.push(total);
+                return pages;
+            }
 
-            const kpiTotal = document.getElementById("kpiTotalPosts");
-            const kpiPending = document.getElementById("kpiPendingPosts");
-            const kpiCompleted = document.getElementById("kpiCompletedPosts");
-            const kpiSeeding = document.getElementById("kpiTotalSeeding");
+            const pageNumbers = getPageNumbers(currentPage, totalPages);
+            const btnsHtml = pageNumbers.map(p => {
+                if (p === "...") {
+                    return `<span style="padding: 4px 6px; color: #64748b; font-size: 13px;">...</span>`;
+                }
+                const isActive = p === currentPage;
+                return `
+                    <button type="button" class="btn-sm" style="${isActive ? 'background:#0284c7; color:#fff; font-weight:700; border:1px solid #38bdf8;' : 'background:#1e293b; color:#cbd5e1; border:1px solid #334155; cursor:pointer;'}" onclick="changeQueuePage('${containerId}', ${p})">
+                        ${p}
+                    </button>
+                `;
+            }).join("");
 
-            if (kpiTotal) kpiTotal.textContent = queue.length;
-            if (kpiPending) kpiPending.textContent = pendingCount;
-            if (kpiCompleted) kpiCompleted.textContent = completedCount;
-            if (kpiSeeding) kpiSeeding.textContent = seedingTotal;
+            return `
+                <div class="queue-pagination-bar" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-top:16px; padding:12px 16px; background:#0b1329; border:1px solid #1e293b; border-radius:10px;">
+                    <div style="display:flex; align-items:center; gap:10px; font-size:13px; color:#94a3b8; flex-wrap:wrap;">
+                        <span>Hiển thị <b style="color:#38bdf8;">${totalItems === 0 ? 0 : startIndex + 1} - ${endIndex}</b> trên <b style="color:#fff;">${totalItems}</b> bài viết (Trang <b style="color:#38bdf8;">${currentPage}</b> / ${totalPages})</span>
+                        <span style="color:#334155;">|</span>
+                        <div style="display:inline-flex; align-items:center; gap:6px;">
+                            <span style="font-size:12px;">Số bài / trang:</span>
+                            <select onchange="changeQueuePageSize('${containerId}', this.value)" style="background:#1e293b; border:1px solid #334155; color:#cbd5e1; border-radius:6px; padding:3px 8px; font-size:12px; cursor:pointer;">
+                                <option value="5" ${pageSize === 5 ? 'selected' : ''}>5 bài</option>
+                                <option value="10" ${pageSize === 10 ? 'selected' : ''}>10 bài</option>
+                                <option value="20" ${pageSize === 20 ? 'selected' : ''}>20 bài</option>
+                                <option value="50" ${pageSize === 50 ? 'selected' : ''}>50 bài</option>
+                                <option value="100" ${pageSize === 100 ? 'selected' : ''}>100 bài</option>
+                                <option value="99999" ${pageSize >= 99999 ? 'selected' : ''}>Tất cả</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
+                        <button type="button" class="btn-sm" style="background:#1e293b; color:#cbd5e1; border:1px solid #334155; padding:5px 9px; ${currentPage <= 1 ? 'opacity:0.35; pointer-events:none;' : 'cursor:pointer;'}" onclick="changeQueuePage('${containerId}', 1)" title="Trang đầu">
+                            ⏮
+                        </button>
+                        <button type="button" class="btn-sm" style="background:#1e293b; color:#cbd5e1; border:1px solid #334155; padding:5px 9px; ${currentPage <= 1 ? 'opacity:0.35; pointer-events:none;' : 'cursor:pointer;'}" onclick="changeQueuePage('${containerId}', ${currentPage - 1})" title="Trang trước">
+                            ◀ Trước
+                        </button>
+                        ${btnsHtml}
+                        <button type="button" class="btn-sm" style="background:#1e293b; color:#cbd5e1; border:1px solid #334155; padding:5px 9px; ${currentPage >= totalPages ? 'opacity:0.35; pointer-events:none;' : 'cursor:pointer;'}" onclick="changeQueuePage('${containerId}', ${currentPage + 1})" title="Trang sau">
+                            Sau ▶
+                        </button>
+                        <button type="button" class="btn-sm" style="background:#1e293b; color:#cbd5e1; border:1px solid #334155; padding:5px 9px; ${currentPage >= totalPages ? 'opacity:0.35; pointer-events:none;' : 'cursor:pointer;'}" onclick="changeQueuePage('${containerId}', ${totalPages})" title="Trang cuối">
+                            ⏭
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
 
+        function changeQueuePage(containerId, pageNum) {
+            if (!_queuePaginationState[containerId]) _queuePaginationState[containerId] = { page: 1, pageSize: 10 };
+            _queuePaginationState[containerId].page = parseInt(pageNum) || 1;
+            const p = allProjects.find(x => x.id === currentProjectId);
+            const sub = p ? (p.subProjects || []).find(s => s.id === currentSubProjectId) : null;
+            if (sub) {
+                const pCfg = getPlatformConfig(sub.type || "facebook");
+                renderAutoPosterStudio(sub, pCfg);
+            }
+            const container = document.getElementById(containerId);
+            if (container) container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        function changeQueuePageSize(containerId, newSize) {
+            if (!_queuePaginationState[containerId]) _queuePaginationState[containerId] = { page: 1, pageSize: 10 };
+            _queuePaginationState[containerId].pageSize = parseInt(newSize) || 10;
+            _queuePaginationState[containerId].page = 1;
+            const p = allProjects.find(x => x.id === currentProjectId);
+            const sub = p ? (p.subProjects || []).find(s => s.id === currentSubProjectId) : null;
+            if (sub) {
+                const pCfg = getPlatformConfig(sub.type || "facebook");
+                renderAutoPosterStudio(sub, pCfg);
+            }
+        }
+
+        function renderPostQueueList(posts, containerId, countBadgeId, emptyIcon, emptyTitle, emptyDesc) {
+            const container = document.getElementById(containerId);
+            const countBadge = document.getElementById(countBadgeId);
             if (!container) return;
 
-            if (queue.length === 0) {
+            if (posts.length === 0) {
+                if (countBadge) countBadge.textContent = "0 Mục";
                 container.innerHTML = `
                     <div style="color:var(--text-muted); font-size:13px; padding:36px 20px; text-align:center;">
-                        <span style="font-size:32px;">🚀</span>
-                        <div style="font-weight:700; color:#cbd5e1; margin-top:8px;">Hàng đợi bài đăng đang trống</div>
-                        <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">
-                            Soạn nội dung ở khung bên trên rồi bấm <b>[🚀 PHÁT LỆNH ĐĂNG BÀI & SEEDING NGAY]</b> hoặc <b>[➕ Thêm Vào Hàng Đợi]</b>!
-                        </div>
+                        <span style="font-size:32px;">${emptyIcon}</span>
+                        <div style="font-weight:700; color:#cbd5e1; margin-top:8px;">${emptyTitle}</div>
+                        <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">${emptyDesc}</div>
                     </div>
                 `;
                 return;
             }
 
-            // Filter queue
-            let filtered = queue.filter(p => {
+            // 1. Luôn đảo ngược / sắp xếp bài viết mới nhất lên trên đầu (Newest on Top)
+            const sorted = [...posts].sort((a, b) => {
+                const getTs = (item) => {
+                    if (item.createdAt && Number(item.createdAt) > 0) return Number(item.createdAt);
+                    if (item.scheduledTime && Number(item.scheduledTime) > 0) return Number(item.scheduledTime);
+                    if (item.id) {
+                        const m = String(item.id).match(/\d{9,}/);
+                        if (m) {
+                            const num = Number(m[0]);
+                            return num < 1e11 ? num * 1000 : num;
+                        }
+                    }
+                    return 0;
+                };
+                return getTs(b) - getTs(a);
+            });
+
+            // 2. Lọc theo trạng thái và từ khóa tìm kiếm
+            let filtered = sorted.filter(p => {
                 if (_currentPostFilter === "completed") return p.status === "completed";
+                if (_currentPostFilter === "scheduled") return p.status === "scheduled";
                 if (_currentPostFilter === "pending") return p.status === "in_progress" || p.status === "pending" || !p.status || p.status.includes("Chờ") || p.status.includes("Đang");
                 if (_currentPostFilter === "failed") return p.status === "failed";
                 return true;
@@ -5045,115 +6991,97 @@ console.log(data);`;
                 );
             }
 
+            if (countBadge) {
+                countBadge.textContent = filtered.length !== posts.length ? `${filtered.length}/${posts.length} Mục` : `${posts.length} Mục`;
+            }
+
             if (filtered.length === 0) {
                 container.innerHTML = `
                     <div style="color:var(--text-muted); font-size:13px; padding:24px 20px; text-align:center;">
-                        Không tìm thấy bài đăng nào phù hợp với bộ lọc hiện tại.
+                        Không tìm thấy mục nào phù hợp với bộ lọc hiện tại.
                     </div>
                 `;
                 return;
             }
 
-            container.innerHTML = filtered.map((p, idx) => {
-                const isCompleted = p.status === "completed";
-                const isInProgress = p.status === "in_progress" || (p.status && p.status.includes("Đang"));
-                const isFailed = p.status === "failed";
+            // 3. Phân trang (Pagination)
+            if (!_queuePaginationState[containerId]) {
+                _queuePaginationState[containerId] = { page: 1, pageSize: 10 };
+            }
+            const pState = _queuePaginationState[containerId];
+            const pageSize = pState.pageSize || 10;
+            const totalItems = filtered.length;
+            const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+            if (pState.page > totalPages) pState.page = totalPages;
+            if (pState.page < 1) pState.page = 1;
+            const currentPage = pState.page;
+            const startIndex = (currentPage - 1) * pageSize;
+            const endIndex = Math.min(startIndex + pageSize, totalItems);
+            const pageItems = filtered.slice(startIndex, endIndex);
 
-                let statusBadgeHtml = `<span class="badge-folder" style="background:rgba(251,191,36,0.2); color:#fbbf24; border:1px solid rgba(251,191,36,0.4);">⏳ Đang Chờ</span>`;
-                if (isCompleted) {
-                    statusBadgeHtml = `<span class="badge-folder" style="background:rgba(52,211,153,0.2); color:#34d399; border:1px solid rgba(52,211,153,0.4);">✅ Hoàn Thành</span>`;
-                } else if (isInProgress) {
-                    statusBadgeHtml = `<span class="badge-folder" style="background:rgba(56,189,248,0.2); color:#38bdf8; border:1px solid rgba(56,189,248,0.4); display:inline-flex; align-items:center; gap:5px;"><div class="pulse-spinner"></div> Đang Xử Lý</span>`;
-                } else if (isFailed) {
-                    statusBadgeHtml = `<span class="badge-folder" style="background:rgba(239,68,68,0.2); color:#ef4444; border:1px solid rgba(239,68,68,0.4);">❌ Thất Bại</span>`;
-                }
+            const cardsHtml = pageItems.map(renderSinglePostCardHtml).join("");
+            const paginationBarHtml = renderPaginationControlsHtml(containerId, currentPage, totalPages, totalItems, startIndex, endIndex, pageSize);
 
-                const typeMap = { "post": "📝 Bài Viết", "video": "🎬 Video", "reel": "⚡ Reels", "story": "📖 Story" };
-                const targetMap = { "profile": "👤 Profile", "page": "🚩 Fanpage", "group": "👥 Group" };
-
-                const typeBadge = typeMap[p.postType || "post"] || "📝 Bài Viết";
-                const targetBadge = targetMap[p.targetType || "profile"] || "👤 Profile";
-
-                const fbPostId = p.fbPostId || "";
-                let fbPostUrl = p.fbPostUrl || "";
-                if (!fbPostUrl && fbPostId) {
-                    if (fbPostId.startsWith("pfbid")) fbPostUrl = `https://www.facebook.com/posts/${fbPostId}`;
-                    else if (p.postType === "reel") fbPostUrl = `https://www.facebook.com/reel/${fbPostId}`;
-                    else if (p.postType === "video") fbPostUrl = `https://www.facebook.com/watch/?v=${fbPostId}`;
-                    else fbPostUrl = `https://www.facebook.com/photo/?fbid=${fbPostId}`;
-                }
-
-                const seedingCount = (p.seedingComments && Array.isArray(p.seedingComments)) ? p.seedingComments.length : 0;
-                const timeStr = p.createdAt ? new Date(p.createdAt).toLocaleString("vi-VN") : "";
-
-                return `
-                    <div class="smart-post-card" style="${isInProgress ? 'border-color: #38bdf8; box-shadow: 0 0 15px rgba(56,189,248,0.2);' : (isCompleted ? 'border-color: rgba(52,211,153,0.3);' : '')}">
-                        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-                            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-                                <span class="badge-folder" style="background:rgba(168,85,247,0.2); color:#c084fc; border:1px solid rgba(168,85,247,0.4);">${typeBadge}</span>
-                                <span class="badge-folder" style="background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3);">${targetBadge}</span>
-                                ${p.targetId ? `<span class="badge-folder" style="background:rgba(255,255,255,0.06); color:#cbd5e1;">Target ID: ${escapeHtml(p.targetId)}</span>` : ''}
-                                <span style="font-size:11px; color:var(--text-muted);">⏰ ${timeStr}</span>
-                            </div>
-                            ${statusBadgeHtml}
-                        </div>
-
-                        ${p.title ? `<div style="font-weight:700; color:#fff; font-size:14px; margin-top:8px;">${escapeHtml(p.title)}</div>` : ''}
-                        <div style="font-size:13px; color:#cbd5e1; margin-top:6px; line-height:1.5; white-space:pre-wrap; max-height:80px; overflow-y:auto;">${escapeHtml(p.content || '(Không có nội dung văn bản)')}</div>
-
-                        <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; align-items:center;">
-                            ${p.mediaData ? `<span class="badge-folder" style="background:rgba(168,85,247,0.15); color:#c084fc;">📎 Tệp: ${escapeHtml(p.mediaData.fileName || 'media')}</span>` : ''}
-                            ${p.mediaUrl && !p.mediaData ? `<span class="badge-folder" style="background:rgba(56,189,248,0.15); color:#38bdf8; max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">🖼️ URL: ${escapeHtml(p.mediaUrl)}</span>` : ''}
-                            ${seedingCount > 0 ? `<span class="badge-folder" style="background:rgba(52,211,153,0.15); color:#34d399;">💬 ${seedingCount} Seeding</span>` : ''}
-                            ${p.autoReactType && p.autoReactType !== "NONE" ? `<span class="badge-folder" style="background:rgba(239,68,68,0.15); color:#f87171;">❤️ React: ${escapeHtml(p.autoReactType)}</span>` : ''}
-                        </div>
-
-                        ${p.progressStep ? `
-                            <div style="margin-top:10px; padding:10px 14px; border-radius:10px; font-size:12px; font-weight:600; background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.3); color:#38bdf8; display:flex; align-items:center; gap:8px;">
-                                ${isInProgress ? '<div class="pulse-spinner"></div>' : '✓'}
-                                <span>${escapeHtml(p.progressStep)}</span>
-                            </div>
-                        ` : ''}
-
-                        ${fbPostUrl ? `
-                            <div style="margin-top:10px;">
-                                <a href="${escapeHtml(fbPostUrl)}" target="_blank" rel="noopener" class="btn-sm btn-green" style="text-decoration:none;">
-                                    🔗 Xem Bài Viết Trực Tiếp Trên Facebook (ID: ${escapeHtml(fbPostId || 'Xem')})
-                                </a>
-                            </div>
-                        ` : ''}
-
-                        ${p.lastError && !isCompleted ? `
-                            <div style="font-size:12px; color:#f87171; margin-top:10px; background:rgba(239,68,68,0.1); padding:8px 12px; border-radius:8px; border:1px solid rgba(239,68,68,0.3);">
-                                ⚠️ Lỗi: ${escapeHtml(p.lastError)}
-                            </div>
-                        ` : ''}
-
-                        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.06); flex-wrap:wrap; gap:8px;">
-                            <span style="font-size:11px; color:var(--text-muted); font-family:monospace;">
-                                ID: ${escapeHtml(p.id)}
-                            </span>
-                            <div style="display:flex; gap:6px; flex-wrap:wrap;">
-                                <button type="button" class="btn-sm ${isCompleted ? 'btn-purple' : 'btn-green'}" onclick="runPostNow('${p.id}')">
-                                    ${isCompleted ? '🔄 Đăng Lại' : '⚡ Đăng Ngay'}
-                                </button>
-                                <button type="button" class="btn-sm" style="background:#0284c7;" onclick="openAddSeedingModal('${p.id}')">
-                                    ➕ 💬 Tạo Seeding Mới
-                                </button>
-                                <button type="button" class="btn-sm" style="background:#334155;" onclick="duplicatePost('${p.id}')" title="Nhân Bản">
-                                    📋 Nhân Bản
-                                </button>
-                                <button type="button" class="btn-sm btn-danger" onclick="deletePostQueueItem('${p.id}')" title="Xóa">
-                                    🗑️
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            }).join("");
+            container.innerHTML = cardsHtml + paginationBarHtml;
         }
 
-        async function submitAutoPost(runNow) {
+        function updateKpis(posts, totalId, pendingId, completedId, seedingId) {
+            let pendingCount = 0;
+            let completedCount = 0;
+            let seedingTotal = 0;
+            posts.forEach(p => {
+                if (p.status === "completed") completedCount++;
+                else if (p.status === "scheduled" || p.status === "in_progress" || p.status === "pending" || !p.status || p.status.includes("Chờ") || p.status.includes("Đang")) pendingCount++;
+                if (p.seedingComments && Array.isArray(p.seedingComments)) {
+                    seedingTotal += p.seedingComments.length;
+                }
+            });
+            const kpiTotal = document.getElementById(totalId);
+            const kpiPending = document.getElementById(pendingId);
+            const kpiCompleted = document.getElementById(completedId);
+            const kpiSeeding = document.getElementById(seedingId);
+            if (kpiTotal) kpiTotal.textContent = posts.length;
+            if (kpiPending) kpiPending.textContent = pendingCount;
+            if (kpiCompleted) kpiCompleted.textContent = completedCount;
+            if (kpiSeeding) kpiSeeding.textContent = seedingTotal;
+        }
+
+        function renderAutoPosterStudio(sub, pCfg) {
+            const bannerTitle = document.getElementById("autopostBannerTitle");
+            const targetUrlInput = document.getElementById("postTargetUrlInput");
+
+            const sourceDomain = sub.sourceDomain || pCfg.domain || "facebook.com";
+            if (bannerTitle) bannerTitle.textContent = `Studio Đăng Bài Viết Thường: ${pCfg.name} (${sourceDomain})`;
+            if (targetUrlInput && (!targetUrlInput.value || targetUrlInput.value === "https://...")) {
+                targetUrlInput.value = "https://www.facebook.com";
+            }
+
+            const queue = sub.postQueue || [];
+
+            // 1. Phân loại bài đăng
+            const feedPosts = queue.filter(p => !p.postType || p.postType === "post");
+            const videoPosts = queue.filter(p => p.postType === "video");
+            const reelsPosts = queue.filter(p => p.postType === "reel");
+            const storyPosts = queue.filter(p => p.postType === "story");
+
+            // 2. Render Studio 1: Bài Viết Thường (Feed)
+            updateKpis(feedPosts, "kpiTotalPosts", "kpiPendingPosts", "kpiCompletedPosts", "kpiTotalSeeding");
+            renderPostQueueList(feedPosts, "postQueueTableContainer", "postQueueCountBadge", "📝", "Hàng đợi bài viết thường đang trống", "Soạn nội dung bài viết và đính kèm ảnh/video ở trên rồi bấm [🚀 PHÁT LỆNH ĐĂNG BÀI]!");
+
+            // 3. Render Studio 2: Facebook Video Watch
+            updateKpis(videoPosts, "kpiTotalVideoPosts", "kpiPendingVideoPosts", "kpiCompletedVideoPosts", "kpiTotalVideoSeeding");
+            renderPostQueueList(videoPosts, "videoPostQueueTableContainer", "videoQueueCountBadge", "🎬", "Hàng đợi Video Watch đang trống", "Tải lên tệp video hoặc dán link ở khung trên rồi bấm [🎬 PHÁT LỆNH ĐĂNG VIDEO WATCH]!");
+
+            // 4. Render Studio 3: Facebook Reels
+            updateKpis(reelsPosts, "kpiTotalReelsPosts", "kpiPendingReelsPosts", "kpiCompletedReelsPosts", "kpiTotalReelsSeeding");
+            renderPostQueueList(reelsPosts, "reelsPostQueueTableContainer", "reelsQueueCountBadge", "⚡", "Hàng đợi Reels đang trống", "Tải lên video Reels dọc 9:16 ở trên rồi bấm [⚡ PHÁT LỆNH ĐĂNG REELS]!");
+
+            // 5. Render Studio 4: Facebook Story
+            updateKpis(storyPosts, "kpiTotalStoryPosts", "kpiPendingStoryPosts", "kpiCompletedStoryPosts", "kpiTotalStoryPosts");
+            renderPostQueueList(storyPosts, "storyPostQueueTableContainer", "storyQueueCountBadge", "📖", "Hàng đợi Story đang trống", "Chọn ảnh hoặc video ngắn 15s ở trên rồi bấm [📖 PHÁT LỆNH ĐĂNG STORY]!");
+        }
+
+        async function submitAutoPost(runMode) {
             if (!currentProjectId || !currentSubProjectId) return;
             const title = document.getElementById("postTitleInput")?.value.trim() || "";
             const rawContent = document.getElementById("postContentInput")?.value.trim() || "";
@@ -5163,6 +7091,35 @@ console.log(data);`;
             const rawSeeding = document.getElementById("postSeedingCommentsInput")?.value.trim() || "";
             const autoReactType = document.getElementById("postAutoReactInput")?.value || "LIKE";
             const statusEl = document.getElementById("autopostStatusText");
+            const scheduleInput = document.getElementById("postScheduleTimeInput");
+            const scheduledVal = scheduleInput ? scheduleInput.value.trim() : "";
+            const shareToFeedEl = document.getElementById("postShareToFeed");
+            const shareToFeed = shareToFeedEl ? shareToFeedEl.checked : true;
+
+            let runNow = false;
+            let scheduledAt = null;
+
+            if (runMode === "now" || runMode === true) {
+                runNow = true;
+                scheduledAt = null;
+            } else if (runMode === "schedule") {
+                if (!scheduledVal) {
+                    alert("⏰ Vui lòng chọn thời gian hẹn giờ (hoặc bấm chọn nút nhanh +15 phút, +1 giờ...) trước khi bấm [LÊN LỊCH ĐĂNG]!");
+                    if (scheduleInput) scheduleInput.focus();
+                    return;
+                }
+                const schedDate = new Date(scheduledVal);
+                if (isNaN(schedDate.getTime()) || schedDate.getTime() <= Date.now()) {
+                    alert("⚠️ Thời gian lên lịch phải ở tương lai! Vui lòng chọn lại.");
+                    if (scheduleInput) scheduleInput.focus();
+                    return;
+                }
+                runNow = false;
+                scheduledAt = scheduledVal;
+            } else {
+                runNow = false;
+                scheduledAt = scheduledVal || null;
+            }
 
             if (!rawContent && !title && !_adminMediaData && !mediaUrl) {
                 alert("Vui lòng nhập nội dung bài viết hoặc đính kèm ảnh/video!");
@@ -5173,7 +7130,13 @@ console.log(data);`;
             const seedingComments = rawSeeding ? rawSeeding.split("\\n").map(s => s.trim()).filter(Boolean) : [];
 
             if (statusEl) {
-                statusEl.textContent = runNow ? "⏳ Đang chuyển lệnh đăng ngầm sang Extension..." : "⏳ Đang lưu vào hàng đợi...";
+                if (runNow) {
+                    statusEl.textContent = "⏳ Đang chuyển lệnh đăng ngầm sang Extension...";
+                } else if (scheduledAt) {
+                    statusEl.textContent = "⏰ Đang lên lịch đăng bài...";
+                } else {
+                    statusEl.textContent = "⏳ Đang lưu vào hàng đợi...";
+                }
                 statusEl.style.color = "var(--accent)";
             }
 
@@ -5181,10 +7144,11 @@ console.log(data);`;
                 const payload = {
                     title,
                     content,
-                    postType: _currentPostType,
+                    postType: "post",
                     targetType: _currentTargetType,
                     targetId,
                     targetUrl,
+                    shareToFeed: !!shareToFeed,
                     mediaUrl,
                     mediaData: _adminMediaData ? {
                         base64: _adminMediaData.base64,
@@ -5194,24 +7158,30 @@ console.log(data);`;
                     } : null,
                     seedingComments,
                     autoReactType,
-                    runNow: !!runNow
+                    runNow: !!runNow,
+                    scheduledAt: scheduledAt
                 };
 
-                const res = await fetch("/api/subprojects/add-post", {
+                const res = await fetch("/api/v1/posts", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         projectId: currentProjectId,
                         subProjectId: currentSubProjectId,
-                        post: payload,
-                        runNow: !!runNow
+                        ...payload
                     })
                 });
 
                 const data = await res.json();
                 if (data.success) {
                     if (statusEl) {
-                        statusEl.textContent = runNow ? "🚀 Đã phát lệnh đăng bài & seeding ngầm lên Facebook!" : "✅ Đã lưu vào hàng đợi bài đăng!";
+                        if (runNow) {
+                            statusEl.textContent = "🚀 Đã phát lệnh đăng bài & seeding ngầm lên Facebook!";
+                        } else if (scheduledAt) {
+                            statusEl.textContent = "⏰ Đã lên lịch đăng bài thành công!";
+                        } else {
+                            statusEl.textContent = "✅ Đã lưu vào hàng đợi bài đăng!";
+                        }
                         statusEl.style.color = "var(--success)";
                     }
 
@@ -5219,6 +7189,7 @@ console.log(data);`;
                     document.getElementById("postContentInput").value = "";
                     document.getElementById("postMediaInput").value = "";
                     document.getElementById("postSeedingCommentsInput").value = "";
+                    if (scheduleInput) scheduleInput.value = "";
                     clearAdminMedia();
                     updatePostCharCount(document.getElementById("postContentInput"));
 
@@ -5240,17 +7211,17 @@ console.log(data);`;
         }
 
         async function deletePostQueueItem(postId) {
+            if (!confirm("Bạn có chắc chắn muốn xóa bài viết / mục này khỏi hàng đợi không?")) return;
             try {
-                await fetch("/api/subprojects/delete-post", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        projectId: currentProjectId,
-                        subProjectId: currentSubProjectId,
-                        postId
-                    })
+                const res = await fetch(`/api/v1/posts/${postId}`, {
+                    method: "DELETE"
                 });
-                if (currentProjectId) fetchParentProjectData(currentProjectId);
+                const data = await res.json();
+                if (data.success) {
+                    if (currentProjectId) fetchParentProjectData(currentProjectId);
+                } else {
+                    alert("Lỗi: " + (data.error || "Không thể xóa bài"));
+                }
             } catch(e) {
                 alert("Lỗi: " + e.message);
             }
@@ -6098,20 +8069,8 @@ console.log(data);`;
 
             try {
                 if (!route) {
-                    // Nếu không có hash trong URL, kiểm tra xem có phiên làm việc trước trong localStorage không
-                    const savedParentId = localStorage.getItem("active_parent_id");
-                    const savedSubId = localStorage.getItem("active_sub_id");
-                    if (savedParentId && allProjects.some(p => p.id === savedParentId)) {
-                        enterParentProject(savedParentId, "parent-subprojects", true);
-                        if (savedSubId) {
-                            const p = allProjects.find(x => x.id === savedParentId);
-                            if (p && (p.subProjects || []).some(s => s.id === savedSubId)) {
-                                enterSubProject(savedSubId, "sub-account-info", true);
-                            }
-                        }
-                    } else {
-                        switchHubRoute("hub-projects", true);
-                    }
+                    // Khi mở URL gốc không có hash, luôn hiển thị Sảnh chính (Hub)
+                    exitToHub(false);
                     return;
                 }
 
@@ -6171,8 +8130,10 @@ console.log(data);`;
                 fetchStatus();
                 if (currentLevel === "hub") {
                     fetchProjects();
+                } else if (currentProjectId) {
+                    fetchParentProjectData(currentProjectId);
                 }
-            }, 3000);
+            }, 2500);
         });
     </script>
 
@@ -6216,6 +8177,47 @@ console.log(data);`;
             </div>
         </div>
     </div>
+
+    <!-- MODAL: ĐỔI GIỜ ĐĂNG / HẸN GIỜ CHO BÀI VIẾT -->
+    <div id="editScheduleModal" class="modal-overlay" onclick="if(event.target===this) closeEditScheduleModal()">
+        <div class="modal-box">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; border-bottom:1px solid var(--border-color); padding-bottom:10px;">
+                <h3 style="font-size:16px; color:#38bdf8; margin:0; display:flex; align-items:center; gap:8px;" id="editScheduleModalTitle">
+                    <span>⏰</span> <span>Đổi Giờ Đăng Cho Bài Viết</span>
+                </h3>
+                <button type="button" onclick="closeEditScheduleModal()" style="background:transparent; border:none; color:var(--text-muted); font-size:18px; cursor:pointer;">✕</button>
+            </div>
+            <p style="font-size:12px; color:var(--text-muted); margin-bottom:14px;">
+                Chọn thời gian tự động xuất bản lên Facebook. Hệ thống chạy ngầm định kỳ kiểm tra hàng đợi và kích hoạt bài đăng khi đến giờ hẹn.
+            </p>
+            <div style="margin-bottom:14px;">
+                <label style="font-size:11px; font-weight:700; color:#38bdf8; text-transform:uppercase; margin-bottom:6px; display:block;">⏰ Chọn Thời Gian Hẹn Giờ Mới:</label>
+                <input type="datetime-local" id="modalEditScheduleInput" style="margin-bottom:10px; font-size:14px; font-weight:600;" />
+                <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px;">
+                    <button type="button" class="btn-sm" style="background:#1e293b; color:#38bdf8;" onclick="setSchedulePreset(15, 'modalEditScheduleInput')">+15 phút</button>
+                    <button type="button" class="btn-sm" style="background:#1e293b; color:#38bdf8;" onclick="setSchedulePreset(60, 'modalEditScheduleInput')">+1 giờ</button>
+                    <button type="button" class="btn-sm" style="background:#1e293b; color:#38bdf8;" onclick="setSchedulePreset(180, 'modalEditScheduleInput')">+3 giờ</button>
+                    <button type="button" class="btn-sm" style="background:#1e293b; color:#a78bfa;" onclick="setSchedulePresetNamed('tomorrow_morning', 'modalEditScheduleInput')">☀️ Sáng mai 8h</button>
+                    <button type="button" class="btn-sm" style="background:#1e293b; color:#f59e0b;" onclick="setSchedulePresetNamed('tonight_evening', 'modalEditScheduleInput')">🌙 Tối nay 20h</button>
+                </div>
+            </div>
+
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:20px; flex-wrap:wrap; gap:10px;">
+                <button type="button" class="btn-sm btn-danger" onclick="submitEditScheduleModal('clear')" title="Xóa lịch hẹn và đưa bài về trạng thái nháp">
+                    ✕ Hủy Hẹn Giờ (Về Nháp)
+                </button>
+                <div style="display:flex; gap:8px;">
+                    <button type="button" class="btn-sm" style="background:#334155;" onclick="closeEditScheduleModal()">Hủy Bỏ</button>
+                    <button type="button" class="btn-sm btn-green" onclick="submitEditScheduleModal('now')">
+                        <span>⚡</span> <span>ĐĂNG NGAY</span>
+                    </button>
+                    <button type="button" class="btn-sm btn-purple" onclick="submitEditScheduleModal('save')" style="background:linear-gradient(135deg,#0284c7,#2563eb);">
+                        <span>💾</span> <span>LƯU GIỜ HẸN MỚI</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
 """
@@ -6237,7 +8239,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
     def _set_cors(self):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Sync-Token, X-Project-Key, X-Worker-Id")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Sync-Token, X-Project-Key, X-Worker-Id, X-Project-Token")
 
     def _send_json(self, status_code, data):
         self.send_response(status_code)
@@ -6378,18 +8380,20 @@ class BridgeHandler(BaseHTTPRequestHandler):
             self._send_json(200, {"success": True, "accounts": []})
             return
 
-        # 8. API Kiểm tra trạng thái bài đăng (Public REST API)
-        if pathname in ("/api/v1/posts/status", "/api/posts/status"):
-            query_parts = parsed.query.split("&") if parsed.query else []
-            query_params = {}
-            for q in query_parts:
-                if "=" in q:
-                    k, v = q.split("=", 1)
-                    query_params[k] = v
+        # 8. API Kiểm tra trạng thái bài đăng theo ID hoặc query param (Public REST API)
+        if pathname in ("/api/v1/posts/status", "/api/posts/status") or (pathname.startswith("/api/v1/posts/") and not pathname.startswith(("/api/v1/posts/status", "/api/v1/posts/publish", "/api/v1/posts/seeding"))):
+            post_id = None
+            if pathname.startswith("/api/v1/posts/") and not pathname.startswith(("/api/v1/posts/status", "/api/v1/posts/publish", "/api/v1/posts/seeding")):
+                post_id = pathname[len("/api/v1/posts/"):].strip("/")
+            else:
+                query_parts = parsed.query.split("&") if parsed.query else []
+                for q in query_parts:
+                    if q.startswith("postId="):
+                        post_id = q.split("=", 1)[1]
+                        break
 
-            post_id = query_params.get("postId")
             if not post_id:
-                self._send_json(400, {"success": False, "error": "Thiếu tham số postId"})
+                self._send_json(400, {"success": False, "error": {"code": "MISSING_POST_ID", "message": "Thiếu tham số postId"}})
                 return
 
             all_projs = get_projects()
@@ -6408,35 +8412,41 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 if found_post: break
 
             if not found_post:
-                self._send_json(404, {"success": False, "error": f"Không tìm thấy bài viết có ID '{post_id}'"})
+                self._send_json(404, {"success": False, "error": {"code": "NOT_FOUND", "message": f"Không tìm thấy bài viết có ID '{post_id}'"}})
                 return
 
-            self._send_json(200, {
-                "success": True,
-                "postId": found_post.get("id"),
-                "status": found_post.get("status"),
-                "progressStep": found_post.get("progressStep", ""),
-                "fbPostId": found_post.get("fbPostId", ""),
-                "fbPostUrl": found_post.get("fbPostUrl", ""),
-                "lastError": found_post.get("lastError", ""),
-                "title": found_post.get("title", ""),
-                "content": found_post.get("content", ""),
-                "postType": found_post.get("postType", "post"),
-                "targetType": found_post.get("targetType", "profile"),
-                "targetId": found_post.get("targetId", ""),
-                "createdAt": found_post.get("createdAt", 0),
-                "seedingCount": len(found_post.get("seedingComments", [])),
-                "autoReactType": found_post.get("autoReactType", "LIKE"),
+            resp_data = {
+                **found_post,
                 "account": {
                     "projectId": found_proj.get("id") if found_proj else "",
                     "projectName": found_proj.get("name") if found_proj else "",
+                    "subProjectId": found_sub.get("id") if found_sub else "",
+                    "subProjectName": found_sub.get("name") if found_sub else "",
                     "c_user": found_sub.get("c_user") if found_sub else "",
                     "fbName": found_sub.get("fbName") if found_sub else ""
                 }
+            }
+            self._send_json(200, {
+                "success": True,
+                "data": resp_data,
+                "post": resp_data,
+                "postId": found_post.get("id"),
+                "status": found_post.get("status"),
+                "progressStep": found_post.get("progressStep", ""),
+                "shareToFeed": found_post.get("shareToFeed", True),
+                "shareToStory": found_post.get("shareToStory", found_post.get("shareToFeed", True)),
+                "shareToStorySuccess": found_post.get("shareToStorySuccess", False),
+                "fbPostId": found_post.get("fbPostId", ""),
+                "fbPostUrl": found_post.get("fbPostUrl", ""),
+                "fbFeedbackId": found_post.get("fbFeedbackId", ""),
+                "seedingIds": found_post.get("seedingIds", []),
+                "seedingDetails": found_post.get("seedingDetails", []),
+                "publishedAt": found_post.get("publishedAt"),
+                "publishedAtStr": found_post.get("publishedAtStr", "")
             })
             return
 
-        # 9. API Lấy danh sách bài đăng (Public REST API)
+        # 9. API Lấy danh sách bài đăng & hàng đợi (Public REST API)
         if pathname in ("/api/v1/posts", "/api/posts"):
             token = self.headers.get("X-Project-Token") or self.headers.get("X-Sync-Token")
             if not token:
@@ -6454,19 +8464,41 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 token = query_params.get("token")
             
             target_proj = find_project_by_token(token) if token else None
+            proj_id_query = query_params.get("projectId")
+            if not target_proj and proj_id_query:
+                all_p = get_projects()
+                for p in all_p:
+                    if p.get("id") == proj_id_query:
+                        target_proj = p
+                        break
+
             all_projs = [target_proj] if target_proj else get_projects()
 
             status_filter = query_params.get("status")
+            post_type_filter = query_params.get("postType")
+            sub_id_filter = query_params.get("subProjectId")
             limit = int(query_params.get("limit", 50))
+            offset = int(query_params.get("offset", 0))
 
             all_posts = []
             for p in all_projs:
                 for s in p.get("subProjects", []):
+                    if sub_id_filter and s.get("id") != sub_id_filter:
+                        continue
                     for post_item in s.get("postQueue", []):
-                        if status_filter and post_item.get("status") != status_filter:
+                        if status_filter and status_filter != "all" and post_item.get("status") != status_filter:
                             continue
+                        if post_type_filter and post_type_filter != "all" and post_item.get("postType") != post_type_filter:
+                            continue
+                        post_summary = dict(post_item)
+                        if "mediaData" in post_summary and isinstance(post_summary["mediaData"], dict):
+                            m_copy = dict(post_summary["mediaData"])
+                            m_copy.pop("base64", None)
+                            m_copy["hasBase64"] = bool(post_summary["mediaData"].get("base64"))
+                            post_summary["mediaData"] = m_copy
+
                         all_posts.append({
-                            **post_item,
+                            **post_summary,
                             "projectId": p.get("id"),
                             "projectName": p.get("name"),
                             "subProjectId": s.get("id"),
@@ -6476,11 +8508,21 @@ class BridgeHandler(BaseHTTPRequestHandler):
                         })
 
             all_posts.sort(key=lambda x: x.get("createdAt", 0), reverse=True)
+            total = len(all_posts)
+            paginated = all_posts[offset:offset+limit]
+
             self._send_json(200, {
                 "success": True,
-                "count": len(all_posts[:limit]),
-                "total": len(all_posts),
-                "posts": all_posts[:limit]
+                "data": paginated,
+                "posts": paginated,
+                "count": len(paginated),
+                "total": total,
+                "pagination": {
+                    "total": total,
+                    "limit": limit,
+                    "offset": offset,
+                    "hasMore": (offset + limit) < total
+                }
             })
             return
 
@@ -6766,183 +8808,138 @@ class BridgeHandler(BaseHTTPRequestHandler):
             return
 
         # =====================================================================
-        # PUBLIC REST API: ĐĂNG BÀI VIẾT TỪ HỆ THỐNG NGOÀI (CURL, BOT, WEBHOOK)
+        # PUBLIC REST API & DASHBOARD: TẠO HOẶC LÊN LỊCH BÀI VIẾT
+        # POST /api/v1/posts, /api/posts, /api/v1/posts/publish, /api/subprojects/add-post
         # =====================================================================
-        if pathname in ("/api/v1/posts/publish", "/api/posts/publish", "/api/publish"):
-            # 1. Xác thực Token
+        if pathname in ("/api/v1/posts", "/api/posts", "/api/v1/posts/publish", "/api/posts/publish", "/api/publish", "/api/subprojects/add-post"):
             auth_header = self.headers.get("Authorization", "")
             token = self.headers.get("X-Project-Token") or self.headers.get("X-Sync-Token")
             if not token and auth_header.lower().startswith("bearer "):
                 token = auth_header[7:].strip()
             if not token:
                 token = body.get("token") or body.get("projectToken")
-            
-            all_projs = get_projects()
-            target_proj = None
-            if token:
-                for p in all_projs:
-                    if p.get("token") and p.get("token").strip() == token.strip():
-                        target_proj = p
-                        break
 
-            # Fallback nếu truyền projectId
-            if not target_proj and body.get("projectId"):
-                for p in all_projs:
-                    if p.get("id") == body.get("projectId"):
-                        target_proj = p
-                        break
-
-            # Fallback nếu hệ thống chỉ có 1 dự án duy nhất
-            if not target_proj and len(all_projs) == 1:
-                target_proj = all_projs[0]
-
-            if not target_proj:
-                self._send_json(401, {
-                    "success": False,
-                    "error": "Xác thực không hợp lệ. Vui lòng gửi kèm Project Token qua Header: 'Authorization: Bearer <token>' hoặc body: {'token': '<token>'}"
-                })
-                return
-
-            # 2. Xác định Thư mục / Tài khoản Facebook
-            target_sub = None
+            proj_id = body.get("projectId")
             sub_id = body.get("subProjectId") or body.get("targetSubProjectId")
-            subs = target_proj.get("subProjects", [])
-            if sub_id:
-                for s in subs:
-                    if s.get("id") == sub_id:
-                        target_sub = s
-                        break
+            post_data = body.get("post") if (isinstance(body.get("post"), dict) and body.get("post")) else body
+
+            if "runNow" in body:
+                run_now = bool(body.get("runNow"))
+            elif "runNow" in post_data:
+                run_now = bool(post_data.get("runNow"))
             else:
-                for s in subs:
-                    if s.get("type", "facebook") == "facebook":
-                        target_sub = s
-                        break
-                if not target_sub and len(subs) > 0:
-                    target_sub = subs[0]
+                run_now = False if pathname == "/api/subprojects/add-post" else True
 
-            if not target_sub:
-                self._send_json(400, {
-                    "success": False,
-                    "error": f"Dự án '{target_proj['name']}' chưa có tài khoản Facebook nào để đăng bài."
-                })
+            source = "api" if ("/api/v1/" in pathname or "/api/posts" in pathname or "/api/publish" in pathname) else "dashboard"
+            status_code, res_payload = create_post_entry(
+                proj_id=proj_id,
+                sub_id=sub_id,
+                post_data=post_data,
+                run_now=run_now,
+                source=source,
+                token=token
+            )
+            self._send_json(status_code, res_payload)
+            return
+
+        # Kích hoạt đăng ngay bài viết từ REST API: POST /api/v1/posts/<id>/run
+        if pathname.startswith("/api/v1/posts/") and pathname.endswith("/run"):
+            parts = pathname.strip("/").split("/")
+            post_id = parts[-2]
+            all_projs = get_projects()
+            found_post = None
+            found_proj = None
+            found_sub = None
+            for p in all_projs:
+                for s in p.get("subProjects", []):
+                    for post_item in s.get("postQueue", []):
+                        if post_item.get("id") == post_id:
+                            found_post = post_item
+                            found_proj = p
+                            found_sub = s
+                            break
+                    if found_post: break
+                if found_post: break
+
+            if not found_post:
+                self._send_json(404, {"success": False, "error": {"code": "NOT_FOUND", "message": f"Không tìm thấy bài viết '{post_id}'"}})
                 return
 
-            # 3. Xử lý Nội dung & Spintax
-            raw_content = body.get("content", "")
-            media_url = (body.get("mediaUrl") or "").strip()
-            media_data = body.get("mediaData")
-
-            if not raw_content and not media_url and not media_data:
-                self._send_json(400, {
-                    "success": False,
-                    "error": "Thiếu nội dung bài viết ('content') hoặc tệp media ('mediaUrl')!"
-                })
-                return
-
-            content = resolve_spintax(raw_content)
-
-            # 4. Định dạng bài viết & Đích đăng
-            post_type = str(body.get("postType", "post")).lower()
-            if post_type not in ("post", "reel", "video", "story"):
-                post_type = "post"
-
-            target_type = str(body.get("targetType", "profile")).lower()
-            if target_type not in ("profile", "page", "group"):
-                target_type = "profile"
-
-            target_id = str(body.get("targetId", "")).strip()
-            if target_type in ("page", "group") and not target_id:
-                self._send_json(400, {
-                    "success": False,
-                    "error": f"Khi đăng bài lên {target_type.upper()}, bắt buộc phải cung cấp 'targetId' (ID Fanpage hoặc ID Nhóm)!"
-                })
-                return
-
-            # 5. Seeding & Cảm xúc
-            raw_seeding = body.get("seedingComments", [])
-            seeding_comments = []
-            if isinstance(raw_seeding, str):
-                seeding_comments = [c.strip() for c in raw_seeding.split("\n") if c.strip()]
-            elif isinstance(raw_seeding, list):
-                seeding_comments = [str(c).strip() for c in raw_seeding if str(c).strip()]
-
-            auto_react = str(body.get("autoReactType") or "LIKE").upper()
-            if auto_react not in ("LIKE", "LOVE", "CARE", "HAHA", "WOW", "SAD", "ANGRY", "NONE"):
-                auto_react = "LIKE"
-
-            scheduled_time = int(body.get("scheduledTime", 0) or 0)
-            run_now = body.get("runNow", True)
-            if scheduled_time > int(time.time() * 1000):
-                run_now = False
-
-            if "postQueue" not in target_sub:
-                target_sub["postQueue"] = []
-
-            post_id = f"post_{int(time.time())}_{uuid.uuid4().hex[:4]}"
-            post_entry = {
-                "id": post_id,
-                "title": body.get("title", ""),
-                "content": content,
-                "postType": post_type,
-                "targetType": target_type,
-                "targetId": target_id,
-                "targetUrl": body.get("targetUrl", "https://www.facebook.com"),
-                "mediaUrl": media_url,
-                "mediaData": media_data,
-                "seedingComments": seeding_comments,
-                "autoReactType": auto_react,
-                "status": "in_progress" if run_now else "pending",
-                "progressStep": "Đang chuyển lệnh sang Extension..." if run_now else "Đã thêm vào hàng đợi",
-                "fbPostId": "",
-                "fbPostUrl": "",
-                "scheduledTime": scheduled_time,
-                "lastError": "",
-                "createdAt": int(time.time() * 1000),
-                "source": "api"
-            }
-
-            target_sub["postQueue"].append(post_entry)
+            found_post["status"] = "in_progress"
+            found_post["progressStep"] = "Đang chuyển lệnh đăng bài sang Extension..."
+            found_post["lastError"] = ""
             save_projects(all_projs)
 
-            cmd_id = None
-            if run_now:
-                cmd_id = f"cmd_{int(time.time())}_{uuid.uuid4().hex[:6]}"
-                cmd = {
-                    "id": cmd_id,
-                    "action": "POST_STORY",
-                    "targetProjectId": target_proj["id"],
-                    "targetSubProjectId": target_sub["id"],
-                    "targetNodeId": "*",
-                    "post": post_entry
-                }
-                pending_commands.append(cmd)
-                recent_issued_commands[cmd_id] = cmd
-                push_log(f"API: Đã phát lệnh đăng ngay bài viết '{post_id}' lên Facebook cho '{target_sub['name']}'", "step", project_id=target_proj["id"], subproject_id=target_sub["id"])
-            else:
-                push_log(f"API: Đã thêm bài viết mới vào hàng đợi của '{target_sub['name']}'", "success", project_id=target_proj["id"], subproject_id=target_sub["id"])
-
+            cmd_id = f"cmd_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+            cmd = {
+                "id": cmd_id,
+                "action": "POST_STORY",
+                "targetProjectId": found_proj["id"],
+                "targetSubProjectId": found_sub["id"],
+                "targetNodeId": "*",
+                "post": found_post
+            }
+            pending_commands.append(cmd)
+            recent_issued_commands[cmd_id] = cmd
+            push_log(f"Đã kích hoạt đăng ngay bài viết '{post_id}' cho '{found_sub['name']}'", "step", project_id=found_proj["id"], subproject_id=found_sub["id"])
             self._send_json(200, {
                 "success": True,
-                "message": "Đã tiếp nhận bài viết và phát lệnh đăng ngay sang Extension!" if run_now else "Đã thêm bài viết vào hàng đợi đăng!",
-                "postId": post_id,
+                "message": "Đã phát lệnh đăng ngay sang Extension",
                 "cmdId": cmd_id,
-                "status": post_entry["status"],
-                "postType": post_type,
-                "targetType": target_type,
-                "targetAccount": {
-                    "projectId": target_proj["id"],
-                    "projectName": target_proj["name"],
-                    "token": target_proj.get("token"),
-                    "subProjectId": target_sub["id"],
-                    "subProjectName": target_sub["name"],
-                    "c_user": target_sub.get("c_user", ""),
-                    "fbName": target_sub.get("fbName", "")
-                },
-                "tracking": {
-                    "statusUrl": f"/api/v1/posts/status?postId={post_id}",
-                    "queuePosition": len(target_sub["postQueue"])
-                },
-                "post": post_entry
+                "data": found_post,
+                "post": found_post
+            })
+            return
+
+        # Cập nhật giờ hẹn đăng từ REST API: POST /api/v1/posts/<id>/schedule
+        if pathname.startswith("/api/v1/posts/") and pathname.endswith("/schedule"):
+            parts = pathname.strip("/").split("/")
+            post_id = parts[-2]
+            sched_val = body.get("scheduledAt") or body.get("scheduledTime")
+            all_projs = get_projects()
+            found_post = None
+            found_proj = None
+            found_sub = None
+            for p in all_projs:
+                for s in p.get("subProjects", []):
+                    for post_item in s.get("postQueue", []):
+                        if post_item.get("id") == post_id:
+                            found_post = post_item
+                            found_proj = p
+                            found_sub = s
+                            break
+                    if found_post: break
+                if found_post: break
+
+            if not found_post:
+                self._send_json(404, {"success": False, "error": {"code": "NOT_FOUND", "message": f"Không tìm thấy bài viết '{post_id}'"}})
+                return
+
+            if not sched_val:
+                found_post["status"] = "pending"
+                found_post["scheduledTime"] = 0
+                found_post["scheduledAt"] = ""
+                found_post["progressStep"] = "Đã hủy hẹn giờ, lưu trong hàng đợi"
+                push_log(f"Đã hủy giờ hẹn đăng bài '{post_id}'", "step", project_id=found_proj["id"], subproject_id=found_sub["id"])
+            else:
+                sched_ms = parse_scheduled_time(sched_val)
+                now_ms = int(time.time() * 1000)
+                if not sched_ms or sched_ms <= now_ms:
+                    self._send_json(422, {"success": False, "error": {"code": "INVALID_SCHEDULE_TIME", "message": "Thời gian đặt lịch phải ở thời điểm tương lai!"}})
+                    return
+                found_post["status"] = "scheduled"
+                found_post["scheduledTime"] = sched_ms
+                found_post["scheduledAt"] = datetime.fromtimestamp(sched_ms / 1000.0, tz=timezone.utc).isoformat()
+                formatted = format_scheduled_time(sched_ms)
+                found_post["progressStep"] = f"⏳ Đã lên lịch đăng lúc {formatted}"
+                push_log(f"⏰ Đã cập nhật lịch đăng bài '{post_id}' sang {formatted}", "step", project_id=found_proj["id"], subproject_id=found_sub["id"])
+
+            save_projects(all_projs)
+            self._send_json(200, {
+                "success": True,
+                "message": "Cập nhật lịch đăng bài thành công",
+                "data": found_post,
+                "post": found_post
             })
             return
 
@@ -7010,74 +9007,6 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 "postId": found_post["id"],
                 "fbPostId": found_post.get("fbPostId")
             })
-            return
-
-        # Thêm bài đăng vào hàng đợi & Hỗ trợ Đăng Ngay
-        if pathname == "/api/subprojects/add-post":
-            proj_id = body.get("projectId")
-            sub_id = body.get("subProjectId")
-            post = body.get("post", {})
-            run_now = body.get("runNow", False) or post.get("runNow", False)
-
-            projs = get_projects()
-            target_sub = None
-            for p in projs:
-                if p.get("id") == proj_id:
-                    for s in p.get("subProjects", []):
-                        if s.get("id") == sub_id:
-                            target_sub = s
-                            break
-                    break
-
-            if not target_sub:
-                self._send_json(404, {"success": False, "error": "Không tìm thấy dự án con"})
-                return
-
-            if "postQueue" not in target_sub:
-                target_sub["postQueue"] = []
-
-            post_id = f"post_{int(time.time())}_{uuid.uuid4().hex[:4]}"
-            post_entry = {
-                "id": post_id,
-                "title": post.get("title", ""),
-                "content": post.get("content", ""),
-                "postType": post.get("postType", "post"),
-                "targetType": post.get("targetType", "profile"),
-                "targetId": post.get("targetId", ""),
-                "targetUrl": post.get("targetUrl", ""),
-                "mediaUrl": post.get("mediaUrl", ""),
-                "mediaData": post.get("mediaData"),
-                "seedingComments": post.get("seedingComments", []),
-                "autoReactType": post.get("autoReactType", "LIKE"),
-                "status": "in_progress" if run_now else "pending",
-                "progressStep": "Đang chuyển lệnh sang Extension..." if run_now else "Đã thêm vào hàng đợi",
-                "fbPostId": "",
-                "fbPostUrl": "",
-                "scheduledTime": post.get("scheduledTime", 0),
-                "lastError": "",
-                "createdAt": int(time.time() * 1000)
-            }
-            target_sub["postQueue"].append(post_entry)
-            save_projects(projs)
-
-            cmd_id = None
-            if run_now:
-                cmd_id = f"cmd_{int(time.time())}_{uuid.uuid4().hex[:6]}"
-                cmd = {
-                    "id": cmd_id,
-                    "action": "POST_STORY",
-                    "targetProjectId": proj_id,
-                    "targetSubProjectId": sub_id,
-                    "targetNodeId": "*",
-                    "post": post_entry
-                }
-                pending_commands.append(cmd)
-                recent_issued_commands[cmd_id] = cmd
-                push_log(f"Đã phát lệnh đăng ngay bài viết '{post_id}' lên Facebook cho '{target_sub['name']}'", "step", project_id=proj_id, subproject_id=sub_id)
-            else:
-                push_log(f"Đã thêm bài viết mới vào hàng đợi đăng của '{target_sub['name']}'", "success", project_id=proj_id, subproject_id=sub_id)
-
-            self._send_json(200, {"success": True, "post": post_entry, "cmdId": cmd_id})
             return
 
         # Đăng ngay bài viết đã có sẵn trong hàng đợi
@@ -7317,12 +9246,27 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 for c in pending_commands
             )
 
+            reload_req = False
+            if node_id and (node_id in pending_extension_reloads or "*" in pending_extension_reloads):
+                reload_req = True
+                pending_extension_reloads.discard(node_id)
+                pending_extension_reloads.discard("*")
+
             self._send_json(200, {
                 "success": True,
                 "projectId": proj["id"],
                 "projectName": proj["name"],
-                "hasPendingCommands": has_pending
+                "hasPendingCommands": has_pending,
+                "reloadExtension": reload_req
             })
+            return
+
+        # Reload Extension Nodes
+        if pathname == "/api/bridge/reload-nodes":
+            node_id = body.get("nodeId") or "*"
+            pending_extension_reloads.add(node_id)
+            push_log(f"Đã kích hoạt cờ yêu cầu Extension nạp lại mã mới nhất (node: {node_id})", "step")
+            self._send_json(200, {"success": True, "message": "Đã gửi yêu cầu reload tới Extension"})
             return
 
         # 8. Poll
@@ -7478,6 +9422,13 @@ class BridgeHandler(BaseHTTPRequestHandler):
                                             p_item["status"] = "completed"
                                             if body.get("fbPostId"): p_item["fbPostId"] = body.get("fbPostId")
                                             if body.get("fbPostUrl"): p_item["fbPostUrl"] = body.get("fbPostUrl")
+                                            if body.get("fbFeedbackId"): p_item["fbFeedbackId"] = body.get("fbFeedbackId")
+                                            if body.get("seedingIds"): p_item["seedingIds"] = body.get("seedingIds")
+                                            if body.get("seedingDetails"): p_item["seedingDetails"] = body.get("seedingDetails")
+                                            if "shareToStorySuccess" in body: p_item["shareToStorySuccess"] = bool(body.get("shareToStorySuccess"))
+                                            now_ts = int(time.time() * 1000)
+                                            p_item["publishedAt"] = body.get("publishedAt") or now_ts
+                                            p_item["publishedAtStr"] = format_scheduled_time(p_item["publishedAt"])
                                             p_item["progressStep"] = body.get("progressStep") or "✅ Đã xuất bản thành công lên Facebook"
                                             p_item["lastError"] = ""
                                         else:
@@ -7485,6 +9436,38 @@ class BridgeHandler(BaseHTTPRequestHandler):
                                             p_item["lastError"] = body.get("error", "Lỗi không xác định")
                                             p_item["progressStep"] = f"❌ Thất bại: {p_item['lastError']}"
                                         save_projects(projs)
+
+                                        # Webhook callback notification (if configured)
+                                        cb_url = p_item.get("callbackUrl")
+                                        if cb_url and str(cb_url).startswith("http"):
+                                            def _notify_webhook(url, post_obj, prj, sub):
+                                                try:
+                                                    wb_payload = {
+                                                        "event": "POST_COMPLETED" if post_obj.get("status") == "completed" else "POST_FAILED",
+                                                        "postId": post_obj.get("id"),
+                                                        "status": post_obj.get("status"),
+                                                        "fbPostId": post_obj.get("fbPostId"),
+                                                        "fbPostUrl": post_obj.get("fbPostUrl"),
+                                                        "fbFeedbackId": post_obj.get("fbFeedbackId"),
+                                                        "seedingIds": post_obj.get("seedingIds", []),
+                                                        "seedingDetails": post_obj.get("seedingDetails", []),
+                                                        "publishedAt": post_obj.get("publishedAt"),
+                                                        "post": post_obj,
+                                                        "account": {
+                                                            "projectId": prj.get("id"),
+                                                            "projectName": prj.get("name"),
+                                                            "subProjectId": sub.get("id"),
+                                                            "subProjectName": sub.get("name"),
+                                                            "c_user": sub.get("c_user"),
+                                                            "fbName": sub.get("fbName")
+                                                        }
+                                                    }
+                                                    w_body = json.dumps(wb_payload).encode("utf-8")
+                                                    w_req = urllib.request.Request(url, data=w_body, headers={"Content-Type": "application/json", "User-Agent": "AutoPostFB-Webhook/1.0"}, method="POST")
+                                                    urllib.request.urlopen(w_req, timeout=8)
+                                                except Exception as we:
+                                                    print(f"[Webhook Error] {we}")
+                                            threading.Thread(target=_notify_webhook, args=(cb_url, p_item.copy(), target_proj, target_sub), daemon=True).start()
                                         break
 
             log_msg = f"Đã thực thi [{action}]: "
@@ -7532,8 +9515,118 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
         self._send_json(404, {"error": "Endpoint not found"})
 
+    def do_PATCH(self):
+        parsed = urlparse(self.path)
+        pathname = parsed.path
+        body = self._parse_body()
+
+        if pathname.startswith("/api/v1/posts/"):
+            parts = pathname.strip("/").split("/")
+            post_id = parts[-1]
+            all_projs = get_projects()
+            found_post = None
+            found_sub = None
+            found_proj = None
+            for p in all_projs:
+                for s in p.get("subProjects", []):
+                    for post_item in s.get("postQueue", []):
+                        if post_item.get("id") == post_id:
+                            found_post = post_item
+                            found_sub = s
+                            found_proj = p
+                            break
+                    if found_post: break
+                if found_post: break
+
+            if not found_post:
+                self._send_json(404, {"success": False, "error": {"code": "NOT_FOUND", "message": f"Không tìm thấy bài viết '{post_id}'"}})
+                return
+
+            if "title" in body:
+                found_post["title"] = body["title"]
+            if "content" in body:
+                found_post["content"] = resolve_spintax(body["content"])
+            if "seedingComments" in body:
+                raw_seeding = body["seedingComments"]
+                if isinstance(raw_seeding, str):
+                    found_post["seedingComments"] = [c.strip() for c in raw_seeding.split("\n") if c.strip()]
+                elif isinstance(raw_seeding, list):
+                    found_post["seedingComments"] = [str(c).strip() for c in raw_seeding if str(c).strip()]
+            if "autoReactType" in body:
+                found_post["autoReactType"] = body["autoReactType"]
+            if "shareToFeed" in body:
+                found_post["shareToFeed"] = bool(body["shareToFeed"])
+            if "shareToStory" in body:
+                found_post["shareToStory"] = bool(body["shareToStory"])
+            if "callbackUrl" in body:
+                found_post["callbackUrl"] = str(body["callbackUrl"])
+
+            if "scheduledAt" in body or "scheduledTime" in body:
+                new_sched_val = body.get("scheduledAt") or body.get("scheduledTime")
+                if not new_sched_val:
+                    found_post["status"] = "pending"
+                    found_post["scheduledTime"] = 0
+                    found_post["scheduledTimeStr"] = ""
+                    found_post["scheduledAt"] = ""
+                    found_post["progressStep"] = "Đã hủy hẹn giờ, lưu trong hàng đợi"
+                    push_log(f"Đã hủy giờ hẹn đăng bài '{post_id}'", "step", project_id=found_proj.get("id"), subproject_id=found_sub.get("id"))
+                else:
+                    new_sched_ms = parse_scheduled_time(new_sched_val)
+                    now_ms = int(time.time() * 1000)
+                    if not new_sched_ms or new_sched_ms <= now_ms:
+                        self._send_json(422, {"success": False, "error": {"code": "INVALID_SCHEDULE_TIME", "message": "Thời gian đặt lịch phải ở thời điểm tương lai!"}})
+                        return
+                    formatted = format_scheduled_time(new_sched_ms)
+                    found_post["status"] = "scheduled"
+                    found_post["scheduledTime"] = new_sched_ms
+                    found_post["scheduledTimeStr"] = formatted
+                    found_post["scheduledAt"] = datetime.fromtimestamp(new_sched_ms / 1000.0, tz=timezone.utc).isoformat()
+                    found_post["progressStep"] = f"⏳ Đã lên lịch đăng lúc {formatted}"
+                    push_log(f"⏰ Đã cập nhật lịch đăng bài '{post_id}' sang {formatted}", "step", project_id=found_proj.get("id"), subproject_id=found_sub.get("id"))
+
+            save_projects(all_projs)
+            self._send_json(200, {
+                "success": True,
+                "message": "Cập nhật bài viết thành công",
+                "data": found_post,
+                "post": found_post
+            })
+            return
+
+        self._send_json(404, {"error": "Endpoint not found"})
+
+    def do_DELETE(self):
+        parsed = urlparse(self.path)
+        pathname = parsed.path
+
+        if pathname.startswith("/api/v1/posts/"):
+            parts = pathname.strip("/").split("/")
+            post_id = parts[-1]
+            all_projs = get_projects()
+            deleted = False
+            for p in all_projs:
+                for s in p.get("subProjects", []):
+                    queue = s.get("postQueue", [])
+                    new_q = [item for item in queue if item.get("id") != post_id]
+                    if len(new_q) != len(queue):
+                        s["postQueue"] = new_q
+                        deleted = True
+                        push_log(f"Đã xóa bài viết '{post_id}' khỏi hàng đợi của '{s['name']}'", "warn", project_id=p.get("id"), subproject_id=s.get("id"))
+                        break
+                if deleted: break
+
+            if deleted:
+                save_projects(all_projs)
+                self._send_json(200, {"success": True, "message": f"Đã xóa bài viết '{post_id}' thành công"})
+            else:
+                self._send_json(404, {"success": False, "error": {"code": "NOT_FOUND", "message": f"Không tìm thấy bài viết '{post_id}'"}})
+            return
+
+        self._send_json(404, {"error": "Endpoint not found"})
+
 
 def run():
+    start_post_scheduler()
     host = os.environ.get("HOST", "0.0.0.0")
     server_address = (host, PORT)
     httpd = ThreadingHTTPServer(server_address, BridgeHandler)

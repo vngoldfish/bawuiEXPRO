@@ -5,24 +5,433 @@
       "name": "Dự Án Mặc Định (Máy Chrome 01)",
       "description": "Quản lý máy Chrome và các thư mục dự án con",
       "token": "BW-PROJ-MAIN9999",
-      "createdAt": 1790194173766,
+      "createdAt": 1790198652618,
       "subProjects": [
         {
-          "id": "sub_fb_1790194173_init",
+          "id": "sub_fb_1790198652_init",
           "name": "Dự Án Facebook 01",
           "type": "facebook",
           "description": "Thư mục quản lý cookie & tài khoản Facebook",
-          "c_user": "",
-          "fbName": "",
-          "avatar": "",
-          "profileUrl": "",
-          "cookieStr": "",
-          "cookies": [],
+          "c_user": "100025898964308",
+          "fbName": "Rin",
+          "avatar": "https://scontent.fitm2-1.fna.fbcdn.net/v/t39.30808-1/273288296_997062897833666_6272625682046998041_n.jpg?stp=cp0_dst-jpg_tt6&cstp=mx416x415&ctp=s40x40&_nc_cat=105&ccb=1-7&_nc_sid=1d2534&_nc_ohc=8uHGbJVfUrgQ7kNvwF0flLS&_nc_oc=AdpygRlZWc3kcoY31mHbT2sdguUtNGbcISnuLfGZnnz0Ags6-ZkmnM5hVheXeZKPKn4&_nc_zt=24&_nc_ht=scontent.fitm2-1.fna&_nc_gid=4puloIaIHfFXSjmh1YzQ8g&_nc_ss=7b2a8&oh=00_AQLBIQB5iiE_vAEtw0gALDMgi-GuathBKhs7Cv8bj3ND4g&oe=6ABA14C3",
+          "profileUrl": "https://www.facebook.com/profile.php?id=100025898964308",
+          "cookieStr": "datr=eDItassYb2AQWyI4ehfxODhG; sb=eDItasWTJzLeV4POz7YJvTtj; ps_l=1; ps_n=1; pas=100025898964308%3AlqHwZAOq6C; wl_cbv=v2%3Bclient_version%3A3226%3Btimestamp%3A1784890021; c_user=100025898964308; wd=1920x911; fr=1Yjr6wr6aUw8ZC0MH.AWeb4luE1QkkMeyF_rypL3pJ7euQjAFqDBeNdjR4shzgDJzp1-k.BqtEOF..AAA.0.0.BqtEOF.AWf5ImhC2joOMuM5bJcTgNoHHKU; xs=14%3AJA_mfW5zd0Y8nA%3A2%3A1790185664%3A-1%3A-1%3A%3AAcyNnHrVaPjEig8bLMfGWTC-OjNmWsYQm1AKZLlCDA; presence=C%7B%22t3%22%3A%5B%7B%22o%22%3A0%2C%22i%22%3A%22sc.8064568946921281%22%7D%5D%2C%22utc3%22%3A1790198977531%2C%22v%22%3A1%7D",
+          "cookies": [
+            {
+              "domain": ".facebook.com",
+              "expirationDate": 1815906934.540974,
+              "hostOnly": false,
+              "httpOnly": true,
+              "name": "datr",
+              "path": "/",
+              "sameSite": "no_restriction",
+              "secure": true,
+              "session": false,
+              "storeId": "0",
+              "value": "eDItassYb2AQWyI4ehfxODhG"
+            },
+            {
+              "domain": ".facebook.com",
+              "expirationDate": 1824745643.777172,
+              "hostOnly": false,
+              "httpOnly": true,
+              "name": "sb",
+              "path": "/",
+              "sameSite": "no_restriction",
+              "secure": true,
+              "session": false,
+              "storeId": "0",
+              "value": "eDItasWTJzLeV4POz7YJvTtj"
+            },
+            {
+              "domain": ".facebook.com",
+              "expirationDate": 1816135668.173449,
+              "hostOnly": false,
+              "httpOnly": true,
+              "name": "ps_l",
+              "path": "/",
+              "sameSite": "lax",
+              "secure": true,
+              "session": false,
+              "storeId": "0",
+              "value": "1"
+            },
+            {
+              "domain": ".facebook.com",
+              "expirationDate": 1816135668.173507,
+              "hostOnly": false,
+              "httpOnly": true,
+              "name": "ps_n",
+              "path": "/",
+              "sameSite": "no_restriction",
+              "secure": true,
+              "session": false,
+              "storeId": "0",
+              "value": "1"
+            },
+            {
+              "domain": ".facebook.com",
+              "expirationDate": 1819450020.943625,
+              "hostOnly": false,
+              "httpOnly": true,
+              "name": "pas",
+              "path": "/",
+              "sameSite": "lax",
+              "secure": true,
+              "session": false,
+              "storeId": "0",
+              "value": "100025898964308%3AlqHwZAOq6C"
+            },
+            {
+              "domain": ".facebook.com",
+              "expirationDate": 1792666021,
+              "hostOnly": false,
+              "httpOnly": false,
+              "name": "wl_cbv",
+              "path": "/",
+              "sameSite": "no_restriction",
+              "secure": true,
+              "session": false,
+              "storeId": "0",
+              "value": "v2%3Bclient_version%3A3226%3Btimestamp%3A1784890021"
+            },
+            {
+              "domain": ".facebook.com",
+              "expirationDate": 1821734638.13647,
+              "hostOnly": false,
+              "httpOnly": false,
+              "name": "c_user",
+              "path": "/",
+              "sameSite": "no_restriction",
+              "secure": true,
+              "session": false,
+              "storeId": "0",
+              "value": "100025898964308"
+            },
+            {
+              "domain": ".facebook.com",
+              "expirationDate": 1790803775,
+              "hostOnly": false,
+              "httpOnly": false,
+              "name": "wd",
+              "path": "/",
+              "sameSite": "lax",
+              "secure": true,
+              "session": false,
+              "storeId": "0",
+              "value": "1920x911"
+            },
+            {
+              "domain": ".facebook.com",
+              "expirationDate": 1797974638.136593,
+              "hostOnly": false,
+              "httpOnly": true,
+              "name": "fr",
+              "path": "/",
+              "sameSite": "no_restriction",
+              "secure": true,
+              "session": false,
+              "storeId": "0",
+              "value": "1Yjr6wr6aUw8ZC0MH.AWeb4luE1QkkMeyF_rypL3pJ7euQjAFqDBeNdjR4shzgDJzp1-k.BqtEOF..AAA.0.0.BqtEOF.AWf5ImhC2joOMuM5bJcTgNoHHKU"
+            },
+            {
+              "domain": ".facebook.com",
+              "expirationDate": 1821734638.136657,
+              "hostOnly": false,
+              "httpOnly": true,
+              "name": "xs",
+              "path": "/",
+              "sameSite": "no_restriction",
+              "secure": true,
+              "session": false,
+              "storeId": "0",
+              "value": "14%3AJA_mfW5zd0Y8nA%3A2%3A1790185664%3A-1%3A-1%3A%3AAcyNnHrVaPjEig8bLMfGWTC-OjNmWsYQm1AKZLlCDA"
+            },
+            {
+              "domain": ".facebook.com",
+              "hostOnly": false,
+              "httpOnly": false,
+              "name": "presence",
+              "path": "/",
+              "sameSite": "unspecified",
+              "secure": true,
+              "session": true,
+              "storeId": "0",
+              "value": "C%7B%22t3%22%3A%5B%7B%22o%22%3A0%2C%22i%22%3A%22sc.8064568946921281%22%7D%5D%2C%22utc3%22%3A1790198977531%2C%22v%22%3A1%7D"
+            }
+          ],
           "eaagToken": "",
-          "dtsg": "",
-          "status": "Chưa kiểm tra",
-          "lastExtracted": 0,
-          "createdAt": 1790194173766
+          "dtsg": "NAfz47OHdpLRCE2tZfd1HJ61VXcdGxSMlDVrI5GUAnLi4Om5CX6tljg:14:1790185664",
+          "status": "LIVE",
+          "lastExtracted": 1790198981731,
+          "createdAt": 1790198652618,
+          "postQueue": [
+            {
+              "id": "post_1790202194_b3c1",
+              "title": "",
+              "content": "5",
+              "postType": "post",
+              "targetType": "profile",
+              "targetId": "",
+              "targetUrl": "https://www.facebook.com",
+              "shareToFeed": true,
+              "mediaUrl": "",
+              "mediaData": null,
+              "seedingComments": [
+                "4"
+              ],
+              "autoReactType": "LIKE",
+              "status": "completed",
+              "progressStep": "✅ Đã đăng thành công lên Facebook (ID: 2152097072330237)",
+              "fbPostId": "2152097072330237",
+              "fbPostUrl": "https://www.facebook.com/permalink.php?story_fbid=2152097072330237&id=100025898964308",
+              "scheduledTime": 0,
+              "scheduledTimeStr": "",
+              "scheduledAt": "",
+              "lastError": "",
+              "createdAt": 1790202194538,
+              "source": "api",
+              "fbFeedbackId": "ZmVlZGJhY2s6MjE1MjA5NzA3MjMzMDIzNw==",
+              "seedingIds": [
+                "1633060021752205"
+              ],
+              "seedingDetails": [
+                {
+                  "id": "1633060021752205",
+                  "status": "success",
+                  "text": "4",
+                  "timestamp": 1790202217810
+                }
+              ],
+              "shareToStorySuccess": true,
+              "publishedAt": 1790202218636,
+              "publishedAtStr": "07:23:38 24/09/2026"
+            },
+            {
+              "id": "post_1790201315_da2f",
+              "title": "",
+              "content": "3",
+              "postType": "post",
+              "targetType": "profile",
+              "targetId": "",
+              "targetUrl": "https://www.facebook.com",
+              "shareToFeed": true,
+              "mediaUrl": "",
+              "mediaData": null,
+              "seedingComments": [
+                "4"
+              ],
+              "autoReactType": "LIKE",
+              "status": "completed",
+              "progressStep": "✅ Đã đăng thành công lên Facebook (ID: 2152090325664245)",
+              "fbPostId": "2152090325664245",
+              "fbPostUrl": "https://www.facebook.com/permalink.php?story_fbid=2152090325664245&id=100025898964308",
+              "scheduledTime": 0,
+              "scheduledTimeStr": "",
+              "scheduledAt": "",
+              "lastError": "",
+              "createdAt": 1790201315404,
+              "source": "api",
+              "fbFeedbackId": "ZmVlZGJhY2s6MjE1MjA5MDMyNTY2NDI0NQ==",
+              "seedingIds": [
+                "1074381495503742"
+              ],
+              "seedingDetails": [
+                {
+                  "id": "1074381495503742",
+                  "status": "success",
+                  "text": "4",
+                  "timestamp": 1790201330386
+                }
+              ],
+              "publishedAt": 1790201331364,
+              "publishedAtStr": "07:08:51 24/09/2026"
+            },
+            {
+              "id": "post_1790200827_fb92",
+              "title": "",
+              "content": "1",
+              "postType": "post",
+              "targetType": "profile",
+              "targetId": "",
+              "targetUrl": "https://www.facebook.com",
+              "shareToFeed": true,
+              "mediaUrl": "",
+              "mediaData": null,
+              "seedingComments": [
+                "2"
+              ],
+              "autoReactType": "LIKE",
+              "status": "completed",
+              "progressStep": "✅ Đã đăng thành công lên Facebook (ID: 2152086488997962)",
+              "fbPostId": "2152086488997962",
+              "fbPostUrl": "https://www.facebook.com/permalink.php?story_fbid=2152086488997962&id=100025898964308",
+              "scheduledTime": 0,
+              "scheduledTimeStr": "",
+              "scheduledAt": "",
+              "lastError": "",
+              "createdAt": 1790200827191,
+              "source": "api",
+              "fbFeedbackId": "ZmVlZGJhY2s6MjE1MjA4NjQ4ODk5Nzk2Mg==",
+              "seedingIds": [
+                "1800025771181571"
+              ],
+              "seedingDetails": [
+                {
+                  "id": "1800025771181571",
+                  "status": "success",
+                  "text": "2",
+                  "timestamp": 1790200839251
+                }
+              ],
+              "publishedAt": 1790200840009,
+              "publishedAtStr": "07:00:40 24/09/2026"
+            },
+            {
+              "id": "post_1790200771_cbcc",
+              "title": "",
+              "content": "sdfsdfsd",
+              "postType": "post",
+              "targetType": "profile",
+              "targetId": "",
+              "targetUrl": "https://www.facebook.com",
+              "shareToFeed": true,
+              "mediaUrl": "",
+              "mediaData": null,
+              "seedingComments": [
+                "dsfsdfsdf"
+              ],
+              "autoReactType": "LIKE",
+              "status": "completed",
+              "progressStep": "✅ Đã đăng thành công lên Facebook (ID: 2152086168997994)",
+              "fbPostId": "2152086168997994",
+              "fbPostUrl": "https://www.facebook.com/permalink.php?story_fbid=2152086168997994&id=100025898964308",
+              "scheduledTime": 0,
+              "scheduledTimeStr": "",
+              "scheduledAt": "",
+              "lastError": "",
+              "createdAt": 1790200771012,
+              "source": "api",
+              "fbFeedbackId": "ZmVlZGJhY2s6MjE1MjA4NjE2ODk5Nzk5NA==",
+              "seedingIds": [
+                "911851558419163"
+              ],
+              "seedingDetails": [
+                {
+                  "id": "911851558419163",
+                  "status": "success",
+                  "text": "dsfsdfsdf",
+                  "timestamp": 1790200785852
+                }
+              ],
+              "publishedAt": 1790200787057,
+              "publishedAtStr": "06:59:47 24/09/2026"
+            },
+            {
+              "id": "post_1790200762_572c",
+              "title": "",
+              "content": "Test chia se bang tin false",
+              "postType": "post",
+              "targetType": "profile",
+              "targetId": "",
+              "targetUrl": "https://www.facebook.com",
+              "shareToFeed": false,
+              "mediaUrl": "",
+              "mediaData": null,
+              "seedingComments": [],
+              "autoReactType": "LIKE",
+              "status": "pending",
+              "progressStep": "Đã lưu vào hàng đợi (chờ phát lệnh)",
+              "fbPostId": "",
+              "fbPostUrl": "",
+              "scheduledTime": 0,
+              "scheduledTimeStr": "",
+              "scheduledAt": "",
+              "lastError": "",
+              "createdAt": 1790200762282,
+              "source": "api"
+            },
+            {
+              "id": "post_1790200760_6855",
+              "title": "",
+              "content": "Test chia se bang tin true",
+              "postType": "post",
+              "targetType": "profile",
+              "targetId": "",
+              "targetUrl": "https://www.facebook.com",
+              "shareToFeed": true,
+              "mediaUrl": "",
+              "mediaData": null,
+              "seedingComments": [],
+              "autoReactType": "LIKE",
+              "status": "pending",
+              "progressStep": "Đã lưu vào hàng đợi (chờ phát lệnh)",
+              "fbPostId": "",
+              "fbPostUrl": "",
+              "scheduledTime": 0,
+              "scheduledTimeStr": "",
+              "scheduledAt": "",
+              "lastError": "",
+              "createdAt": 1790200760249,
+              "source": "api"
+            },
+            {
+              "id": "post_1790200092_970a",
+              "title": "",
+              "content": "123",
+              "postType": "post",
+              "targetType": "profile",
+              "targetId": "",
+              "targetUrl": "https://www.facebook.com",
+              "mediaUrl": "",
+              "mediaData": null,
+              "seedingComments": [
+                "1",
+                "2",
+                "3"
+              ],
+              "autoReactType": "LIKE",
+              "status": "completed",
+              "progressStep": "✅ Đã đăng thành công lên Facebook (ID: 2152080232331921)",
+              "fbPostId": "2152080232331921",
+              "fbPostUrl": "https://www.facebook.com/permalink.php?story_fbid=2152080232331921&id=100025898964308",
+              "scheduledTime": 0,
+              "scheduledTimeStr": "",
+              "scheduledAt": "",
+              "lastError": "",
+              "createdAt": 1790200092699,
+              "source": "api",
+              "fbFeedbackId": "ZmVlZGJhY2s6MjE1MjA4MDIzMjMzMTkyMQ==",
+              "seedingIds": [
+                "1549405096945446",
+                "1621242259692560",
+                "2304802710280513"
+              ],
+              "seedingDetails": [
+                {
+                  "id": "1549405096945446",
+                  "status": "success",
+                  "text": "1",
+                  "timestamp": 1790200108498
+                },
+                {
+                  "id": "1621242259692560",
+                  "status": "success",
+                  "text": "2",
+                  "timestamp": 1790200113131
+                },
+                {
+                  "id": "2304802710280513",
+                  "status": "success",
+                  "text": "3",
+                  "timestamp": 1790200118139
+                }
+              ],
+              "publishedAt": 1790200118638,
+              "publishedAtStr": "06:48:38 24/09/2026"
+            }
+          ]
         }
       ]
     }

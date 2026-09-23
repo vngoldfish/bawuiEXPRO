@@ -18,6 +18,7 @@ Kiến trúc 3 Tầng Dạng Thư Mục (Folder Hierarchy):
 
 import os
 import sys
+import re
 import json
 import time
 import uuid
@@ -42,6 +43,17 @@ def generate_project_token():
     chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
     rand_str = "".join(random.choice(chars) for _ in range(8))
     return f"BW-PROJ-{rand_str}"
+
+def resolve_spintax(text):
+    """Xử lý tự động spintax đa tầng {A|B|C} cho các bài viết gửi qua API"""
+    if not text or "{" not in text or "}" not in text:
+        return text or ""
+    pattern = re.compile(r"\{([^{}]+)\}")
+    for _ in range(10):
+        if not pattern.search(text):
+            break
+        text = pattern.sub(lambda m: random.choice(m.group(1).split("|")), text)
+    return text
 
 def get_projects():
     if os.path.exists(PROJECTS_PATH):
@@ -873,6 +885,12 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                         <span>Danh Sách Dự Án</span>
                     </button>
                 </li>
+                <li class="menu-item" data-hub-route="hub-api">
+                    <button onclick="switchHubRoute('hub-api')">
+                        <span>🔌</span>
+                        <span>Tài Liệu API & Webhook</span>
+                    </button>
+                </li>
                 <li class="menu-item" data-hub-route="hub-vps">
                     <button onclick="switchHubRoute('hub-vps')">
                         <span>☁️</span>
@@ -1076,6 +1094,228 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 <!-- GRID CARDS DỰ ÁN CHA -->
                 <div id="hubProjectsListContainer" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(360px, 1fr)); gap:18px;">
                     <div style="color:var(--text-muted); font-size:13px;">Đang tải danh sách dự án...</div>
+                </div>
+            </section>
+
+            <!-- HUB: API DOCUMENTATION & TESTER -->
+            <section class="route-view" id="view-hub-api">
+                <!-- BANNER -->
+                <div class="card" style="border-color: #a855f7; margin-bottom: 20px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                        <div>
+                            <h2 style="color:#c084fc; font-size:18px; font-weight:800; display:flex; align-items:center; gap:8px;">
+                                <span>🔌</span> <span>Cổng Tự Động Hóa REST API & Webhook</span>
+                            </h2>
+                            <p style="font-size:13px; color:var(--text-muted); margin-top:4px;">
+                                Bạn có thể gọi API từ bất kỳ ngôn ngữ nào (Python, Node.js, PHP, cURL) hoặc các công cụ tự động hóa như <b>n8n, Make, Zapier</b> để đăng bài và seeding tự động lên Facebook.
+                            </p>
+                        </div>
+                        <div style="background:#090e1c; padding:8px 14px; border-radius:8px; border:1px solid var(--border-color); font-size:12px;">
+                            <span style="color:var(--text-muted);">Base URL:</span> <code id="apiBaseUrlDisplay" style="color:#38bdf8; font-weight:700;">http://localhost:9999</code>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- GRID: 2 COLUMNS (LEFT: DOCUMENTATION, RIGHT: INTERACTIVE TESTER) -->
+                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); gap:20px;">
+                    <!-- LEFT COLUMN: API SPECIFICATION -->
+                    <div style="display:flex; flex-direction:column; gap:16px;">
+                        <!-- 1. POST PUBLISH -->
+                        <div class="card">
+                            <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+                                <span style="background:#059669; color:#fff; font-size:11px; font-weight:800; padding:3px 8px; border-radius:4px;">POST</span>
+                                <code style="font-size:13px; color:#38bdf8; font-weight:700;">/api/v1/posts/publish</code>
+                            </div>
+                            <p style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">
+                                Đăng bài viết mới ngay lập tức hoặc lên lịch đăng lên Profile, Fanpage, hoặc Group. Hỗ trợ kèm ảnh/video và kịch bản Seeding.
+                            </p>
+                            <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; font-weight:700; margin-bottom:6px;">Headers:</div>
+                            <pre style="background:#090e1c; padding:10px; border-radius:6px; font-size:12px; color:#a78bfa; margin-bottom:12px; overflow-x:auto;">Content-Type: application/json
+Authorization: Bearer BW-PROJ-XXXXXX</pre>
+
+                            <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; font-weight:700; margin-bottom:6px;">Body Parameters (JSON):</div>
+                            <table style="width:100%; font-size:12px; border-collapse:collapse; margin-bottom:12px;">
+                                <thead>
+                                    <tr style="border-bottom:1px solid var(--border-color); text-align:left; color:var(--text-muted);">
+                                        <th style="padding:6px;">Trường</th>
+                                        <th style="padding:6px;">Kiểu</th>
+                                        <th style="padding:6px;">Bắt buộc</th>
+                                        <th style="padding:6px;">Mô tả</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                                        <td style="padding:6px;"><code>content</code></td>
+                                        <td style="padding:6px; color:#a78bfa;">string</td>
+                                        <td style="padding:6px; color:#f87171;">Có (hoặc media)</td>
+                                        <td style="padding:6px; color:var(--text-muted);">Nội dung bài viết (hỗ trợ Spintax <code>{A|B|C}</code>)</td>
+                                    </tr>
+                                    <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                                        <td style="padding:6px;"><code>postType</code></td>
+                                        <td style="padding:6px; color:#a78bfa;">string</td>
+                                        <td style="padding:6px; color:var(--text-muted);">Không</td>
+                                        <td style="padding:6px; color:var(--text-muted);"><code>post</code>, <code>reel</code>, <code>video</code>, <code>story</code> (mặc định: <code>post</code>)</td>
+                                    </tr>
+                                    <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                                        <td style="padding:6px;"><code>targetType</code></td>
+                                        <td style="padding:6px; color:#a78bfa;">string</td>
+                                        <td style="padding:6px; color:var(--text-muted);">Không</td>
+                                        <td style="padding:6px; color:var(--text-muted);"><code>profile</code>, <code>page</code>, <code>group</code> (mặc định: <code>profile</code>)</td>
+                                    </tr>
+                                    <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                                        <td style="padding:6px;"><code>targetId</code></td>
+                                        <td style="padding:6px; color:#a78bfa;">string</td>
+                                        <td style="padding:6px; color:#f87171;">Khi page/group</td>
+                                        <td style="padding:6px; color:var(--text-muted);">ID Fanpage hoặc ID Nhóm Facebook</td>
+                                    </tr>
+                                    <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                                        <td style="padding:6px;"><code>mediaUrl</code></td>
+                                        <td style="padding:6px; color:#a78bfa;">string</td>
+                                        <td style="padding:6px; color:var(--text-muted);">Không</td>
+                                        <td style="padding:6px; color:var(--text-muted);">Đường dẫn URL trực tiếp của tệp ảnh/video</td>
+                                    </tr>
+                                    <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                                        <td style="padding:6px;"><code>seedingComments</code></td>
+                                        <td style="padding:6px; color:#a78bfa;">array[string]</td>
+                                        <td style="padding:6px; color:var(--text-muted);">Không</td>
+                                        <td style="padding:6px; color:var(--text-muted);">Mảng các bình luận seeding bắn mồi tự động</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="padding:6px;"><code>autoReactType</code></td>
+                                        <td style="padding:6px; color:#a78bfa;">string</td>
+                                        <td style="padding:6px; color:var(--text-muted);">Không</td>
+                                        <td style="padding:6px; color:var(--text-muted);"><code>LIKE</code>, <code>LOVE</code>, <code>CARE</code>, <code>HAHA</code>, <code>WOW</code>, <code>NONE</code></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- 2. GET STATUS -->
+                        <div class="card">
+                            <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+                                <span style="background:#0284c7; color:#fff; font-size:11px; font-weight:800; padding:3px 8px; border-radius:4px;">GET</span>
+                                <code style="font-size:13px; color:#38bdf8; font-weight:700;">/api/v1/posts/status?postId={postId}</code>
+                            </div>
+                            <p style="font-size:12px; color:var(--text-muted);">
+                                Lấy tiến trình đăng bài thời gian thực, xác nhận trạng thái (<code>completed</code>, <code>failed</code>) và nhận link bài viết Facebook (<code>fbPostUrl</code>).
+                            </p>
+                        </div>
+
+                        <!-- 3. CODE SNIPPETS -->
+                        <div class="card">
+                            <div style="font-size:13px; font-weight:700; color:#fff; margin-bottom:10px;">💻 Mẫu Gọi API Bằng cURL & Python:</div>
+                            <div style="font-size:11px; color:#38bdf8; font-weight:700; margin-bottom:4px;">cURL (Terminal / Bash):</div>
+                            <pre style="background:#090e1c; padding:10px; border-radius:6px; font-size:11px; color:#e2e8f0; overflow-x:auto; margin-bottom:12px;">curl -X POST "http://localhost:9999/api/v1/posts/publish" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <TOKEN_DU_AN>" \
+  -d '{
+    "content": "{Chào bạn|Hello}! Bài viết tự động từ API với {nhiều ưu đãi|khuyến mãi khủng}.",
+    "postType": "post",
+    "targetType": "profile",
+    "seedingComments": ["Quan tâm", "Shop ở đâu vậy?"],
+    "autoReactType": "LOVE"
+  }'</pre>
+                            <div style="font-size:11px; color:#38bdf8; font-weight:700; margin-bottom:4px;">Python (requests):</div>
+                            <pre style="background:#090e1c; padding:10px; border-radius:6px; font-size:11px; color:#e2e8f0; overflow-x:auto;">import requests
+
+url = "http://localhost:9999/api/v1/posts/publish"
+headers = {"Authorization": "Bearer <TOKEN_DU_AN>"}
+payload = {
+    "content": "Nội dung bài viết {chất lượng|độc quyền} đăng từ Python API!",
+    "postType": "post",
+    "targetType": "profile",
+    "seedingComments": ["Tuyệt vời quá shop!", "Giá sao ạ?"],
+    "autoReactType": "LOVE"
+}
+res = requests.post(url, json=payload, headers=headers)
+print(res.json())</pre>
+                        </div>
+                    </div>
+
+                    <!-- RIGHT COLUMN: INTERACTIVE API TESTER -->
+                    <div>
+                        <div class="card" style="border-color:#38bdf8;">
+                            <h3 style="color:#38bdf8; font-size:15px; margin-bottom:12px; display:flex; align-items:center; gap:8px;">
+                                <span>🚀</span> <span>Thử Nghiệm Gửi API Trực Tiếp (Live Tester)</span>
+                            </h3>
+                            <p style="font-size:12px; color:var(--text-muted); margin-bottom:14px;">
+                                Thử nghiệm gọi endpoint <code>/api/v1/posts/publish</code> ngay tại đây để xem phản hồi thực tế của server.
+                            </p>
+
+                            <div style="display:flex; flex-direction:column; gap:12px;">
+                                <div>
+                                    <label style="font-size:11px; font-weight:700; color:var(--text-muted); display:block; margin-bottom:4px;">Dự Án / Token:</label>
+                                    <select id="apiTestProjectSelect" style="width:100%; padding:8px; background:#090e1c; border:1px solid var(--border-color); border-radius:6px; color:#fff; font-size:13px;"></select>
+                                </div>
+
+                                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+                                    <div>
+                                        <label style="font-size:11px; font-weight:700; color:var(--text-muted); display:block; margin-bottom:4px;">Định Dạng Bài (postType):</label>
+                                        <select id="apiTestPostType" style="width:100%; padding:8px; background:#090e1c; border:1px solid var(--border-color); border-radius:6px; color:#fff; font-size:13px;">
+                                            <option value="post">Bài Viết Thường (post)</option>
+                                            <option value="reel">Thước Phim (reel)</option>
+                                            <option value="video">Video Bảng Tin (video)</option>
+                                            <option value="story">Bản Tin (story)</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label style="font-size:11px; font-weight:700; color:var(--text-muted); display:block; margin-bottom:4px;">Nơi Đăng (targetType):</label>
+                                        <select id="apiTestTargetType" style="width:100%; padding:8px; background:#090e1c; border:1px solid var(--border-color); border-radius:6px; color:#fff; font-size:13px;" onchange="toggleApiTestTargetId()">
+                                            <option value="profile">Trang Cá Nhân (profile)</option>
+                                            <option value="page">Fanpage (page)</option>
+                                            <option value="group">Nhóm (group)</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div id="apiTestTargetIdWrap" style="display:none;">
+                                    <label style="font-size:11px; font-weight:700; color:var(--text-muted); display:block; margin-bottom:4px;">ID Fanpage / Group (targetId):</label>
+                                    <input type="text" id="apiTestTargetId" placeholder="Ví dụ: 10008392817283" style="width:100%; padding:8px; background:#090e1c; border:1px solid var(--border-color); border-radius:6px; color:#fff; font-size:13px;" />
+                                </div>
+
+                                <div>
+                                    <label style="font-size:11px; font-weight:700; color:var(--text-muted); display:block; margin-bottom:4px;">Nội Dung Bài Viết (content):</label>
+                                    <textarea id="apiTestContent" rows="3" placeholder="Nội dung bài viết {A|B|C} spintax..." style="width:100%; padding:8px; background:#090e1c; border:1px solid var(--border-color); border-radius:6px; color:#fff; font-size:13px; resize:vertical;">🔥 {Chào bạn|Hello quý khách}! Đây là bài viết gửi thử nghiệm từ tính năng REST API của BAWUI EX PRO.</textarea>
+                                </div>
+
+                                <div>
+                                    <label style="font-size:11px; font-weight:700; color:var(--text-muted); display:block; margin-bottom:4px;">URL Media (ảnh/video tùy chọn):</label>
+                                    <input type="text" id="apiTestMediaUrl" placeholder="https://example.com/image.jpg (để trống nếu bài viết chữ)" style="width:100%; padding:8px; background:#090e1c; border:1px solid var(--border-color); border-radius:6px; color:#fff; font-size:13px;" />
+                                </div>
+
+                                <div style="display:grid; grid-template-columns: 2fr 1fr; gap:10px;">
+                                    <div>
+                                        <label style="font-size:11px; font-weight:700; color:var(--text-muted); display:block; margin-bottom:4px;">Bình Luận Seeding (mỗi dòng 1 câu):</label>
+                                        <textarea id="apiTestSeeding" rows="2" placeholder="Seeding 1&#10;Seeding 2" style="width:100%; padding:8px; background:#090e1c; border:1px solid var(--border-color); border-radius:6px; color:#fff; font-size:13px; resize:vertical;">Tư vấn cho mình với shop ơi
+Sản phẩm tuyệt vời quá</textarea>
+                                    </div>
+                                    <div>
+                                        <label style="font-size:11px; font-weight:700; color:var(--text-muted); display:block; margin-bottom:4px;">Cảm Xúc:</label>
+                                        <select id="apiTestReact" style="width:100%; padding:8px; background:#090e1c; border:1px solid var(--border-color); border-radius:6px; color:#fff; font-size:13px;">
+                                            <option value="LOVE">❤️ LOVE</option>
+                                            <option value="LIKE">👍 LIKE</option>
+                                            <option value="CARE">🥰 CARE</option>
+                                            <option value="HAHA">😆 HAHA</option>
+                                            <option value="WOW">😮 WOW</option>
+                                            <option value="NONE">Không thả</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <button class="btn btn-green btn-lg" onclick="executeApiTestPublish()" id="btnApiTestSubmit" style="width:100%; margin-top:6px;">
+                                    <span>🚀</span> <span>GỬI THỬ LỆNH API ĐĂNG BÀI NGAY</span>
+                                </button>
+
+                                <div style="margin-top:10px;">
+                                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                                        <span style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Kết Quả Phản Hồi Từ API (Response JSON):</span>
+                                        <span id="apiTestHttpStatus" style="font-size:12px; font-weight:700;"></span>
+                                    </div>
+                                    <pre id="apiTestResponsePre" style="background:#090e1c; padding:12px; border-radius:8px; font-size:12px; color:#38bdf8; max-height:220px; overflow-y:auto; border:1px solid var(--border-color);">Chưa có yêu cầu nào được gửi...</pre>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </section>
 
@@ -2156,6 +2396,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
         // 1. HUB NAVIGATION (LEVEL 1)
         const hubRoutes = {
             "hub-projects": { title: "📁 Danh Sách Dự Án Cha (Các Máy)", el: document.getElementById("view-hub-projects") },
+            "hub-api": { title: "🔌 Cổng Tự Động Hóa REST API & Webhook", el: document.getElementById("view-hub-api") },
             "hub-vps": { title: "☁️ Cài Đặt VPS & Hướng Dẫn", el: document.getElementById("view-hub-vps") },
             "hub-manifest": { title: "⚙️ Đổi Tên & Cấu Hình Extension", el: document.getElementById("view-hub-manifest") },
             "hub-system": { title: "ℹ️ Thông Tin Hệ Thống", el: document.getElementById("view-hub-system") }
@@ -2169,6 +2410,105 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             if (hubRoutes[targetKey] && hubRoutes[targetKey].el) {
                 hubRoutes[targetKey].el.classList.add("active");
                 document.getElementById("pageTitle").innerHTML = hubRoutes[targetKey].title;
+                if (targetKey === "hub-api") {
+                    populateApiTestProjects();
+                }
+            }
+        }
+
+        function populateApiTestProjects() {
+            const select = document.getElementById("apiTestProjectSelect");
+            if (!select) return;
+            const baseUrlEl = document.getElementById("apiBaseUrlDisplay");
+            if (baseUrlEl) baseUrlEl.innerText = window.location.origin;
+
+            if (!allProjects || allProjects.length === 0) {
+                select.innerHTML = '<option value="">(Chưa có dự án nào)</option>';
+                return;
+            }
+            select.innerHTML = allProjects.map(p => {
+                const sub = (p.subProjects || []).find(s => s.type === "facebook") || (p.subProjects || [])[0];
+                const accName = sub ? (sub.fbName || sub.c_user || sub.name) : "Mặc định";
+                return `<option value="${p.token}">${p.name} [Token: ${p.token}] — TK: ${accName}</option>`;
+            }).join("");
+        }
+
+        function toggleApiTestTargetId() {
+            const targetType = document.getElementById("apiTestTargetType").value;
+            const wrap = document.getElementById("apiTestTargetIdWrap");
+            if (wrap) {
+                wrap.style.display = (targetType === "page" || targetType === "group") ? "block" : "none";
+            }
+        }
+
+        async function executeApiTestPublish() {
+            const btn = document.getElementById("btnApiTestSubmit");
+            const resPre = document.getElementById("apiTestResponsePre");
+            const statusSpan = document.getElementById("apiTestHttpStatus");
+            const projectSelect = document.getElementById("apiTestProjectSelect");
+
+            const token = projectSelect ? projectSelect.value : "";
+            const content = document.getElementById("apiTestContent").value;
+            const postType = document.getElementById("apiTestPostType").value;
+            const targetType = document.getElementById("apiTestTargetType").value;
+            const targetId = document.getElementById("apiTestTargetId").value;
+            const mediaUrl = document.getElementById("apiTestMediaUrl").value;
+            const seedingText = document.getElementById("apiTestSeeding").value;
+            const autoReactType = document.getElementById("apiTestReact").value;
+
+            if (!content && !mediaUrl) {
+                alert("Vui lòng nhập nội dung hoặc URL media!");
+                return;
+            }
+
+            const seedingComments = seedingText.split("\n").map(s => s.trim()).filter(Boolean);
+
+            btn.disabled = true;
+            btn.innerHTML = `<span>⏳</span> <span>ĐANG GỬI YÊU CẦU TỚI BACKEND API...</span>`;
+            resPre.innerText = "Đang gửi yêu cầu HTTP POST /api/v1/posts/publish...";
+            resPre.style.color = "#38bdf8";
+            statusSpan.innerText = "";
+
+            try {
+                const payload = {
+                    content,
+                    postType,
+                    targetType,
+                    targetId: (targetType === "page" || targetType === "group") ? targetId : "",
+                    mediaUrl,
+                    seedingComments,
+                    autoReactType,
+                    runNow: true
+                };
+
+                const res = await fetch("/api/v1/posts/publish", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${token}`
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await res.json();
+                statusSpan.innerText = `HTTP ${res.status}`;
+                statusSpan.style.color = res.ok ? "#34d399" : "#f87171";
+                resPre.innerText = JSON.stringify(data, null, 2);
+                resPre.style.color = res.ok ? "#34d399" : "#f87171";
+
+                if (data.success) {
+                    showToast("✅ Đã gửi lệnh đăng bài qua API thành công! Extension sẽ nhận và xử lý ngay.", "success");
+                } else {
+                    showToast(`⚠️ Lỗi API: ${data.error || "Không thành công"}`, "error");
+                }
+            } catch(err) {
+                statusSpan.innerText = "Lỗi Mạng";
+                statusSpan.style.color = "#f87171";
+                resPre.innerText = `Lỗi kết nối: ${err.message}`;
+                resPre.style.color = "#f87171";
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = `<span>🚀</span> <span>GỬI THỬ LỆNH API ĐĂNG BÀI NGAY</span>`;
             }
         }
 
@@ -5444,6 +5784,132 @@ class BridgeHandler(BaseHTTPRequestHandler):
             self._send_json(200, {"success": True, "accounts": []})
             return
 
+        # 8. API Kiểm tra trạng thái bài đăng (Public REST API)
+        if pathname in ("/api/v1/posts/status", "/api/posts/status"):
+            query_parts = parsed.query.split("&") if parsed.query else []
+            query_params = {}
+            for q in query_parts:
+                if "=" in q:
+                    k, v = q.split("=", 1)
+                    query_params[k] = v
+
+            post_id = query_params.get("postId")
+            if not post_id:
+                self._send_json(400, {"success": False, "error": "Thiếu tham số postId"})
+                return
+
+            all_projs = get_projects()
+            found_post = None
+            found_proj = None
+            found_sub = None
+            for p in all_projs:
+                for s in p.get("subProjects", []):
+                    for post_item in s.get("postQueue", []):
+                        if post_item.get("id") == post_id:
+                            found_post = post_item
+                            found_proj = p
+                            found_sub = s
+                            break
+                    if found_post: break
+                if found_post: break
+
+            if not found_post:
+                self._send_json(404, {"success": False, "error": f"Không tìm thấy bài viết có ID '{post_id}'"})
+                return
+
+            self._send_json(200, {
+                "success": True,
+                "postId": found_post.get("id"),
+                "status": found_post.get("status"),
+                "progressStep": found_post.get("progressStep", ""),
+                "fbPostId": found_post.get("fbPostId", ""),
+                "fbPostUrl": found_post.get("fbPostUrl", ""),
+                "lastError": found_post.get("lastError", ""),
+                "title": found_post.get("title", ""),
+                "content": found_post.get("content", ""),
+                "postType": found_post.get("postType", "post"),
+                "targetType": found_post.get("targetType", "profile"),
+                "targetId": found_post.get("targetId", ""),
+                "createdAt": found_post.get("createdAt", 0),
+                "seedingCount": len(found_post.get("seedingComments", [])),
+                "autoReactType": found_post.get("autoReactType", "LIKE"),
+                "account": {
+                    "projectId": found_proj.get("id") if found_proj else "",
+                    "projectName": found_proj.get("name") if found_proj else "",
+                    "c_user": found_sub.get("c_user") if found_sub else "",
+                    "fbName": found_sub.get("fbName") if found_sub else ""
+                }
+            })
+            return
+
+        # 9. API Lấy danh sách bài đăng (Public REST API)
+        if pathname in ("/api/v1/posts", "/api/posts"):
+            token = self.headers.get("X-Project-Token") or self.headers.get("X-Sync-Token")
+            if not token:
+                auth = self.headers.get("Authorization", "")
+                if auth.lower().startswith("bearer "):
+                    token = auth[7:].strip()
+            
+            query_parts = parsed.query.split("&") if parsed.query else []
+            query_params = {}
+            for q in query_parts:
+                if "=" in q:
+                    k, v = q.split("=", 1)
+                    query_params[k] = v
+            if not token:
+                token = query_params.get("token")
+            
+            target_proj = find_project_by_token(token) if token else None
+            all_projs = [target_proj] if target_proj else get_projects()
+
+            status_filter = query_params.get("status")
+            limit = int(query_params.get("limit", 50))
+
+            all_posts = []
+            for p in all_projs:
+                for s in p.get("subProjects", []):
+                    for post_item in s.get("postQueue", []):
+                        if status_filter and post_item.get("status") != status_filter:
+                            continue
+                        all_posts.append({
+                            **post_item,
+                            "projectId": p.get("id"),
+                            "projectName": p.get("name"),
+                            "subProjectId": s.get("id"),
+                            "subProjectName": s.get("name"),
+                            "c_user": s.get("c_user"),
+                            "fbName": s.get("fbName")
+                        })
+
+            all_posts.sort(key=lambda x: x.get("createdAt", 0), reverse=True)
+            self._send_json(200, {
+                "success": True,
+                "count": len(all_posts[:limit]),
+                "total": len(all_posts),
+                "posts": all_posts[:limit]
+            })
+            return
+
+        # 10. API Danh sách tài khoản & dự án để tích hợp
+        if pathname in ("/api/v1/accounts", "/api/v1/projects-info"):
+            all_projs = get_projects()
+            accounts = []
+            for p in all_projs:
+                for s in p.get("subProjects", []):
+                    accounts.append({
+                        "projectId": p.get("id"),
+                        "projectName": p.get("name"),
+                        "token": p.get("token"),
+                        "subProjectId": s.get("id"),
+                        "subProjectName": s.get("name"),
+                        "type": s.get("type"),
+                        "c_user": s.get("c_user"),
+                        "fbName": s.get("fbName"),
+                        "status": s.get("status")
+                    })
+            self._send_json(200, {"success": True, "accounts": accounts})
+            return
+
         self._send_json(404, {"error": "Endpoint not found"})
 
     def do_POST(self):
@@ -5703,6 +6169,253 @@ class BridgeHandler(BaseHTTPRequestHandler):
             save_projects(projs)
             push_log(f"Đã xóa toàn bộ dữ liệu cào của '{target_sub['name']}'", "warn", project_id=proj_id, subproject_id=sub_id)
             self._send_json(200, {"success": True})
+            return
+
+        # =====================================================================
+        # PUBLIC REST API: ĐĂNG BÀI VIẾT TỪ HỆ THỐNG NGOÀI (CURL, BOT, WEBHOOK)
+        # =====================================================================
+        if pathname in ("/api/v1/posts/publish", "/api/posts/publish", "/api/publish"):
+            # 1. Xác thực Token
+            auth_header = self.headers.get("Authorization", "")
+            token = self.headers.get("X-Project-Token") or self.headers.get("X-Sync-Token")
+            if not token and auth_header.lower().startswith("bearer "):
+                token = auth_header[7:].strip()
+            if not token:
+                token = body.get("token") or body.get("projectToken")
+            
+            all_projs = get_projects()
+            target_proj = None
+            if token:
+                for p in all_projs:
+                    if p.get("token") and p.get("token").strip() == token.strip():
+                        target_proj = p
+                        break
+
+            # Fallback nếu truyền projectId
+            if not target_proj and body.get("projectId"):
+                for p in all_projs:
+                    if p.get("id") == body.get("projectId"):
+                        target_proj = p
+                        break
+
+            # Fallback nếu hệ thống chỉ có 1 dự án duy nhất
+            if not target_proj and len(all_projs) == 1:
+                target_proj = all_projs[0]
+
+            if not target_proj:
+                self._send_json(401, {
+                    "success": False,
+                    "error": "Xác thực không hợp lệ. Vui lòng gửi kèm Project Token qua Header: 'Authorization: Bearer <token>' hoặc body: {'token': '<token>'}"
+                })
+                return
+
+            # 2. Xác định Thư mục / Tài khoản Facebook
+            target_sub = None
+            sub_id = body.get("subProjectId") or body.get("targetSubProjectId")
+            subs = target_proj.get("subProjects", [])
+            if sub_id:
+                for s in subs:
+                    if s.get("id") == sub_id:
+                        target_sub = s
+                        break
+            else:
+                for s in subs:
+                    if s.get("type", "facebook") == "facebook":
+                        target_sub = s
+                        break
+                if not target_sub and len(subs) > 0:
+                    target_sub = subs[0]
+
+            if not target_sub:
+                self._send_json(400, {
+                    "success": False,
+                    "error": f"Dự án '{target_proj['name']}' chưa có tài khoản Facebook nào để đăng bài."
+                })
+                return
+
+            # 3. Xử lý Nội dung & Spintax
+            raw_content = body.get("content", "")
+            media_url = (body.get("mediaUrl") or "").strip()
+            media_data = body.get("mediaData")
+
+            if not raw_content and not media_url and not media_data:
+                self._send_json(400, {
+                    "success": False,
+                    "error": "Thiếu nội dung bài viết ('content') hoặc tệp media ('mediaUrl')!"
+                })
+                return
+
+            content = resolve_spintax(raw_content)
+
+            # 4. Định dạng bài viết & Đích đăng
+            post_type = str(body.get("postType", "post")).lower()
+            if post_type not in ("post", "reel", "video", "story"):
+                post_type = "post"
+
+            target_type = str(body.get("targetType", "profile")).lower()
+            if target_type not in ("profile", "page", "group"):
+                target_type = "profile"
+
+            target_id = str(body.get("targetId", "")).strip()
+            if target_type in ("page", "group") and not target_id:
+                self._send_json(400, {
+                    "success": False,
+                    "error": f"Khi đăng bài lên {target_type.upper()}, bắt buộc phải cung cấp 'targetId' (ID Fanpage hoặc ID Nhóm)!"
+                })
+                return
+
+            # 5. Seeding & Cảm xúc
+            raw_seeding = body.get("seedingComments", [])
+            seeding_comments = []
+            if isinstance(raw_seeding, str):
+                seeding_comments = [c.strip() for c in raw_seeding.split("\n") if c.strip()]
+            elif isinstance(raw_seeding, list):
+                seeding_comments = [str(c).strip() for c in raw_seeding if str(c).strip()]
+
+            auto_react = str(body.get("autoReactType") or "LIKE").upper()
+            if auto_react not in ("LIKE", "LOVE", "CARE", "HAHA", "WOW", "SAD", "ANGRY", "NONE"):
+                auto_react = "LIKE"
+
+            scheduled_time = int(body.get("scheduledTime", 0) or 0)
+            run_now = body.get("runNow", True)
+            if scheduled_time > int(time.time() * 1000):
+                run_now = False
+
+            if "postQueue" not in target_sub:
+                target_sub["postQueue"] = []
+
+            post_id = f"post_{int(time.time())}_{uuid.uuid4().hex[:4]}"
+            post_entry = {
+                "id": post_id,
+                "title": body.get("title", ""),
+                "content": content,
+                "postType": post_type,
+                "targetType": target_type,
+                "targetId": target_id,
+                "targetUrl": body.get("targetUrl", "https://www.facebook.com"),
+                "mediaUrl": media_url,
+                "mediaData": media_data,
+                "seedingComments": seeding_comments,
+                "autoReactType": auto_react,
+                "status": "in_progress" if run_now else "pending",
+                "progressStep": "Đang chuyển lệnh sang Extension..." if run_now else "Đã thêm vào hàng đợi",
+                "fbPostId": "",
+                "fbPostUrl": "",
+                "scheduledTime": scheduled_time,
+                "lastError": "",
+                "createdAt": int(time.time() * 1000),
+                "source": "api"
+            }
+
+            target_sub["postQueue"].append(post_entry)
+            save_projects(all_projs)
+
+            cmd_id = None
+            if run_now:
+                cmd_id = f"cmd_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+                cmd = {
+                    "id": cmd_id,
+                    "action": "POST_STORY",
+                    "targetProjectId": target_proj["id"],
+                    "targetSubProjectId": target_sub["id"],
+                    "targetNodeId": "*",
+                    "post": post_entry
+                }
+                pending_commands.append(cmd)
+                recent_issued_commands[cmd_id] = cmd
+                push_log(f"API: Đã phát lệnh đăng ngay bài viết '{post_id}' lên Facebook cho '{target_sub['name']}'", "step", project_id=target_proj["id"], subproject_id=target_sub["id"])
+            else:
+                push_log(f"API: Đã thêm bài viết mới vào hàng đợi của '{target_sub['name']}'", "success", project_id=target_proj["id"], subproject_id=target_sub["id"])
+
+            self._send_json(200, {
+                "success": True,
+                "message": "Đã tiếp nhận bài viết và phát lệnh đăng ngay sang Extension!" if run_now else "Đã thêm bài viết vào hàng đợi đăng!",
+                "postId": post_id,
+                "cmdId": cmd_id,
+                "status": post_entry["status"],
+                "postType": post_type,
+                "targetType": target_type,
+                "targetAccount": {
+                    "projectId": target_proj["id"],
+                    "projectName": target_proj["name"],
+                    "token": target_proj.get("token"),
+                    "subProjectId": target_sub["id"],
+                    "subProjectName": target_sub["name"],
+                    "c_user": target_sub.get("c_user", ""),
+                    "fbName": target_sub.get("fbName", "")
+                },
+                "tracking": {
+                    "statusUrl": f"/api/v1/posts/status?postId={post_id}",
+                    "queuePosition": len(target_sub["postQueue"])
+                },
+                "post": post_entry
+            })
+            return
+
+        # =====================================================================
+        # PUBLIC REST API: BẮN SEEDING CHO BÀI VIẾT (CURL, BOT, WEBHOOK)
+        # =====================================================================
+        if pathname in ("/api/v1/posts/seeding", "/api/posts/seeding"):
+            post_id = body.get("postId")
+            raw_comments = body.get("comments") or body.get("seedingComments", [])
+            auto_react = str(body.get("autoReactType") or "LIKE").upper()
+            
+            comments = []
+            if isinstance(raw_comments, str):
+                comments = [c.strip() for c in raw_comments.split("\n") if c.strip()]
+            elif isinstance(raw_comments, list):
+                comments = [str(c).strip() for c in raw_comments if str(c).strip()]
+
+            if not comments:
+                self._send_json(400, {"success": False, "error": "Thiếu danh sách bình luận seeding ('comments')!"})
+                return
+
+            all_projs = get_projects()
+            found_post = None
+            found_proj = None
+            found_sub = None
+            for p in all_projs:
+                for s in p.get("subProjects", []):
+                    for p_item in s.get("postQueue", []):
+                        if p_item.get("id") == post_id or (p_item.get("fbPostId") and p_item.get("fbPostId") == str(post_id)):
+                            found_post = p_item
+                            found_proj = p
+                            found_sub = s
+                            break
+                    if found_post: break
+                if found_post: break
+
+            if not found_post:
+                self._send_json(404, {"success": False, "error": f"Không tìm thấy bài viết '{post_id}' để seeding."})
+                return
+
+            if not found_post.get("fbPostId"):
+                self._send_json(400, {"success": False, "error": "Bài viết này chưa có fbPostId (chưa đăng xong lên Facebook) nên không thể seeding."})
+                return
+
+            cmd_id = f"cmd_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+            cmd = {
+                "id": cmd_id,
+                "action": "SEEDING",
+                "targetProjectId": found_proj["id"],
+                "targetSubProjectId": found_sub["id"],
+                "targetNodeId": "*",
+                "postId": found_post["id"],
+                "fbPostId": found_post.get("fbPostId"),
+                "fbFeedbackId": found_post.get("fbFeedbackId"),
+                "comments": comments,
+                "autoReactType": auto_react
+            }
+            pending_commands.append(cmd)
+            recent_issued_commands[cmd_id] = cmd
+            push_log(f"API: Đã phát lệnh seeding {len(comments)} câu cho bài '{found_post['id']}'", "step", project_id=found_proj["id"], subproject_id=found_sub["id"])
+            self._send_json(200, {
+                "success": True,
+                "message": f"Đã phát lệnh seeding {len(comments)} câu sang Extension!",
+                "cmdId": cmd_id,
+                "postId": found_post["id"],
+                "fbPostId": found_post.get("fbPostId")
+            })
             return
 
         # Thêm bài đăng vào hàng đợi & Hỗ trợ Đăng Ngay

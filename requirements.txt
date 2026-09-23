@@ -1,0 +1,7 @@
+# AUTOPOSTFB requires Python 3.8+
+# Core server runs exclusively on Python standard libraries (http.server, json, urllib, socket, etc.)
+# No external pip dependencies are strictly required to run server.py!
+
+# Optional development & testing tools:
+# pytest>=7.0.0
+# requests>=2.28.0

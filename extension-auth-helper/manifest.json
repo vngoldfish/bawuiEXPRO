@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "BAWUI EXTENSION PRO",
+  "version": "1.0.0",
+  "description": "BAWUI EXTENSION PRO — Cầu nối trực tiếp và đồng bộ lệnh giữa Backend Server và Trình duyệt Chrome.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "permissions": [
+    "alarms",
+    "cookies",
+    "tabs",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "icons": {
+    "48": "icon48.png",
+    "128": "icon128.png"
+  }
+}

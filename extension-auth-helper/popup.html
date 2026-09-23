@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>⚡ BAWUI EXTENSION PRO</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            width: 330px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f172a;
+            color: #f8fafc;
+            padding: 16px;
+        }
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 14px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #1e293b;
+        }
+        .title {
+            font-size: 14px;
+            font-weight: 700;
+            color: #38bdf8;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            padding: 3px 8px;
+            border-radius: 999px;
+            background: #1e293b;
+            border: 1px solid #334155;
+        }
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #ef4444;
+        }
+        .dot.online { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
+        .card {
+            background: #1e293b;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 10px;
+            font-size: 12px;
+        }
+        .label {
+            color: #94a3b8;
+            font-size: 11px;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 600;
+        }
+        .val {
+            font-weight: 600;
+            color: #f1f5f9;
+            word-break: break-all;
+        }
+        .input-group {
+            display: flex;
+            gap: 6px;
+            margin-top: 6px;
+        }
+        input {
+            flex: 1;
+            background: #0f172a;
+            border: 1px solid #334155;
+            color: #fff;
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+        }
+        button {
+            background: #0284c7;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.15s;
+        }
+        button:hover { background: #0369a1; }
+        .btn-full { width: 100%; padding: 8px; margin-top: 6px; display: flex; align-items: center; justify-content: center; gap: 6px; }
+        .btn-secondary { background: #334155; }
+        .btn-secondary:hover { background: #475569; }
+        .btn-purple { background: #7c3aed; }
+        .btn-purple:hover { background: #6d28d9; }
+        .result-msg {
+            font-size: 11px;
+            margin-top: 6px;
+            text-align: center;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div>
+            <div class="title" id="appTitle">⚡ BAWUI EXTENSION PRO</div>
+            <div id="appDesc" style="font-size:10px; color:#94a3b8; margin-top:2px; max-width:180px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Cầu nối VPS & Trình duyệt</div>
+        </div>
+        <div class="status-badge">
+            <span class="dot" id="statusDot"></span>
+            <span id="statusText">Offline</span>
+            <span id="pingBadge" style="font-size:10px; color:#38bdf8;"></span>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="label">Node ID & Tên Máy</div>
+        <div class="val" id="nodeId">Đang kết nối...</div>
+        <div id="projectBadge" style="font-size:11px; color:#38bdf8; margin-top:4px; font-weight:600;">📁 Dự án: Đang đồng bộ...</div>
+    </div>
+
+    <div class="card">
+        <div class="label">Địa Chỉ Máy Chủ (VPS URL)</div>
+        <div class="input-group">
+            <input type="text" id="backendUrl" value="http://127.0.0.1:9999" placeholder="http://ip:port hoặc https://domain" />
+            <button id="btnSaveUrl">Lưu</button>
+        </div>
+        <div id="saveResult" class="result-msg"></div>
+    </div>
+
+    <button class="btn-full" id="btnOpenDashboard">🚀 Mở Web Controller Trên VPS</button>
+    <button class="btn-full btn-purple" id="btnOpenOptions">⚙️ Cài Đặt VPS / Server (Nâng cao)</button>
+    <button class="btn-full btn-secondary" id="btnPing">🔍 Kiểm Tra Kết Nối (Ping)</button>
+
+    <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "projects": [
+    {
+      "id": "proj_default_fb_01",
+      "name": "Dự Án Facebook Mẫu 01",
+      "platform": "facebook",
+      "createdAt": 1790179994000,
+      "subProjects": [
+        {
+          "id": "sub_fb_studio_01",
+          "name": "Chiến Dịch Đăng Bài & Seeding",
+          "platform": "facebook",
+          "createdAt": 1790180000000,
+          "postQueue": []
+        }
+      ]
+    }
+  ]
+}

@@ -124,9 +124,8 @@ async function _uploadMediaToFacebook(tabId, fileBase64, fileName, mimeType) {
             func: async (b64, fName, fMime) => {
                 try {
                     const byteChars = atob(b64);
-                    const byteNumbers = new Array(byteChars.length);
-                    for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
-                    const byteArray = new Uint8Array(byteNumbers);
+                    const byteArray = new Uint8Array(byteChars.length);
+                    for (let i = 0; i < byteChars.length; i++) byteArray[i] = byteChars.charCodeAt(i);
                     const blob = new Blob([byteArray], { type: fMime });
                     const isVideo = (fMime && fMime.startsWith("video/")) || (fName && fName.match(/\.(mp4|mov|avi|mkv|webm)$/i));
 
@@ -156,6 +155,156 @@ async function _uploadMediaToFacebook(tabId, fileBase64, fileName, mimeType) {
                     const cUserMatch = document.cookie.match(/c_user=(\d+)/) || html.match(/"USER_ID":"(\d+)"/) || html.match(/"ACCOUNT_ID":"(\d+)"/);
                     const userId = cUserMatch ? cUserMatch[1] : "";
 
+                    if (!userId || !fb_dtsg) {
+                        return { success: false, error: "Không tìm thấy token fb_dtsg hoặc UID người dùng Facebook" };
+                    }
+
+                    // ===== CHUYÊN XỬ LÝ VIDEO: NATIVE VUPLOAD PROTOCOL (START -> RUPLOAD -> RECEIVE) =====
+                    if (isVideo) {
+                        console.log("🎬 [Background] Phát hiện file Video — Sử dụng giao thức native vupload-edge");
+                        const waterfallId = (crypto.randomUUID ? crypto.randomUUID() : (([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,c=>(c^crypto.getRandomValues(new Uint8Array(1))[0]&15>>c/4).toString(16))));
+                        const fileSize = byteArray.length;
+                        const fileExt = (fName.split(".").pop() || "mp4").toLowerCase();
+
+                        // Các tham số chuẩn Facebook web
+                        const fbParams = new URLSearchParams();
+                        fbParams.append("__aaid", "0");
+                        fbParams.append("__user", userId);
+                        fbParams.append("__a", "1");
+                        fbParams.append("__comet_req", "15");
+                        fbParams.append("fb_dtsg", fb_dtsg);
+                        if (jazoest) fbParams.append("jazoest", jazoest);
+                        if (lsd) fbParams.append("lsd", lsd);
+                        if (spinR) fbParams.append("__spin_r", spinR);
+                        if (spinB) fbParams.append("__spin_b", spinB);
+                        if (spinT) fbParams.append("__spin_t", spinT);
+                        if (hsi) fbParams.append("__hsi", hsi);
+                        fbParams.append("dpr", "1");
+                        fbParams.append("__ccg", "EXCELLENT");
+                        if (spinR) fbParams.append("__rev", spinR);
+
+                        // --- BƯỚC 1: START (Khởi tạo phiên tải video) ---
+                        const startParams = new URLSearchParams(fbParams);
+                        startParams.append("waterfall_id", waterfallId);
+                        startParams.append("target_id", userId);
+                        startParams.append("source", "composer");
+                        startParams.append("composer_entry_point_ref", "timeline");
+                        startParams.append("supports_chunking", "true");
+                        startParams.append("supports_file_api", "true");
+                        startParams.append("file_size", fileSize.toString());
+                        startParams.append("file_extension", fileExt.toUpperCase());
+                        startParams.append("partition_start_offset", "0");
+                        startParams.append("partition_end_offset", fileSize.toString());
+                        startParams.append("has_file_been_replaced", "false");
+
+                        const startResp = await fetch(`https://vupload-edge.facebook.com/ajax/video/upload/requests/start/?av=${userId}&__a=1`, {
+                            method: "POST",
+                            body: startParams.toString(),
+                            headers: {
+                                "Content-Type": "application/x-www-form-urlencoded",
+                                "X_FB_VIDEO_WATERFALL_ID": waterfallId,
+                            },
+                            credentials: "include",
+                        });
+
+                        const startText = await startResp.text();
+                        const startClean = startText.replace(/^for\s*\(;+\)\s*;?\s*/, "");
+                        let startData = null;
+                        try { startData = JSON.parse(startClean); } catch(e) {}
+                        const videoId = startData?.payload?.video_id;
+                        const uploadSessionId = startData?.payload?.upload_session_id;
+                        const chunkEnd = startData?.payload?.end_offset || fileSize;
+
+                        if (!videoId || !uploadSessionId) {
+                            return { success: false, error: "vupload start thất bại: " + startClean.slice(0, 200) };
+                        }
+
+                        // --- BƯỚC 2: RUPLOAD (Tải luồng nhị phân video lên cụm máy chủ Facebook) ---
+                        const sessionHash = Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b => b.toString(16).padStart(2,"0")).join("");
+                        const ruploadUrl = `https://rupload.facebook.com/fb_video/${sessionHash}-0-${chunkEnd}?` + fbParams.toString();
+
+                        const ruploadHeaders = {
+                            "X-Entity-Name": fName,
+                            "X-Entity-Length": fileSize.toString(),
+                            "X-Entity-Type": fMime || "video/mp4",
+                            "X-Total-Asset-Size": fileSize.toString(),
+                            "Composer_Session_Id": waterfallId,
+                            "Id": uploadSessionId,
+                            "Product_Media_Id": videoId,
+                            "Offset": "0",
+                            "Start_Offset": "0",
+                            "End_Offset": chunkEnd.toString(),
+                        };
+
+                        let ruploadResp = await fetch(ruploadUrl, {
+                            method: "POST",
+                            body: blob,
+                            headers: ruploadHeaders,
+                            credentials: "include",
+                        });
+
+                        if (!ruploadResp.ok) {
+                            // Dự phòng endpoint edge
+                            const fallbackUrl = `https://rupload-edge.facebook.com/fb_video/${sessionHash}-0-${chunkEnd}?` + fbParams.toString();
+                            try {
+                                ruploadResp = await fetch(fallbackUrl, {
+                                    method: "POST",
+                                    body: blob,
+                                    headers: ruploadHeaders,
+                                    credentials: "include",
+                                });
+                            } catch(e) {}
+                        }
+
+                        const ruploadText = await ruploadResp.text();
+                        let ruploadHash = "";
+                        try {
+                            const ruploadData = JSON.parse(ruploadText);
+                            ruploadHash = ruploadData?.h || "";
+                        } catch(e) {}
+
+                        // --- BƯỚC 3: RECEIVE (Xác nhận video upload hoàn tất & gắn chunk) ---
+                        const receiveParams = new URLSearchParams(fbParams);
+                        receiveParams.append("waterfall_id", waterfallId);
+                        receiveParams.append("target_id", userId);
+                        receiveParams.append("video_id", videoId);
+                        receiveParams.append("source", "composer");
+                        receiveParams.append("composer_entry_point_ref", "timeline");
+                        receiveParams.append("supports_chunking", "true");
+                        receiveParams.append("supports_upload_service", "true");
+                        receiveParams.append("partition_start_offset", "0");
+                        receiveParams.append("partition_end_offset", fileSize.toString());
+                        receiveParams.append("start_offset", "0");
+                        receiveParams.append("end_offset", fileSize.toString());
+                        receiveParams.append("upload_speed", Math.round(fileSize / 1.5).toString());
+                        if (ruploadHash) {
+                            receiveParams.append("fbuploader_video_file_chunk", ruploadHash);
+                        }
+                        receiveParams.append("has_file_been_replaced", "false");
+
+                        const receiveResp = await fetch(`https://vupload-edge.facebook.com/ajax/video/upload/requests/receive/?av=${userId}&__a=1`, {
+                            method: "POST",
+                            body: receiveParams.toString(),
+                            headers: {
+                                "Content-Type": "application/x-www-form-urlencoded",
+                                "X_FB_VIDEO_WATERFALL_ID": waterfallId,
+                            },
+                            credentials: "include",
+                        });
+
+                        const receiveText = await receiveResp.text();
+                        const receiveClean = receiveText.replace(/^for\s*\(;+\)\s*;?\s*/, "");
+                        let receiveData = null;
+                        try { receiveData = JSON.parse(receiveClean); } catch(e) {}
+                        const confirmedEnd = receiveData?.payload?.end_offset;
+
+                        if (confirmedEnd !== undefined || receiveResp.ok) {
+                            return { success: true, mediaId: String(videoId), isVideo: true };
+                        }
+                        return { success: false, error: "vupload receive thất bại: " + receiveClean.slice(0, 200) };
+                    }
+
+                    // ===== CHUYÊN XỬ LÝ HÌNH ẢNH: REACT COMPOSER PHOTO UPLOAD =====
                     const urlParams = new URLSearchParams();
                     urlParams.append("av", userId);
                     urlParams.append("__aaid", "0");
@@ -178,15 +327,14 @@ async function _uploadMediaToFacebook(tabId, fileBase64, fileName, mimeType) {
                     const formData = new FormData();
                     formData.append("farr", blob, fName);
                     formData.append("file", blob, fName);
-                    formData.append(isVideo ? "video" : "photo", blob, fName);
+                    formData.append("photo", blob, fName);
                     formData.append("source", "8");
                     formData.append("profile_id", userId);
                     formData.append("waterfallxapp", "comet");
                     formData.append("upload_speed", "0");
                     formData.append("fb_dtsg", fb_dtsg);
 
-                    const endpointPath = isVideo ? "/ajax/react_composer/attachments/video/upload?" : "/ajax/react_composer/attachments/photo/upload?";
-                    const uploadUrl = "https://upload.facebook.com" + endpointPath + urlParams.toString();
+                    const uploadUrl = "https://upload.facebook.com/ajax/react_composer/attachments/photo/upload?" + urlParams.toString();
 
                     const resp = await fetch(uploadUrl, {
                         method: "POST",
@@ -197,8 +345,6 @@ async function _uploadMediaToFacebook(tabId, fileBase64, fileName, mimeType) {
                     const text = await resp.text();
                     const cleanUpload = text.replace(/^for\s*\(;+\)\s*;?\s*/, "");
                     const idPatterns = [
-                        /"video_id"\s*:\s*"?(\d+)"?/,
-                        /"videoId"\s*:\s*"?(\d+)"?/,
                         /"photoID"\s*:\s*"?(\d+)"?/,
                         /"photo_id"\s*:\s*"?(\d+)"?/,
                         /"media_id"\s*:\s*"?(\d+)"?/,
@@ -211,10 +357,10 @@ async function _uploadMediaToFacebook(tabId, fileBase64, fileName, mimeType) {
                     }
                     try {
                         const parsed = JSON.parse(cleanUpload);
-                        const mid = parsed?.payload?.photoID || parsed?.payload?.fbid || parsed?.payload?.media_id || parsed?.payload?.video_id || parsed?.payload?.id;
+                        const mid = parsed?.payload?.photoID || parsed?.payload?.fbid || parsed?.payload?.media_id || parsed?.payload?.id;
                         if (mid) return { success: true, mediaId: String(mid) };
                     } catch(e) {}
-                    return { success: false, error: "Không tìm thấy media ID trong phản hồi Facebook" };
+                    return { success: false, error: "Không tìm thấy photo ID trong phản hồi Facebook" };
                 } catch(e) {
                     return { success: false, error: e.message };
                 }
@@ -263,21 +409,31 @@ async function _executeFbPost(payload, updateStep) {
                 const res = await fetch(payload.mediaUrl);
                 if (res.ok) {
                     const blob = await res.blob();
-                    const arrayBuffer = await blob.arrayBuffer();
-                    const bytes = new Uint8Array(arrayBuffer);
-                    const chunks = [];
-                    for (let i = 0; i < bytes.byteLength; i += 8192) {
-                        chunks.push(String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i + 8192, bytes.byteLength))));
-                    }
-                    const binary = chunks.join('');
+                    const b64 = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                            const result = reader.result;
+                            const comma = result.indexOf(",");
+                            resolve(comma !== -1 ? result.slice(comma + 1) : result);
+                        };
+                        reader.onerror = reject;
+                        reader.readAsDataURL(blob);
+                    });
+                    const isVideoUrl = !!(payload.mediaUrl.match(/\.(mp4|mov|avi|mkv|webm)/i) || postType === "video" || postType === "reel");
                     payload.mediaData = {
-                        base64: btoa(binary),
-                        fileName: "media_downloaded",
-                        mimeType: blob.type || (payload.mediaUrl.match(/\.(mp4|mov|avi)/i) ? "video/mp4" : "image/jpeg")
+                        base64: b64,
+                        fileName: isVideoUrl ? "video_downloaded.mp4" : "media_downloaded.jpg",
+                        mimeType: blob.type || (isVideoUrl ? "video/mp4" : "image/jpeg")
                     };
                 }
             } catch(e) {
                 console.warn("[Bridge] Fetch mediaUrl error:", e);
+            }
+        }
+
+        if (postType === "video" || postType === "reel") {
+            if (payload.mediaData && (!payload.mediaData.mimeType || payload.mediaData.mimeType === "image/jpeg" || payload.mediaData.mimeType === "application/octet-stream")) {
+                payload.mediaData.mimeType = "video/mp4";
             }
         }
 
@@ -432,7 +588,7 @@ async function _executeFbPost(payload, updateStep) {
                         }
                     } catch(e) {}
 
-                    const defaultFallbackDocIds = ["28329575890036120", "27508435028820023", "27248647231502311", "6362241860538186", "6815340158580277", "6143924765664426"];
+                    const defaultFallbackDocIds = ["28283705131270535", "28329575890036120", "27508435028820023", "27248647231502311", "6362241860538186", "6815340158580277", "6143924765664426"];
                     const fallbackDocIds = [...liveDocIds];
                     for (const id of defaultFallbackDocIds) {
                         if (!fallbackDocIds.includes(id)) fallbackDocIds.push(id);
@@ -468,7 +624,20 @@ async function _executeFbPost(payload, updateStep) {
                             event_share_metadata: { surface: surface },
                             ...(mediaId ? {
                                 attachments: [
-                                    isVideo ? { video: { id: String(mediaId) } } : { photo: { id: String(mediaId) } }
+                                    isVideo ? {
+                                        video: {
+                                            id: String(mediaId),
+                                            audio_descriptions: null,
+                                            additional_video_metadata: {
+                                                translatedAudioMetadata: []
+                                            },
+                                            notify_when_processed: true,
+                                            transcriptions: null,
+                                            was_created_via_unified_video_flow: {
+                                                was_created_via_unified_video_flow: true
+                                            }
+                                        }
+                                    } : { photo: { id: String(mediaId) } }
                                 ]
                             } : {}),
                             actor_id: actorId,

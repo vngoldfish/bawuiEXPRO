@@ -1278,6 +1278,287 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
             animation: fadeIn 0.2s ease;
         }
+        /* ============================================================= */
+        /* MOBILE RESPONSIVE: HAMBURGER, SIDEBAR DRAWER, MEDIA QUERIES   */
+        /* ============================================================= */
+
+        /* Hamburger Menu Button (hidden on desktop) */
+        .hamburger-btn {
+            display: none;
+            background: transparent;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-main);
+            font-size: 22px;
+            width: 40px;
+            height: 40px;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            flex-shrink: 0;
+            transition: background 0.15s;
+        }
+        .hamburger-btn:hover {
+            background: rgba(255,255,255,0.08);
+        }
+
+        /* Sidebar Overlay (dark backdrop when sidebar open on mobile) */
+        .sidebar-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(2px);
+            z-index: 19;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        .sidebar-overlay.active {
+            display: block;
+            opacity: 1;
+        }
+
+        /* ===== TABLET & MOBILE: max-width 768px ===== */
+        @media (max-width: 768px) {
+            /* Sidebar → fixed drawer, hidden by default */
+            aside.sidebar {
+                position: fixed;
+                top: 0; left: 0;
+                height: 100vh;
+                width: 280px;
+                transform: translateX(-100%);
+                transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                z-index: 100;
+                box-shadow: none;
+            }
+            body.sidebar-open aside.sidebar {
+                transform: translateX(0);
+                box-shadow: 4px 0 30px rgba(0, 0, 0, 0.5);
+            }
+            body.sidebar-open .sidebar-overlay {
+                display: block;
+                opacity: 1;
+            }
+
+            /* Show hamburger button */
+            .hamburger-btn {
+                display: inline-flex;
+            }
+
+            /* Header adjustments */
+            header.top-header {
+                padding: 0 12px;
+                gap: 8px;
+            }
+            .header-title-box {
+                gap: 8px;
+                min-width: 0;
+                flex: 1;
+            }
+            .header-page-title {
+                font-size: 13px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                min-width: 0;
+            }
+            .header-actions {
+                gap: 6px;
+                flex-shrink: 0;
+            }
+            /* Hide PORT badge and status text on mobile */
+            .port-badge {
+                display: none;
+            }
+            .status-pill span:not(.dot) {
+                display: none;
+            }
+            .status-pill {
+                padding: 5px 8px;
+                min-width: 28px;
+            }
+
+            /* Content area → reduce padding */
+            main.content-area {
+                padding: 12px;
+            }
+
+            /* All 2-column grids → stack to 1 column */
+            .grid-responsive {
+                grid-template-columns: 1fr !important;
+            }
+            .grid-responsive-sm {
+                grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) !important;
+            }
+
+            /* Card padding reduction */
+            .card {
+                padding: 14px;
+            }
+
+            /* POST FACEBOOK quick-switch toolbar → horizontal scroll */
+            .post-fb-toolbar {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                scrollbar-width: none;
+                flex-wrap: nowrap !important;
+                gap: 6px !important;
+                padding-bottom: 4px;
+            }
+            .post-fb-toolbar::-webkit-scrollbar { display: none; }
+            .post-fb-toolbar .btn-sm {
+                white-space: nowrap;
+                flex-shrink: 0;
+                font-size: 11px !important;
+                padding: 5px 10px !important;
+            }
+
+            /* Filter tabs → horizontal scroll */
+            .filter-tabs-row {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                scrollbar-width: none;
+                flex-wrap: nowrap !important;
+                padding-bottom: 4px;
+            }
+            .filter-tabs-row::-webkit-scrollbar { display: none; }
+            .filter-tabs-row .btn-sm,
+            .filter-tabs-row button {
+                white-space: nowrap;
+                flex-shrink: 0;
+            }
+
+            /* Search bar → full width */
+            .mobile-full-width {
+                min-width: 100% !important;
+                width: 100% !important;
+            }
+
+            /* Button groups → wrap and full width */
+            .btn-group-responsive {
+                flex-direction: column !important;
+                width: 100%;
+            }
+            .btn-group-responsive > button,
+            .btn-group-responsive > .btn,
+            .btn-group-responsive > .btn-green,
+            .btn-group-responsive > .btn-sm {
+                width: 100% !important;
+            }
+
+            /* Modal adjustments */
+            .modal-box {
+                width: 95%;
+                max-width: none;
+                padding: 16px;
+                max-height: 90vh;
+                overflow-y: auto;
+            }
+
+            /* Touch-friendly: larger tap targets */
+            .menu-item a, .menu-item button {
+                padding: 12px 12px;
+                min-height: 44px;
+            }
+            .btn-sm {
+                padding: 8px 14px;
+                min-height: 36px;
+            }
+            button, select, input, textarea {
+                min-height: 38px;
+                font-size: 14px;
+            }
+
+            /* Tables → scrollable container */
+            table {
+                display: block;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+            thead, tbody, tr {
+                display: revert;
+            }
+
+            /* Footer adjustments */
+            footer.bottom-footer {
+                padding: 0 12px;
+                font-size: 11px;
+            }
+
+            /* Section titles */
+            h2 { font-size: 16px !important; }
+
+            /* Info grids within cards */
+            .info-grid-responsive {
+                grid-template-columns: 1fr !important;
+            }
+
+            /* Smaller badge font */
+            .badge-folder {
+                font-size: 10px;
+                padding: 2px 8px;
+            }
+        }
+
+        /* ===== SMALL PHONE: max-width 480px ===== */
+        @media (max-width: 480px) {
+            /* Even more compact header */
+            header.top-header {
+                height: 52px;
+                padding: 0 8px;
+            }
+            .header-page-title {
+                font-size: 12px;
+            }
+            .hamburger-btn {
+                width: 36px;
+                height: 36px;
+                font-size: 20px;
+            }
+
+            /* Even tighter content padding */
+            main.content-area {
+                padding: 8px;
+            }
+
+            /* Card compact mode */
+            .card {
+                padding: 10px;
+                border-radius: 10px;
+            }
+
+            /* Smaller sidebar on very small phones */
+            aside.sidebar {
+                width: 260px;
+            }
+
+            /* Stack action buttons vertically */
+            .header-actions .btn-sm {
+                font-size: 11px;
+                padding: 4px 8px;
+            }
+
+            /* KPI stat cards */
+            .grid-responsive-sm {
+                grid-template-columns: 1fr 1fr !important;
+            }
+
+            /* Font size floors */
+            p, span, div, label {
+                /* Ensure minimum readable size on small screens */
+            }
+            .sidebar-brand-title {
+                font-size: 12px;
+            }
+
+            /* Full-width buttons */
+            .btn-green.btn-lg,
+            .btn-orange.btn-lg {
+                width: 100%;
+                font-size: 13px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -1486,12 +1767,15 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             <div style="margin-top:4px;" id="sidebarUptime">Uptime: 0m</div>
         </div>
     </aside>
+    <!-- MOBILE SIDEBAR OVERLAY (backdrop) -->
+    <div class="sidebar-overlay" onclick="toggleMobileSidebar()"></div>
 
     <!-- 2. MAIN CONTENT WRAPPER -->
     <div class="main-wrapper">
         <!-- TOP HEADER -->
         <header class="top-header">
             <div class="header-title-box">
+                <button class="hamburger-btn" onclick="toggleMobileSidebar()" aria-label="Menu">☰</button>
                 <div class="header-page-title" id="pageTitle">
                     <span>📁</span> <span>Danh Sách Dự Án</span>
                 </div>
@@ -1532,7 +1816,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 <!-- FORM TẠO DỰ ÁN CHA -->
                 <div id="newProjectBox" class="card" style="display:none; border-color:var(--accent); margin-bottom:22px; background:#0b1329;">
                     <h3 style="font-size:15px; color:#38bdf8; margin-bottom:12px;">✨ Thiết Lập Dự Án Cha Mới</h3>
-                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+                    <div class="grid-responsive" style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
                         <div>
                             <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Tên Dự Án Cha (Bắt buộc):</label>
                             <input type="text" id="newProjName" placeholder="Ví dụ: Máy Chrome 01 / Cụm Máy Nuôi Nick" />
@@ -1550,7 +1834,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 </div>
 
                 <!-- GRID CARDS DỰ ÁN CHA -->
-                <div id="hubProjectsListContainer" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(360px, 1fr)); gap:18px;">
+                <div id="hubProjectsListContainer" class="grid-responsive" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(360px, 1fr)); gap:18px;">
                     <div style="color:var(--text-muted); font-size:13px;">Đang tải danh sách dự án...</div>
                 </div>
             </section>
@@ -1575,7 +1859,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                 </div>
 
                 <!-- GRID: 2 COLUMNS (LEFT: DOCUMENTATION, RIGHT: INTERACTIVE TESTER) -->
-                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); gap:20px;">
+                <div class="grid-responsive" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); gap:20px;">
                     <!-- LEFT COLUMN: API SPECIFICATION -->
                     <div style="display:flex; flex-direction:column; gap:16px;">
                         <!-- 1. POST PUBLISH -->
@@ -1724,7 +2008,7 @@ print(res.json())</pre>
                                     <select id="apiTestProjectSelect" style="width:100%; padding:8px; background:#090e1c; border:1px solid var(--border-color); border-radius:6px; color:#fff; font-size:13px;"></select>
                                 </div>
 
-                                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+                                <div class="grid-responsive" style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
                                     <div>
                                         <label style="font-size:11px; font-weight:700; color:var(--text-muted); display:block; margin-bottom:4px;">Định Dạng Bài (postType):</label>
                                         <select id="apiTestPostType" style="width:100%; padding:8px; background:#090e1c; border:1px solid var(--border-color); border-radius:6px; color:#fff; font-size:13px;">
@@ -1759,7 +2043,7 @@ print(res.json())</pre>
                                     <input type="text" id="apiTestMediaUrl" placeholder="https://example.com/image.jpg (để trống nếu bài viết chữ)" style="width:100%; padding:8px; background:#090e1c; border:1px solid var(--border-color); border-radius:6px; color:#fff; font-size:13px;" />
                                 </div>
 
-                                <div style="display:grid; grid-template-columns: 2fr 1fr; gap:10px;">
+                                <div class="grid-responsive" style="display:grid; grid-template-columns: 2fr 1fr; gap:10px;">
                                     <div>
                                         <label style="font-size:11px; font-weight:700; color:var(--text-muted); display:block; margin-bottom:4px;">Bình Luận Seeding (mỗi dòng 1 câu):</label>
                                         <textarea id="apiTestSeeding" rows="2" placeholder="Seeding 1&#10;Seeding 2" style="width:100%; padding:8px; background:#090e1c; border:1px solid var(--border-color); border-radius:6px; color:#fff; font-size:13px; resize:vertical;">Tư vấn cho mình với shop ơi
@@ -1831,7 +2115,7 @@ Sản phẩm tuyệt vời quá</textarea>
             <section class="route-view" id="view-hub-system">
                 <div class="card">
                     <h3 style="margin-bottom:14px; font-size:15px; color:#fff;">ℹ️ Thông Tin Nền Tảng</h3>
-                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; font-size:13px;">
+                    <div class="grid-responsive" style="display:grid; grid-template-columns:1fr 1fr; gap:14px; font-size:13px;">
                         <div>
                             <span style="color:var(--text-muted);">Backend Server:</span>
                             <div style="font-weight:700; color:#fff; margin-top:2px;">Python 3 (Standard Library)</div>
@@ -1865,7 +2149,7 @@ Sản phẩm tuyệt vời quá</textarea>
 
                 <!-- THANH LỌC PHÂN LOẠI: FACEBOOK VS CÁC NỀN TẢNG KHÁC -->
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; flex-wrap:wrap; gap:10px; background:#070d1e; border:1px solid #1e293b; padding:10px 14px; border-radius:8px;">
-                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;" id="subProjectsFilterTabs">
+                    <div class="filter-tabs-row" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;" id="subProjectsFilterTabs">
                         <span style="font-size:12px; font-weight:700; color:var(--text-muted); margin-right:4px;">🔍 Lọc Phân Loại:</span>
                         <button class="btn-sm active" id="filterTabAll" onclick="filterSubProjectsByPlatform('all', this)" style="border-radius:6px; padding:4px 12px; background:#0284c7; color:#fff; font-weight:700;">
                             📁 Tất Cả (<span id="countSubAll">0</span>)
@@ -1947,7 +2231,7 @@ Sản phẩm tuyệt vời quá</textarea>
                         <input type="text" id="newFolderSourceUrl" placeholder="https://..." value="https://google.com" />
                     </div>
 
-                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px;">
+                    <div class="grid-responsive" style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px;">
                         <div>
                             <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Tên Thư Mục / Dự Án Con (Bắt buộc):</label>
                             <input type="text" id="newFolderName" placeholder="Ví dụ: Dự Án Facebook 01" />
@@ -1965,7 +2249,7 @@ Sản phẩm tuyệt vời quá</textarea>
                 </div>
 
                 <!-- GRID DANH SÁCH CÁC THƯ MỤC / DỰ ÁN CON -->
-                <div id="foldersGrid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:18px;">
+                <div id="foldersGrid" class="grid-responsive" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:18px;">
                     <div style="color:var(--text-muted); font-size:13px;">Đang tải danh sách thư mục...</div>
                 </div>
             </section>
@@ -2021,7 +2305,7 @@ Sản phẩm tuyệt vời quá</textarea>
                         <span>⚙️</span> <span>Cấu Hình Tham Số Cào Dữ Liệu</span>
                     </h3>
 
-                    <div style="display:grid; grid-template-columns: 2fr 1fr 1fr; gap:12px; align-items:end; margin-bottom:12px;">
+                    <div class="grid-responsive" style="display:grid; grid-template-columns: 2fr 1fr 1fr; gap:12px; align-items:end; margin-bottom:12px;">
                         <div>
                             <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">🔗 URL Trang Cần Cào (Hoặc tab đang mở):</label>
                             <input type="text" id="scraperTargetUrl" placeholder="https://..." style="margin:0;" />
@@ -2083,7 +2367,7 @@ Sản phẩm tuyệt vời quá</textarea>
             <section class="route-view" id="view-sub-autopost">
                 <!-- THANH CHUYỂN NHANH TRONG CHỨC NĂNG POST FACEBOOK -->
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; background:#070d1e; border:1px solid #1e293b; padding:8px 14px; border-radius:8px; flex-wrap:wrap; gap:10px;">
-                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                    <div class="post-fb-toolbar" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
                         <span style="font-size:12px; font-weight:800; color:#38bdf8; margin-right:4px;">🚀 POST FACEBOOK:</span>
                         <button class="btn-sm active" style="background:#0284c7; color:#fff; font-weight:700; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-autopost')">
                             📝 Đăng Bài Viết Thường
@@ -2124,7 +2408,7 @@ Sản phẩm tuyệt vời quá</textarea>
                 </div>
 
                 <!-- 4 KPI CARDS -->
-                <div class="grid-cards" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:14px; margin-bottom:20px;">
+                <div class="grid-cards grid-responsive-sm" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:14px; margin-bottom:20px;">
                     <div class="card" style="border-color:#38bdf8;">
                         <div class="card-title">📊 Tổng Bài Đăng</div>
                         <div class="card-value" id="kpiTotalPosts" style="color:#38bdf8;">0</div>
@@ -2242,7 +2526,7 @@ Sản phẩm tuyệt vời quá</textarea>
                         </div>
                         <textarea id="postSeedingCommentsInput" rows="3" placeholder="💬 Mỗi dòng một bình luận seeding tự động...&#10;Sản phẩm này còn hàng không shop?&#10;Đã nhận được hàng, rất ưng ý ạ!&#10;Shop tư vấn nhiệt tình lắm nha"></textarea>
 
-                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-top:8px;">
+                        <div class="grid-responsive" style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-top:8px;">
                             <div>
                                 <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">❤️ Thả Cảm Xúc Tự Động (Auto-React):</label>
                                 <select id="postAutoReactInput" style="margin:4px 0 0 0;">
@@ -2289,7 +2573,7 @@ Sản phẩm tuyệt vời quá</textarea>
 
                     <!-- SUBMIT BUTTONS -->
                     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
-                        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                        <div class="btn-group-responsive" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
                             <label style="display:flex; align-items:center; gap:8px; cursor:pointer; background:rgba(30,41,59,0.7); padding:8px 14px; border-radius:8px; border:1px solid #334155; font-size:13px; font-weight:600; color:#38bdf8; user-select:none; transition:all 0.2s;" title="Tự động chia sẻ bài viết lên Bảng tin & Tin Story (theo mutation useCometFeedToStoryReshare trong sharetinfacebook.har)">
                                 <input type="checkbox" id="postShareToFeed" checked style="width:17px; height:17px; accent-color:#0284c7; cursor:pointer;" />
                                 <span>📰 Chia sẻ lên bảng tin / Tin (Story)</span>
@@ -2316,13 +2600,13 @@ Sản phẩm tuyệt vời quá</textarea>
                             <span class="badge-folder" style="background:rgba(52,211,153,0.2); color:#34d399; border:1px solid rgba(52,211,153,0.4);" id="postQueueCountBadge">0 Bài</span>
                         </h4>
                         <!-- SEARCH BAR -->
-                        <div style="display:flex; gap:8px; align-items:center; min-width:260px;">
+                        <div class="mobile-full-width" style="display:flex; gap:8px; align-items:center; min-width:260px;">
                             <input type="text" id="postSearchInput" placeholder="🔍 Tìm theo nội dung, ID..." oninput="filterPostList(this.value)" style="margin:0; padding:6px 12px; font-size:12px;" />
                         </div>
                     </div>
 
                     <!-- FILTER TABS -->
-                    <div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
+                    <div class="filter-tabs-row" style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
                         <button type="button" class="preset-chip active" id="filterBtnAll" onclick="setPostFilter('all', this)">🌐 Tất Cả</button>
                         <button type="button" class="preset-chip" id="filterBtnScheduled" onclick="setPostFilter('scheduled', this)" style="border-color:#38bdf8; color:#38bdf8;">⏰ Đã Lên Lịch</button>
                         <button type="button" class="preset-chip" id="filterBtnPending" onclick="setPostFilter('pending', this)">⏳ Chờ Lệnh / Đang Đăng</button>
@@ -2343,7 +2627,7 @@ Sản phẩm tuyệt vời quá</textarea>
             <section class="route-view" id="view-sub-post-video">
                 <!-- THANH CHUYỂN NHANH TRONG CHỨC NĂNG POST FACEBOOK -->
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; background:#070d1e; border:1px solid #1e293b; padding:8px 14px; border-radius:8px; flex-wrap:wrap; gap:10px;">
-                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                    <div class="post-fb-toolbar" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
                         <span style="font-size:12px; font-weight:800; color:#38bdf8; margin-right:4px;">🚀 POST FACEBOOK:</span>
                         <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-autopost')">
                             📝 Đăng Bài Viết Thường
@@ -2384,7 +2668,7 @@ Sản phẩm tuyệt vời quá</textarea>
                 </div>
 
                 <!-- 4 KPI CARDS -->
-                <div class="grid-cards" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:14px; margin-bottom:20px;">
+                <div class="grid-cards grid-responsive-sm" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:14px; margin-bottom:20px;">
                     <div class="card" style="border-color:#38bdf8;">
                         <div class="card-title">🎬 Tổng Video Watch</div>
                         <div class="card-value" id="kpiTotalVideoPosts" style="color:#38bdf8;">0</div>
@@ -2498,7 +2782,7 @@ Sản phẩm tuyệt vời quá</textarea>
                         </div>
                         <textarea id="videoSeedingInput" rows="3" placeholder="💬 Mỗi dòng một bình luận seeding cho video...&#10;Video hay quá shop ơi!&#10;Chia sẻ thêm nhiều nội dung như này nhé!"></textarea>
 
-                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-top:8px;">
+                        <div class="grid-responsive" style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-top:8px;">
                             <div>
                                 <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">❤️ Thả Cảm Xúc Tự Động (Auto-React):</label>
                                 <select id="videoAutoReactInput" style="margin:4px 0 0 0;">
@@ -2543,7 +2827,7 @@ Sản phẩm tuyệt vời quá</textarea>
 
                     <!-- SUBMIT BUTTONS -->
                     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
-                        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                        <div class="btn-group-responsive" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
                             <label style="display:flex; align-items:center; gap:8px; cursor:pointer; background:rgba(30,41,59,0.7); padding:8px 14px; border-radius:8px; border:1px solid #334155; font-size:13px; font-weight:600; color:#38bdf8; user-select:none; transition:all 0.2s;" title="Tự động chia sẻ video lên Bảng tin & Tin Story (theo mutation useCometFeedToStoryReshare trong sharetinfacebook.har)">
                                 <input type="checkbox" id="videoShareToFeed" checked style="width:17px; height:17px; accent-color:#0284c7; cursor:pointer;" />
                                 <span>📰 Chia sẻ lên bảng tin / Tin (Story)</span>
@@ -2569,13 +2853,13 @@ Sản phẩm tuyệt vời quá</textarea>
                             <span>🎬</span> <span>Danh Sách Video Watch Đã Đăng & Hàng Đợi</span>
                             <span class="badge-folder" style="background:rgba(59,130,246,0.2); color:#60a5fa; border:1px solid rgba(59,130,246,0.4);" id="videoQueueCountBadge">0 Video</span>
                         </h4>
-                        <div style="display:flex; gap:8px; align-items:center; min-width:260px;">
+                        <div class="mobile-full-width" style="display:flex; gap:8px; align-items:center; min-width:260px;">
                             <input type="text" placeholder="🔍 Tìm video theo tiêu đề, ID..." oninput="filterPostList(this.value)" style="margin:0; padding:6px 12px; font-size:12px;" />
                         </div>
                     </div>
 
                     <!-- FILTER TABS -->
-                    <div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
+                    <div class="filter-tabs-row" style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
                         <button type="button" class="preset-chip active" onclick="setPostFilter('all', this)">🌐 Tất Cả</button>
                         <button type="button" class="preset-chip" onclick="setPostFilter('scheduled', this)" style="border-color:#38bdf8; color:#38bdf8;">⏰ Đã Lên Lịch</button>
                         <button type="button" class="preset-chip" onclick="setPostFilter('pending', this)">⏳ Chờ Lệnh / Đang Đăng</button>
@@ -2594,7 +2878,7 @@ Sản phẩm tuyệt vời quá</textarea>
             <section class="route-view" id="view-sub-post-reels">
                 <!-- THANH CHUYỂN NHANH TRONG CHỨC NĂNG POST FACEBOOK -->
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; background:#070d1e; border:1px solid #1e293b; padding:8px 14px; border-radius:8px; flex-wrap:wrap; gap:10px;">
-                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                    <div class="post-fb-toolbar" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
                         <span style="font-size:12px; font-weight:800; color:#38bdf8; margin-right:4px;">🚀 POST FACEBOOK:</span>
                         <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-autopost')">
                             📝 Đăng Bài Viết Thường
@@ -2635,7 +2919,7 @@ Sản phẩm tuyệt vời quá</textarea>
                 </div>
 
                 <!-- 4 KPI CARDS -->
-                <div class="grid-cards" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:14px; margin-bottom:20px;">
+                <div class="grid-cards grid-responsive-sm" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:14px; margin-bottom:20px;">
                     <div class="card" style="border-color:#facc15;">
                         <div class="card-title">⚡ Tổng Thước Phim Reels</div>
                         <div class="card-value" id="kpiTotalReelsPosts" style="color:#facc15;">0</div>
@@ -2740,7 +3024,7 @@ Sản phẩm tuyệt vời quá</textarea>
                         </div>
                         <textarea id="reelsSeedingInput" rows="2" placeholder="💬 Bình luận seeding kéo tương tác Reels...&#10;Video đỉnh quá ạ!&#10;Kênh làm nội dung chất lượng ghê"></textarea>
 
-                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-top:8px;">
+                        <div class="grid-responsive" style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-top:8px;">
                             <div>
                                 <label style="font-size:11px; font-weight:700; color:var(--text-muted); text-transform:uppercase;">❤️ Thả Cảm Xúc Tự Động:</label>
                                 <select id="reelsAutoReactInput" style="margin:4px 0 0 0;">
@@ -2784,7 +3068,7 @@ Sản phẩm tuyệt vời quá</textarea>
 
                     <!-- SUBMIT BUTTONS -->
                     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
-                        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                        <div class="btn-group-responsive" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
                             <label style="display:flex; align-items:center; gap:8px; cursor:pointer; background:rgba(30,41,59,0.7); padding:8px 14px; border-radius:8px; border:1px solid #334155; font-size:13px; font-weight:600; color:#38bdf8; user-select:none; transition:all 0.2s;" title="Tự động chia sẻ Reels lên Bảng tin & Tin Story (theo mutation useCometFeedToStoryReshare trong sharetinfacebook.har)">
                                 <input type="checkbox" id="reelsShareToFeed" checked style="width:17px; height:17px; accent-color:#0284c7; cursor:pointer;" />
                                 <span>📰 Chia sẻ lên bảng tin / Tin (Story)</span>
@@ -2810,13 +3094,13 @@ Sản phẩm tuyệt vời quá</textarea>
                             <span>⚡</span> <span>Danh Sách Reels Đã Đăng & Hàng Đợi</span>
                             <span class="badge-folder" style="background:rgba(234,179,8,0.2); color:#facc15; border:1px solid rgba(234,179,8,0.4);" id="reelsQueueCountBadge">0 Reels</span>
                         </h4>
-                        <div style="display:flex; gap:8px; align-items:center; min-width:260px;">
+                        <div class="mobile-full-width" style="display:flex; gap:8px; align-items:center; min-width:260px;">
                             <input type="text" placeholder="🔍 Tìm reels theo tiêu đề, ID..." oninput="filterPostList(this.value)" style="margin:0; padding:6px 12px; font-size:12px;" />
                         </div>
                     </div>
 
                     <!-- FILTER TABS -->
-                    <div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
+                    <div class="filter-tabs-row" style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
                         <button type="button" class="preset-chip active" onclick="setPostFilter('all', this)">🌐 Tất Cả</button>
                         <button type="button" class="preset-chip" onclick="setPostFilter('scheduled', this)" style="border-color:#38bdf8; color:#38bdf8;">⏰ Đã Lên Lịch</button>
                         <button type="button" class="preset-chip" onclick="setPostFilter('pending', this)">⏳ Chờ Lệnh / Đang Đăng</button>
@@ -2835,7 +3119,7 @@ Sản phẩm tuyệt vời quá</textarea>
             <section class="route-view" id="view-sub-post-story">
                 <!-- THANH CHUYỂN NHANH TRONG CHỨC NĂNG POST FACEBOOK -->
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; background:#070d1e; border:1px solid #1e293b; padding:8px 14px; border-radius:8px; flex-wrap:wrap; gap:10px;">
-                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                    <div class="post-fb-toolbar" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
                         <span style="font-size:12px; font-weight:800; color:#38bdf8; margin-right:4px;">🚀 POST FACEBOOK:</span>
                         <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-autopost')">
                             📝 Đăng Bài Viết Thường
@@ -2876,7 +3160,7 @@ Sản phẩm tuyệt vời quá</textarea>
                 </div>
 
                 <!-- 4 KPI CARDS -->
-                <div class="grid-cards" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:14px; margin-bottom:20px;">
+                <div class="grid-cards grid-responsive-sm" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:14px; margin-bottom:20px;">
                     <div class="card" style="border-color:#ec4899;">
                         <div class="card-title">📖 Tổng Bản Tin Story</div>
                         <div class="card-value" id="kpiTotalStoryPosts" style="color:#ec4899;">0</div>
@@ -2991,7 +3275,7 @@ Sản phẩm tuyệt vời quá</textarea>
 
                     <!-- SUBMIT BUTTONS -->
                     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
-                        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                        <div class="btn-group-responsive" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
                             <label style="display:flex; align-items:center; gap:8px; cursor:pointer; background:rgba(30,41,59,0.7); padding:8px 14px; border-radius:8px; border:1px solid #334155; font-size:13px; font-weight:600; color:#38bdf8; user-select:none; transition:all 0.2s;" title="Tự động chia sẻ lên Bảng tin & Tin (Story 24h)">
                                 <input type="checkbox" id="storyShareToFeed" checked style="width:17px; height:17px; accent-color:#0284c7; cursor:pointer;" />
                                 <span>📰 Chia sẻ lên bảng tin / Tin (Story)</span>
@@ -3017,13 +3301,13 @@ Sản phẩm tuyệt vời quá</textarea>
                             <span>📖</span> <span>Danh Sách Story Đã Đăng & Hàng Đợi</span>
                             <span class="badge-folder" style="background:rgba(236,72,153,0.2); color:#f472b6; border:1px solid rgba(236,72,153,0.4);" id="storyQueueCountBadge">0 Story</span>
                         </h4>
-                        <div style="display:flex; gap:8px; align-items:center; min-width:260px;">
+                        <div class="mobile-full-width" style="display:flex; gap:8px; align-items:center; min-width:260px;">
                             <input type="text" placeholder="🔍 Tìm story theo tiêu đề, ID..." oninput="filterPostList(this.value)" style="margin:0; padding:6px 12px; font-size:12px;" />
                         </div>
                     </div>
 
                     <!-- FILTER TABS -->
-                    <div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
+                    <div class="filter-tabs-row" style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
                         <button type="button" class="preset-chip active" onclick="setPostFilter('all', this)">🌐 Tất Cả</button>
                         <button type="button" class="preset-chip" onclick="setPostFilter('scheduled', this)" style="border-color:#38bdf8; color:#38bdf8;">⏰ Đã Lên Lịch</button>
                         <button type="button" class="preset-chip" onclick="setPostFilter('pending', this)">⏳ Chờ Lệnh / Đang Đăng</button>
@@ -3042,7 +3326,7 @@ Sản phẩm tuyệt vời quá</textarea>
             <section class="route-view" id="view-sub-api-doc">
                 <!-- THANH CHUYỂN NHANH TRONG CHỨC NĂNG POST FACEBOOK -->
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; background:#070d1e; border:1px solid #1e293b; padding:8px 14px; border-radius:8px; flex-wrap:wrap; gap:10px;">
-                    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                    <div class="post-fb-toolbar" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
                         <span style="font-size:12px; font-weight:800; color:#38bdf8; margin-right:4px;">🚀 POST FACEBOOK:</span>
                         <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-autopost')">
                             📝 Đăng Bài Viết Thường
@@ -3115,7 +3399,7 @@ Sản phẩm tuyệt vời quá</textarea>
                         Tất cả các API tuân thủ tiêu chuẩn RESTful HTTP. Mọi response đều trả về cấu trúc JSON đồng nhất: 
                         <code>{"success": true|false, "message": "...", "data": {...}, "error": null|"..."}</code>.
                     </p>
-                    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:12px;">
+                    <div class="grid-responsive" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:12px;">
                         <div style="background:#090e1c; padding:10px 14px; border-radius:8px; border:1px solid var(--border-color);">
                             <div style="font-size:12px; font-weight:700; color:#fff; margin-bottom:6px;">🔑 Header Xác Thực (Authentication):</div>
                             <div style="font-size:11px; color:#cbd5e1; font-family:monospace; line-height:1.6;">
@@ -3389,7 +3673,7 @@ Sản phẩm tuyệt vời quá</textarea>
                     </div>
                 </div>
 
-                <div class="grid-cards" style="grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:18px; margin-bottom:20px;">
+                <div class="grid-cards grid-responsive" style="grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:18px; margin-bottom:20px;">
                     <!-- CARD 1: LƯỚT WEB NGUỒN TỰ ĐỘNG (WARMUP / NUÔI NICK) -->
                     <div class="card" style="border-color:#38bdf8;">
                         <h3 style="font-size:15px; color:#38bdf8; margin-bottom:12px; display:flex; align-items:center; gap:8px;">
@@ -3769,6 +4053,30 @@ Sản phẩm tuyệt vời quá</textarea>
 
     <!-- JAVASCRIPT CONTROLLER -->
     <script>
+        // =========================================================
+        // MOBILE SIDEBAR TOGGLE
+        // =========================================================
+        function toggleMobileSidebar() {
+            document.body.classList.toggle('sidebar-open');
+            const overlay = document.querySelector('.sidebar-overlay');
+            if (document.body.classList.contains('sidebar-open')) {
+                overlay.classList.add('active');
+            } else {
+                overlay.classList.remove('active');
+            }
+        }
+        function closeMobileSidebar() {
+            document.body.classList.remove('sidebar-open');
+            const overlay = document.querySelector('.sidebar-overlay');
+            if (overlay) overlay.classList.remove('active');
+        }
+        // Auto-close sidebar on window resize to desktop
+        window.addEventListener('resize', function() {
+            if (window.innerWidth > 768) {
+                closeMobileSidebar();
+            }
+        });
+
         // CẤU HÌNH MỤC ĐÍCH TỰ ĐỘNG HÓA CHO DỰ ÁN CON
         const PURPOSE_CONFIG = {
             "scraper": {
@@ -3958,6 +4266,7 @@ Sản phẩm tuyệt vời quá</textarea>
         }
 
         function switchHubRoute(targetKey, updateHash = true) {
+            closeMobileSidebar();
             document.querySelectorAll("#sidebar-hub-nav .menu-item").forEach(item => {
                 item.classList.toggle("active", item.getAttribute("data-hub-route") === targetKey);
             });
@@ -4115,6 +4424,7 @@ Sản phẩm tuyệt vời quá</textarea>
         };
 
         function switchSubMenu(targetKey, updateHash = true) {
+            closeMobileSidebar();
             if (targetKey === "sub-cookies" || targetKey === "sub-token") targetKey = "sub-account-info";
 
             const p = allProjects.find(x => x.id === currentProjectId);
@@ -4382,6 +4692,7 @@ async function triggerRunNow(postId) {
         // =========================================================
 
         function enterParentProject(projId, targetRoute = "parent-subprojects", updateHash = true) {
+            closeMobileSidebar();
             currentProjectId = projId;
             currentSubProjectId = null;
             currentLevel = "parent";
@@ -4413,6 +4724,7 @@ async function triggerRunNow(postId) {
         }
 
         function exitToHub(updateHash = true) {
+            closeMobileSidebar();
             currentLevel = "hub";
             currentProjectId = null;
             currentSubProjectId = null;
@@ -4429,6 +4741,7 @@ async function triggerRunNow(postId) {
         }
 
         function enterSubProject(subId, targetMenu = "sub-account-info", updateHash = true) {
+            closeMobileSidebar();
             currentSubProjectId = subId;
             currentLevel = "sub";
             localStorage.setItem("active_sub_id", subId);
@@ -7775,7 +8088,7 @@ async function triggerRunNow(postId) {
             }
 
             container.innerHTML = `
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; font-size:13px;">
+                <div class="grid-responsive" style="display:grid; grid-template-columns:1fr 1fr; gap:14px; font-size:13px;">
                     <div>
                         <span style="color:var(--text-muted);">Tên máy:</span>
                         <div style="font-weight:700; color:#fff; font-size:15px; margin-top:2px;">${node.nodeName || 'Chrome Node'}</div>

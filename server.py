@@ -3855,31 +3855,48 @@ Sản phẩm tuyệt vời quá</textarea>
                         <textarea id="flowImagePromptInput" rows="4" style="width:100%; resize:vertical; font-size:14px; line-height:1.6; padding:12px;" placeholder="Ví dụ: Một chú mèo dễ thương đang ngồi trên đống tiền vàng, phong cách 3D render, nền gradient xanh tím..."></textarea>
                     </div>
 
-                    <!-- OPTIONS ROW -->
+                    <!-- TỶ LỆ ẢNH (VISUAL BUTTONS) -->
+                    <div style="margin-bottom:16px;">
+                        <label style="font-size:12px; font-weight:700; color:var(--text-muted); margin-bottom:8px; display:block;">📐 Tỷ Lệ Ảnh</label>
+                        <div id="flowRatioBtnGroup" style="display:flex; gap:6px; flex-wrap:wrap;">
+                            <button type="button" class="btn-sm" onclick="selectFlowRatio('16:9', this)" style="padding:8px 14px; display:flex; flex-direction:column; align-items:center; gap:4px; min-width:56px; background:#1e293b; border:1px solid #334155;">
+                                <span style="font-size:16px;">▬</span><span style="font-size:11px;">16:9</span>
+                            </button>
+                            <button type="button" class="btn-sm" onclick="selectFlowRatio('4:3', this)" style="padding:8px 14px; display:flex; flex-direction:column; align-items:center; gap:4px; min-width:56px; background:#1e293b; border:1px solid #334155;">
+                                <span style="font-size:16px;">▭</span><span style="font-size:11px;">4:3</span>
+                            </button>
+                            <button type="button" class="btn-sm" onclick="selectFlowRatio('1:1', this)" style="padding:8px 14px; display:flex; flex-direction:column; align-items:center; gap:4px; min-width:56px; background:#1e293b; border:1px solid #334155;">
+                                <span style="font-size:16px;">◻</span><span style="font-size:11px;">1:1</span>
+                            </button>
+                            <button type="button" class="btn-sm flow-ratio-active" onclick="selectFlowRatio('3:4', this)" style="padding:8px 14px; display:flex; flex-direction:column; align-items:center; gap:4px; min-width:56px; background:#2dd4bf22; border:1px solid #2dd4bf; color:#2dd4bf;">
+                                <span style="font-size:16px;">▯</span><span style="font-size:11px;">3:4</span>
+                            </button>
+                            <button type="button" class="btn-sm" onclick="selectFlowRatio('9:16', this)" style="padding:8px 14px; display:flex; flex-direction:column; align-items:center; gap:4px; min-width:56px; background:#1e293b; border:1px solid #334155;">
+                                <span style="font-size:16px;">▮</span><span style="font-size:11px;">9:16</span>
+                            </button>
+                        </div>
+                        <input type="hidden" id="flowImageRatioSelect" value="3:4" />
+                    </div>
+
+                    <!-- MODEL + COUNT ROW -->
                     <div style="display:flex; gap:16px; flex-wrap:wrap; margin-bottom:16px; align-items:flex-end;">
-                        <div style="flex:1; min-width:180px;">
-                            <label style="font-size:12px; font-weight:700; color:var(--text-muted); margin-bottom:6px; display:block;">🤖 Model AI</label>
-                            <select id="flowImageModelSelect" style="width:100%; padding:8px 12px; font-size:13px;">
-                                <option value="HARBOR_SEAL" selected>🖼️ Imagen 3 (HARBOR_SEAL) — Chất lượng cao</option>
+                        <div style="flex:1; min-width:220px;">
+                            <label style="font-size:12px; font-weight:700; color:var(--text-muted); margin-bottom:6px; display:block;">🍌 Model AI</label>
+                            <select id="flowImageModelSelect" style="width:100%; padding:10px 12px; font-size:13px; font-weight:700;">
+                                <option value="GEM_PIX_2">🍌 Nano Banana Pro</option>
+                                <option value="NARWHAL">🍌 Nano Banana 2</option>
+                                <option value="HARBOR_SEAL" selected>🍌 Nano Banana 2 Lite</option>
                             </select>
                         </div>
-                        <div style="flex:1; min-width:140px;">
-                            <label style="font-size:12px; font-weight:700; color:var(--text-muted); margin-bottom:6px; display:block;">🔢 Số ảnh tạo</label>
-                            <select id="flowImageCountSelect" style="width:100%; padding:8px 12px; font-size:13px;">
-                                <option value="4" selected>4 ảnh</option>
-                                <option value="2">2 ảnh</option>
-                                <option value="1">1 ảnh</option>
-                            </select>
-                        </div>
-                        <div style="flex:1; min-width:140px;">
-                            <label style="font-size:12px; font-weight:700; color:var(--text-muted); margin-bottom:6px; display:block;">📐 Tỷ lệ ảnh</label>
-                            <select id="flowImageRatioSelect" style="width:100%; padding:8px 12px; font-size:13px;">
-                                <option value="3:4" selected>3:4 (Dọc)</option>
-                                <option value="4:3">4:3 (Ngang)</option>
-                                <option value="1:1">1:1 (Vuông)</option>
-                                <option value="16:9">16:9 (Widescreen)</option>
-                                <option value="9:16">9:16 (Story/Reels)</option>
-                            </select>
+                        <div style="min-width:200px;">
+                            <label style="font-size:12px; font-weight:700; color:var(--text-muted); margin-bottom:6px; display:block;">🔢 Số Ảnh Tạo</label>
+                            <div id="flowCountBtnGroup" style="display:flex; gap:4px;">
+                                <button type="button" class="btn-sm" onclick="selectFlowCount(1, this)" style="flex:1; padding:8px 12px; background:#1e293b; border:1px solid #334155; font-weight:700;">x1</button>
+                                <button type="button" class="btn-sm" onclick="selectFlowCount(2, this)" style="flex:1; padding:8px 12px; background:#1e293b; border:1px solid #334155; font-weight:700;">x2</button>
+                                <button type="button" class="btn-sm" onclick="selectFlowCount(3, this)" style="flex:1; padding:8px 12px; background:#1e293b; border:1px solid #334155; font-weight:700;">x3</button>
+                                <button type="button" class="btn-sm flow-count-active" onclick="selectFlowCount(4, this)" style="flex:1; padding:8px 12px; background:#2dd4bf22; border:1px solid #2dd4bf; color:#2dd4bf; font-weight:700;">x4</button>
+                            </div>
+                            <input type="hidden" id="flowImageCountSelect" value="4" />
                         </div>
                     </div>
 
@@ -7932,6 +7949,30 @@ async function triggerRunNow(postId) {
 
             // Render
             renderPostQueueList(filtered, "postManagerTableContainer", "postManagerCountBadge", "📑", "Không có bài viết nào phù hợp bộ lọc", "Đăng bài từ các Studio (Bài Viết, Video, Reels, Story) để bắt đầu quản lý!");
+        }
+
+        // ===== GOOGLE FLOW: RATIO & COUNT SELECTORS =====
+        function selectFlowRatio(ratio, btnEl) {
+            document.getElementById('flowImageRatioSelect').value = ratio;
+            document.querySelectorAll('#flowRatioBtnGroup .btn-sm').forEach(b => {
+                b.style.background = '#1e293b';
+                b.style.border = '1px solid #334155';
+                b.style.color = '';
+            });
+            btnEl.style.background = '#2dd4bf22';
+            btnEl.style.border = '1px solid #2dd4bf';
+            btnEl.style.color = '#2dd4bf';
+        }
+        function selectFlowCount(count, btnEl) {
+            document.getElementById('flowImageCountSelect').value = count;
+            document.querySelectorAll('#flowCountBtnGroup .btn-sm').forEach(b => {
+                b.style.background = '#1e293b';
+                b.style.border = '1px solid #334155';
+                b.style.color = '';
+            });
+            btnEl.style.background = '#2dd4bf22';
+            btnEl.style.border = '1px solid #2dd4bf';
+            btnEl.style.color = '#2dd4bf';
         }
 
         // ===== GOOGLE FLOW: AI IMAGE GENERATION =====

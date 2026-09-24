@@ -1717,6 +1717,12 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                             <span class="menu-title" id="sideMenuPostStoryTitle">Facebook Story</span>
                         </button>
                     </li>
+                    <li class="menu-item menu-sub-item" data-sub-menu="sub-post-manager" id="sideMenuPostManagerItem">
+                        <button onclick="switchSubMenu('sub-post-manager')">
+                            <span class="nav-icon">📑</span>
+                            <span class="menu-title" id="sideMenuPostManagerTitle">Quản Lý Bài Viết</span>
+                        </button>
+                    </li>
                     <li class="menu-item menu-sub-item" data-sub-menu="sub-api-doc" id="sideMenuApiDocItem">
                         <button onclick="switchSubMenu('sub-api-doc')">
                             <span class="nav-icon">📖</span>
@@ -2394,6 +2400,9 @@ Sản phẩm tuyệt vời quá</textarea>
                         <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-api-doc')">
                             📖 Tài Liệu API
                         </button>
+                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-post-manager')">
+                            📑 Quản Lý Bài Viết
+                        </button>
                     </div>
                     <div style="font-size:11px; color:#34d399; font-weight:600;">
                         🟢 Direct GraphQL FB Mutation Engine
@@ -2654,6 +2663,9 @@ Sản phẩm tuyệt vời quá</textarea>
                         <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-api-doc')">
                             📖 Tài Liệu API
                         </button>
+                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-post-manager')">
+                            📑 Quản Lý Bài Viết
+                        </button>
                     </div>
                     <div style="font-size:11px; color:#38bdf8; font-weight:600;">
                         🎬 Facebook Video & Watch Vupload Engine
@@ -2905,6 +2917,9 @@ Sản phẩm tuyệt vời quá</textarea>
                         <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-api-doc')">
                             📖 Tài Liệu API
                         </button>
+                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-post-manager')">
+                            📑 Quản Lý Bài Viết
+                        </button>
                     </div>
                     <div style="font-size:11px; color:#eab308; font-weight:600;">
                         ⚡ Facebook Reels Composer Flow
@@ -3146,6 +3161,9 @@ Sản phẩm tuyệt vời quá</textarea>
                         <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-api-doc')">
                             📖 Tài Liệu API
                         </button>
+                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-post-manager')">
+                            📑 Quản Lý Bài Viết
+                        </button>
                     </div>
                     <div style="font-size:11px; color:#ec4899; font-weight:600;">
                         📖 Facebook Stories 24h Engine
@@ -3352,6 +3370,9 @@ Sản phẩm tuyệt vời quá</textarea>
                         </button>
                         <button class="btn-sm active" style="background:#0284c7; color:#fff; font-weight:700; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-api-doc')">
                             📖 Tài Liệu API
+                        </button>
+                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-post-manager')">
+                            📑 Quản Lý Bài Viết
                         </button>
                     </div>
                     <div style="font-size:11px; color:#38bdf8; font-weight:600;">
@@ -3663,6 +3684,113 @@ Sản phẩm tuyệt vời quá</textarea>
   "comments": ["Bình luận seeding thêm 1", "Bình luận seeding thêm 2"],
   "autoReactType": "LOVE"
 }</pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- MENU QUẢN LÝ BÀI VIẾT ĐÃ ĐĂNG (POST MANAGER) -->
+            <section class="route-view" id="view-sub-post-manager">
+                <!-- THANH CHUYỂN NHANH TRONG CHỨC NĂNG POST FACEBOOK -->
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; background:#070d1e; border:1px solid #1e293b; padding:8px 14px; border-radius:8px; flex-wrap:wrap; gap:10px;">
+                    <div class="post-fb-toolbar" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                        <span style="font-size:12px; font-weight:800; color:#38bdf8; margin-right:4px;">🚀 POST FACEBOOK:</span>
+                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-autopost')">
+                            📝 Đăng Bài Viết Thường
+                        </button>
+                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-post-video')">
+                            🎬 Facebook Video Watch
+                        </button>
+                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-post-reels')">
+                            ⚡ Facebook Reels
+                        </button>
+                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-post-story')">
+                            📖 Facebook Story
+                        </button>
+                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-api-doc')">
+                            📖 Tài Liệu API
+                        </button>
+                        <button class="btn-sm active" style="background:#0284c7; color:#fff; font-weight:700; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-post-manager')">
+                            📑 Quản Lý Bài Viết
+                        </button>
+                    </div>
+                    <div style="font-size:11px; color:#a78bfa; font-weight:600;">
+                        📑 Post Management Dashboard
+                    </div>
+                </div>
+
+                <!-- BANNER -->
+                <div class="card" style="margin-bottom:20px; background:linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); border-color:#818cf8;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px;">
+                        <div>
+                            <h2 style="font-size:18px; font-weight:800; color:#fff; display:flex; align-items:center; gap:8px;">
+                                <span>📑</span> <span>Quản Lý Bài Viết Đã Đăng</span>
+                            </h2>
+                            <p style="font-size:13px; color:#cbd5e1; margin-top:4px;">
+                                Theo dõi và quản lý tất cả bài viết đã đăng thành công, đã lên lịch, đang chờ, hoặc thất bại. Bao gồm tất cả loại bài: Bài viết thường, Video Watch, Reels, và Story.
+                            </p>
+                        </div>
+                        <span class="badge-folder" style="background:rgba(129,140,248,0.25); color:#a5b4fc; border:1px solid rgba(129,140,248,0.4); padding:6px 14px; font-size:12px;">
+                            📊 ALL POST TYPES
+                        </span>
+                    </div>
+                </div>
+
+                <!-- 4 KPI CARDS -->
+                <div class="grid-cards grid-responsive-sm" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:14px; margin-bottom:20px;">
+                    <div class="card" style="border-color:#818cf8;">
+                        <div class="card-title">📑 Tổng Bài Viết</div>
+                        <div class="card-value" id="kpiMgrTotalPosts" style="color:#818cf8;">0</div>
+                        <div class="card-sub">Tất cả loại bài trong dự án</div>
+                    </div>
+                    <div class="card" style="border-color:#fbbf24;">
+                        <div class="card-title">⏳ Đang Chờ / Đang Đăng</div>
+                        <div class="card-value" id="kpiMgrPendingPosts" style="color:#fbbf24;">0</div>
+                        <div class="card-sub">Bài viết đang xử lý</div>
+                    </div>
+                    <div class="card" style="border-color:#34d399;">
+                        <div class="card-title">✅ Đã Đăng Thành Công</div>
+                        <div class="card-value" id="kpiMgrCompletedPosts" style="color:#34d399;">0</div>
+                        <div class="card-sub">Bài viết đã đăng lên Facebook</div>
+                    </div>
+                    <div class="card" style="border-color:#f87171;">
+                        <div class="card-title">❌ Thất Bại</div>
+                        <div class="card-value" id="kpiMgrFailedPosts" style="color:#f87171;">0</div>
+                        <div class="card-sub">Bài viết đăng bị lỗi</div>
+                    </div>
+                </div>
+
+                <!-- FILTER & SEARCH -->
+                <div class="card" style="border-color:#202d46;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:12px;">
+                        <h4 style="font-size:16px; color:#fff; margin:0; display:flex; align-items:center; gap:8px;">
+                            <span>📑</span> <span>Tất Cả Bài Viết Đã Đăng</span>
+                            <span class="badge-folder" style="background:rgba(129,140,248,0.2); color:#a5b4fc; border:1px solid rgba(129,140,248,0.4);" id="postManagerCountBadge">0 Bài</span>
+                        </h4>
+                        <!-- SEARCH BAR -->
+                        <div class="mobile-full-width" style="display:flex; gap:8px; align-items:center; min-width:260px;">
+                            <input type="text" id="postManagerSearchInput" placeholder="🔍 Tìm theo nội dung, ID..." oninput="filterPostManagerList(this.value)" style="margin:0; padding:6px 12px; font-size:12px;" />
+                        </div>
+                    </div>
+
+                    <!-- FILTER TABS -->
+                    <div class="filter-tabs-row" style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
+                        <button type="button" class="preset-chip active" id="mgrFilterBtnAll" onclick="setPostManagerFilter('all', this)">🌐 Tất Cả</button>
+                        <button type="button" class="preset-chip" id="mgrFilterBtnPost" onclick="setPostManagerFilter('post', this)" style="border-color:#34d399; color:#34d399;">📝 Bài Viết Thường</button>
+                        <button type="button" class="preset-chip" id="mgrFilterBtnVideo" onclick="setPostManagerFilter('video', this)" style="border-color:#38bdf8; color:#38bdf8;">🎬 Video Watch</button>
+                        <button type="button" class="preset-chip" id="mgrFilterBtnReels" onclick="setPostManagerFilter('reel', this)" style="border-color:#eab308; color:#eab308;">⚡ Reels</button>
+                        <button type="button" class="preset-chip" id="mgrFilterBtnStory" onclick="setPostManagerFilter('story', this)" style="border-color:#ec4899; color:#ec4899;">📖 Story</button>
+                        <span style="border-left:1px solid #334155; margin:0 4px;"></span>
+                        <button type="button" class="preset-chip" id="mgrFilterBtnCompleted" onclick="setPostManagerFilter('completed', this)" style="border-color:#34d399; color:#34d399;">✅ Đã Đăng</button>
+                        <button type="button" class="preset-chip" id="mgrFilterBtnScheduled" onclick="setPostManagerFilter('scheduled', this)" style="border-color:#38bdf8; color:#38bdf8;">⏰ Đã Lên Lịch</button>
+                        <button type="button" class="preset-chip" id="mgrFilterBtnPending" onclick="setPostManagerFilter('pending', this)">⏳ Chờ / Đang Đăng</button>
+                        <button type="button" class="preset-chip" id="mgrFilterBtnFailed" onclick="setPostManagerFilter('failed', this)" style="border-color:#f87171; color:#f87171;">❌ Thất Bại</button>
+                    </div>
+
+                    <!-- POST CARDS CONTAINER -->
+                    <div id="postManagerTableContainer">
+                        <div style="color:var(--text-muted); font-size:13px; padding:32px 20px; text-align:center;">
+                            Chưa có bài đăng nào. Hãy đăng bài từ các Studio ở trên!
+                        </div>
                     </div>
                 </div>
             </section>
@@ -4459,6 +4587,7 @@ Sản phẩm tuyệt vời quá</textarea>
             "sub-post-reels": { title: "⚡ POST FACEBOOK — Facebook Reels", el: document.getElementById("view-sub-post-reels") },
             "sub-post-story": { title: "📖 POST FACEBOOK — Facebook Story", el: document.getElementById("view-sub-post-story") },
             "sub-api-doc": { title: "📖 POST FACEBOOK — Chi Tiết Các Endpoint API", el: document.getElementById("view-sub-api-doc") },
+            "sub-post-manager": { title: "📑 POST FACEBOOK — Quản Lý Bài Viết Đã Đăng", el: document.getElementById("view-sub-post-manager") },
             "sub-interaction": { title: "💬 Studio Tương Tác / Nuôi Nick FB", el: document.getElementById("view-sub-interaction") },
             "sub-other-notice": { title: "💡 Trạng Thái Tự Động Hóa Nền Tảng", el: document.getElementById("view-sub-other-notice") },
             "sub-browser": { title: "🌐 Điều Khiển Tab Facebook", el: document.getElementById("view-sub-browser") },
@@ -4498,7 +4627,7 @@ Sản phẩm tuyệt vời quá</textarea>
 
             // Phân biệt rõ: Nếu không phải Facebook, không mở các menu tự động hóa của Facebook
             if (subType !== 'facebook') {
-                if (targetKey === 'sub-scraper' || targetKey === 'sub-autopost' || targetKey === 'sub-post-video' || targetKey === 'sub-post-reels' || targetKey === 'sub-post-story' || targetKey === 'sub-api-doc' || targetKey === 'sub-interaction') {
+                if (targetKey === 'sub-scraper' || targetKey === 'sub-autopost' || targetKey === 'sub-post-video' || targetKey === 'sub-post-reels' || targetKey === 'sub-post-story' || targetKey === 'sub-api-doc' || targetKey === 'sub-post-manager' || targetKey === 'sub-interaction') {
                     targetKey = 'sub-other-notice';
                 }
             } else {
@@ -4520,7 +4649,8 @@ Sản phẩm tuyệt vời quá</textarea>
                     targetKey === 'sub-post-video' || 
                     targetKey === 'sub-post-reels' || 
                     targetKey === 'sub-post-story' || 
-                    targetKey === 'sub-api-doc'
+                    targetKey === 'sub-api-doc' ||
+                    targetKey === 'sub-post-manager'
                 );
                 postFbGroup.classList.toggle("active-parent", isUnderPostFb);
                 if (isUnderPostFb && postFbTree) {
@@ -6906,6 +7036,9 @@ async function triggerRunNow(postId) {
 
                     setTimeout(() => {
                         if (currentProjectId) fetchParentProjectData(currentProjectId);
+                        if (runNow) {
+                            setTimeout(() => { switchSubMenu('sub-post-manager'); }, 400);
+                        }
                     }, 600);
                 } else {
                     if (statusEl) {
@@ -7557,6 +7690,100 @@ async function triggerRunNow(postId) {
             // 5. Render Studio 4: Facebook Story
             updateKpis(storyPosts, "kpiTotalStoryPosts", "kpiPendingStoryPosts", "kpiCompletedStoryPosts", "kpiTotalStoryPosts");
             renderPostQueueList(storyPosts, "storyPostQueueTableContainer", "storyQueueCountBadge", "📖", "Hàng đợi Story đang trống", "Chọn ảnh hoặc video ngắn 15s ở trên rồi bấm [📖 PHÁT LỆNH ĐĂNG STORY]!");
+
+            // 6. Render Post Manager: Quản Lý Bài Viết Đã Đăng (ALL POSTS)
+            renderPostManagerView(queue);
+        }
+
+        // ===== POST MANAGER (QUẢN LÝ BÀI VIẾT ĐÃ ĐĂNG) =====
+        let _currentMgrFilter = "all";
+        let _currentMgrSearch = "";
+
+        function setPostManagerFilter(filter, btnEl) {
+            _currentMgrFilter = filter;
+            document.querySelectorAll("#view-sub-post-manager .filter-tabs-row .preset-chip").forEach(b => b.classList.remove("active"));
+            if (btnEl) btnEl.classList.add("active");
+            refreshPostManagerFromCache();
+        }
+
+        function filterPostManagerList(keyword) {
+            _currentMgrSearch = keyword.toLowerCase().trim();
+            refreshPostManagerFromCache();
+        }
+
+        function refreshPostManagerFromCache() {
+            const p = allProjects.find(x => x.id === currentProjectId);
+            const sub = p ? (p.subProjects || []).find(s => s.id === currentSubProjectId) : null;
+            if (!sub) return;
+            const queue = sub.postQueue || [];
+            renderPostManagerView(queue);
+        }
+
+        function renderPostManagerView(allPosts) {
+            // KPIs
+            let totalCount = allPosts.length;
+            let pendingCount = 0, completedCount = 0, failedCount = 0;
+            allPosts.forEach(p => {
+                if (p.status === "completed") completedCount++;
+                else if (p.status === "failed") failedCount++;
+                else pendingCount++;
+            });
+            const kpiTotal = document.getElementById("kpiMgrTotalPosts");
+            const kpiPending = document.getElementById("kpiMgrPendingPosts");
+            const kpiCompleted = document.getElementById("kpiMgrCompletedPosts");
+            const kpiFailed = document.getElementById("kpiMgrFailedPosts");
+            if (kpiTotal) kpiTotal.textContent = totalCount;
+            if (kpiPending) kpiPending.textContent = pendingCount;
+            if (kpiCompleted) kpiCompleted.textContent = completedCount;
+            if (kpiFailed) kpiFailed.textContent = failedCount;
+
+            // Filter by type and status
+            let filtered = allPosts;
+            if (_currentMgrFilter === "post") {
+                filtered = filtered.filter(p => !p.postType || p.postType === "post");
+            } else if (_currentMgrFilter === "video") {
+                filtered = filtered.filter(p => p.postType === "video");
+            } else if (_currentMgrFilter === "reel") {
+                filtered = filtered.filter(p => p.postType === "reel");
+            } else if (_currentMgrFilter === "story") {
+                filtered = filtered.filter(p => p.postType === "story");
+            } else if (_currentMgrFilter === "completed") {
+                filtered = filtered.filter(p => p.status === "completed");
+            } else if (_currentMgrFilter === "scheduled") {
+                filtered = filtered.filter(p => p.status === "scheduled");
+            } else if (_currentMgrFilter === "pending") {
+                filtered = filtered.filter(p => p.status === "in_progress" || p.status === "pending" || !p.status || (p.status && (p.status.includes("Chờ") || p.status.includes("Đang"))));
+            } else if (_currentMgrFilter === "failed") {
+                filtered = filtered.filter(p => p.status === "failed");
+            }
+
+            // Search
+            if (_currentMgrSearch) {
+                filtered = filtered.filter(p => {
+                    const haystack = ((p.content || "") + " " + (p.title || "") + " " + (p.id || "") + " " + (p.postType || "")).toLowerCase();
+                    return haystack.includes(_currentMgrSearch);
+                });
+            }
+
+            // Sort newest first
+            filtered.sort((a, b) => {
+                const getTs = (item) => {
+                    if (item.createdAt && Number(item.createdAt) > 0) return Number(item.createdAt);
+                    if (item.scheduledTime && Number(item.scheduledTime) > 0) return Number(item.scheduledTime);
+                    if (item.id) {
+                        const m = String(item.id).match(/\\d{9,}/);
+                        if (m) {
+                            const num = Number(m[0]);
+                            return num < 1e11 ? num * 1000 : num;
+                        }
+                    }
+                    return 0;
+                };
+                return getTs(b) - getTs(a);
+            });
+
+            // Render
+            renderPostQueueList(filtered, "postManagerTableContainer", "postManagerCountBadge", "📑", "Không có bài viết nào phù hợp bộ lọc", "Đăng bài từ các Studio (Bài Viết, Video, Reels, Story) để bắt đầu quản lý!");
         }
 
         async function submitAutoPost(runMode) {
@@ -7684,6 +7911,9 @@ async function triggerRunNow(postId) {
 
                     setTimeout(() => {
                         if (currentProjectId) fetchParentProjectData(currentProjectId);
+                        if (runNow) {
+                            setTimeout(() => { switchSubMenu('sub-post-manager'); }, 400);
+                        }
                     }, 600);
                 } else {
                     if (statusEl) {

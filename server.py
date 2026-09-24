@@ -9993,11 +9993,6 @@ class BridgeHandler(BaseHTTPRequestHandler):
         # POST /api/v1/flow/generate-image
         # =====================================================================
         if pathname in ("/api/v1/flow/generate-image",):
-            try:
-                body = json.loads(raw_body.decode("utf-8"))
-            except:
-                self._send_json(400, {"success": False, "error": "Invalid JSON"})
-                return
 
             proj_id = body.get("projectId", "")
             sub_id = body.get("subProjectId", "")
@@ -10014,7 +10009,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"success": False, "error": "Missing prompt"})
                 return
 
-            projs = load_projects()
+            projs = get_projects()
             proj = next((p for p in projs if p["id"] == proj_id), None)
             if not proj:
                 self._send_json(404, {"success": False, "error": "Project not found"})
@@ -10024,8 +10019,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 self._send_json(404, {"success": False, "error": "SubProject not found"})
                 return
 
-            import time as _time
-            image_request_id = f"flowimg_{int(_time.time() * 1000)}_{random.randint(1000, 9999)}"
+
+            image_request_id = f"flowimg_{int(time.time() * 1000)}_{random.randint(1000, 9999)}"
             image_item = {
                 "id": image_request_id,
                 "prompt": prompt,
@@ -10034,7 +10029,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 "aspectRatio": aspect_ratio,
                 "status": "pending" if run_now else "queued",
                 "images": [],
-                "createdAt": int(_time.time() * 1000),
+                "createdAt": int(time.time() * 1000),
                 "runNow": run_now
             }
 

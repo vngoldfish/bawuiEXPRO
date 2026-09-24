@@ -2120,6 +2120,150 @@ async function pollAndExecuteCommand() {
                     break;
                 }
 
+                case "FLOW_GENERATE_IMAGE": {
+                    const prompt = cmd.prompt || "";
+                    const model = cmd.model || "HARBOR_SEAL";
+                    const imageCount = cmd.imageCount || 4;
+                    const aspectRatio = cmd.aspectRatio || "3:4";
+                    const imageRequestId = cmd.imageRequestId || "";
+
+                    try {
+                        // Bước 1: Lấy cookies flow.google.com
+                        const flowCookies = await chrome.cookies.getAll({ domain: "flow.google.com" });
+                        if (flowCookies.length === 0) {
+                            cmdResult = { success: false, error: "Chưa đăng nhập flow.google.com trên Chrome", imageRequestId };
+                            break;
+                        }
+
+                        // Bước 2: Mở tab flow.google.com để lấy at= token và f.sid
+                        const flowTab = await chrome.tabs.create({ url: "https://flow.google.com", active: false });
+                        await new Promise(r => setTimeout(r, 4000)); // Chờ trang load
+
+                        // Inject script để lấy token
+                        const tokenResults = await chrome.scripting.executeScript({
+                            target: { tabId: flowTab.id },
+                            func: () => {
+                                try {
+                                    // Tìm at= token từ WIZ_global_data hoặc page source
+                                    const pageText = document.documentElement.innerHTML;
+                                    let atToken = "";
+                                    let fSid = "";
+                                    let bl = "";
+
+                                    // Tìm at token
+                                    const atMatch = pageText.match(/\"SNlM0e\":\"([^\"]+)\"/);
+                                    if (atMatch) atToken = atMatch[1];
+
+                                    // Tìm f.sid
+                                    const sidMatch = pageText.match(/\"FdrFJe\":\"(-?\d+)\"/);
+                                    if (sidMatch) fSid = sidMatch[1];
+
+                                    // Tìm bl
+                                    const blMatch = pageText.match(/\"cfb2h\":\"([^\"]+)\"/);
+                                    if (blMatch) bl = blMatch[1];
+
+                                    return { atToken, fSid, bl };
+                                } catch(e) {
+                                    return { error: e.message };
+                                }
+                            }
+                        });
+
+                        const tokenData = tokenResults?.[0]?.result || {};
+                        const { atToken, fSid, bl } = tokenData;
+
+                        if (!atToken) {
+                            await chrome.tabs.remove(flowTab.id).catch(() => {});
+                            cmdResult = { success: false, error: "Không lấy được token từ flow.google.com. Hãy đăng nhập Flow trước!", imageRequestId };
+                            break;
+                        }
+
+                        // Bước 3: Inject script để gọi batchexecute trực tiếp từ tab flow.google.com
+                        const genResults = await chrome.scripting.executeScript({
+                            target: { tabId: flowTab.id },
+                            func: async (prompt, model, imageCount, aspectRatio, atToken, fSid, bl) => {
+                                try {
+                                    // Tìm projectId từ URL hoặc tạo mới
+                                    let projectId = "";
+                                    const urlMatch = window.location.pathname.match(/\/project\/([a-f0-9-]+)/);
+                                    if (urlMatch) projectId = urlMatch[1];
+
+                                    if (!projectId) {
+                                        // Tạo project mới nếu chưa có
+                                        return { error: "Không tìm thấy project ID trên flow.google.com. Hãy mở một project trên Flow trước!" };
+                                    }
+
+                                    // Tạo seed ngẫu nhiên
+                                    const seed = Math.floor(Math.random() * 2000000000);
+
+                                    // Xác định aspect ratio mapping
+                                    const ratioMap = {
+                                        "16:9": 22, "4:3": 22, "1:1": 22,
+                                        "3:4": 22, "9:16": 22
+                                    };
+                                    const aspectCode = ratioMap[aspectRatio] || 22;
+
+                                    // Xây dựng request params - tạo nhiều sub-request theo imageCount
+                                    const subRequests = [];
+                                    for (let i = 0; i < imageCount; i++) {
+                                        const subSeed = seed + i * 100000;
+                                        subRequests.push(`[null,null,null,${subSeed},4,"${model}",null,[null,${aspectCode},null,null,null,"${projectId}",null,null,null,null,[]],1]`);
+                                    }
+
+                                    const innerPayload = `[null,[${subRequests.map(s => `[${s}]`).join(",")}],[[[\"${prompt}\"]]],null,null,null,"${crypto.randomUUID().toUpperCase()}","${crypto.randomUUID().toUpperCase()}"]`;
+                                    const fReq = `[[[\"ogiZ0b\",\"${innerPayload.replace(/"/g, '\\"')}\",null,\"generic\"]]]`;
+
+                                    const reqBody = `f.req=${encodeURIComponent(fReq)}&at=${encodeURIComponent(atToken)}&`;
+
+                                    const sourcePath = encodeURIComponent(`/project/${projectId}`);
+                                    const url = `/_/AiSandboxAngularFrontend/data/batchexecute?rpcids=ogiZ0b&source-path=${sourcePath}&bl=${encodeURIComponent(bl)}&f.sid=${fSid}&hl=vi&_reqid=${Math.floor(Math.random() * 9000000) + 1000000}&rt=c`;
+
+                                    const res = await fetch(url, {
+                                        method: "POST",
+                                        headers: {
+                                            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                                            "X-Same-Domain": "1"
+                                        },
+                                        body: reqBody,
+                                        credentials: "include"
+                                    });
+
+                                    const text = await res.text();
+
+                                    // Parse response - tìm image URLs
+                                    const images = [];
+                                    const urlRegex = /https:\/\/flow-content\.google\/image\/[a-f0-9-]+\?[^\\"]*/g;
+                                    const matches = text.match(urlRegex) || [];
+                                    const uniqueUrls = [...new Set(matches)];
+                                    uniqueUrls.forEach(url => {
+                                        images.push({ url: url.replace(/\\u003d/g, "=").replace(/\\u0026/g, "&") });
+                                    });
+
+                                    return { images, raw: text.substring(0, 500) };
+                                } catch(e) {
+                                    return { error: e.message };
+                                }
+                            },
+                            args: [prompt, model, imageCount, aspectRatio, atToken, fSid, bl]
+                        });
+
+                        // Đóng tab
+                        await chrome.tabs.remove(flowTab.id).catch(() => {});
+
+                        const genData = genResults?.[0]?.result || {};
+                        if (genData.error) {
+                            cmdResult = { success: false, error: genData.error, imageRequestId };
+                        } else if (genData.images && genData.images.length > 0) {
+                            cmdResult = { success: true, images: genData.images, imageRequestId };
+                        } else {
+                            cmdResult = { success: false, error: "Không nhận được ảnh từ Flow (có thể prompt bị chặn)", imageRequestId };
+                        }
+                    } catch(flowErr) {
+                        cmdResult = { success: false, error: flowErr.message, imageRequestId };
+                    }
+                    break;
+                }
+
                 default:
                     cmdResult = { success: false, error: `Action '${cmd.action}' không tồn tại` };
             }

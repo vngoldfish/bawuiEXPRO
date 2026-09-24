@@ -10108,22 +10108,23 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
             push_log(f"🎨 Yêu cầu tạo ảnh AI Flow: '{prompt[:60]}...' (Model: {model}, Count: {image_count})", "info", project_id=proj_id, subproject_id=sub_id)
 
-            # Nếu runNow, gửi lệnh tới Extension qua pendingCommands
+            # Nếu runNow, gửi lệnh tới Extension qua Bridge
             if run_now:
+                cmd_id = f"cmd_flow_{int(time.time())}_{uuid.uuid4().hex[:6]}"
                 cmd = {
+                    "id": cmd_id,
                     "action": "FLOW_GENERATE_IMAGE",
+                    "targetProjectId": proj_id,
+                    "targetSubProjectId": sub_id,
+                    "targetNodeId": "*",
                     "prompt": prompt,
                     "model": model,
                     "imageCount": image_count,
                     "aspectRatio": aspect_ratio,
-                    "imageRequestId": image_request_id,
-                    "projectId": proj_id,
-                    "subProjectId": sub_id
+                    "imageRequestId": image_request_id
                 }
-                if "pendingCommands" not in sub:
-                    sub["pendingCommands"] = []
-                sub["pendingCommands"].append(cmd)
-                save_projects(projs)
+                pending_commands.append(cmd)
+                recent_issued_commands[cmd_id] = cmd
 
             self._send_json(200, {"success": True, "imageRequestId": image_request_id})
             return
@@ -10792,6 +10793,30 @@ class BridgeHandler(BaseHTTPRequestHandler):
                                             threading.Thread(target=_notify_webhook, args=(cb_url, p_item.copy(), target_proj, target_sub), daemon=True).start()
                                         break
 
+            # Xử lý kết quả tạo ảnh Google Flow
+            if action == "FLOW_GENERATE_IMAGE":
+                img_req_id = body.get("imageRequestId") or orig_cmd.get("imageRequestId")
+                flow_images = body.get("images", [])
+                if proj_id and target_sub_id and img_req_id:
+                    projs = get_projects()
+                    for p in projs:
+                        if p.get("id") == proj_id:
+                            for s in p.get("subProjects", []):
+                                if s.get("id") == target_sub_id:
+                                    for img_item in s.get("imageQueue", []):
+                                        if img_item.get("id") == img_req_id:
+                                            if success and flow_images:
+                                                img_item["status"] = "completed"
+                                                img_item["images"] = flow_images
+                                                img_item["completedAt"] = int(time.time() * 1000)
+                                            else:
+                                                img_item["status"] = "failed"
+                                                img_item["lastError"] = body.get("error", "Extension không thể tạo ảnh")
+                                            save_projects(projs)
+                                            break
+                                    break
+                            break
+
             log_msg = f"Đã thực thi [{action}]: "
             if action in ("GET_FB_ACCOUNT", "GET_COOKIES"):
                 log_msg += f"Trích xuất thông tin FB thành công (UID: {c_user or '---'}, Tên: {name or '---'}, Cookies: {len(cookies)})"
@@ -10803,6 +10828,9 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 log_msg += f"Seeding Facebook {'thành công' if success else 'thất bại: ' + str(body.get('error'))}"
             elif action == "GET_TABS":
                 log_msg += f"Cập nhật danh sách {len(body.get('tabs', []))} tabs"
+            elif action == "FLOW_GENERATE_IMAGE":
+                img_count = len(body.get('images', []))
+                log_msg += f"🎨 Tạo ảnh Flow {'thành công (' + str(img_count) + ' ảnh)' if success else 'thất bại: ' + str(body.get('error'))}"
             else:
                 log_msg += "Thành công" if success else f"Lỗi: {body.get('error')}"
 

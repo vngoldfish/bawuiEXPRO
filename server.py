@@ -115,83 +115,93 @@ def format_scheduled_time(ms):
     except Exception:
         return ""
 
+PROJECTS_LOCK = threading.RLock()
+
 def get_projects():
-    if os.path.exists(PROJECTS_PATH):
-        try:
-            with open(PROJECTS_PATH, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                projs = []
-                if isinstance(data, list):
-                    projs = data
-                elif isinstance(data, dict) and "projects" in data:
-                    projs = data["projects"]
+    with PROJECTS_LOCK:
+        if os.path.exists(PROJECTS_PATH):
+            try:
+                with open(PROJECTS_PATH, "r", encoding="utf-8") as f:
+                    content = f.read().strip()
+                    if content:
+                        data = json.loads(content)
+                        projs = []
+                        if isinstance(data, list):
+                            projs = data
+                        elif isinstance(data, dict) and "projects" in data:
+                            projs = data["projects"]
 
-                modified = False
-                for p in projs:
-                    if "subProjects" not in p or not isinstance(p["subProjects"], list):
-                        p["subProjects"] = [
-                            {
-                                "id": f"sub_fb_{int(time.time())}_{uuid.uuid4().hex[:4]}",
-                                "name": "Dự Án Facebook 01",
-                                "type": "facebook",
-                                "description": "Thư mục quản lý cookie & tài khoản Facebook",
-                                "c_user": "",
-                                "fbName": "",
-                                "avatar": "",
-                                "profileUrl": "",
-                                "cookieStr": "",
-                                "cookies": [],
-                                "eaagToken": "",
-                                "dtsg": "",
-                                "status": "Chưa kiểm tra",
-                                "lastExtracted": 0,
-                                "createdAt": int(time.time() * 1000)
-                            }
-                        ]
-                        modified = True
-                if modified:
-                    save_projects(projs)
-                return projs
-        except Exception as e:
-            print(f"[Projects Error] {e}")
+                        modified = False
+                        for p in projs:
+                            if "subProjects" not in p or not isinstance(p["subProjects"], list):
+                                p["subProjects"] = [
+                                    {
+                                        "id": f"sub_fb_{int(time.time())}_{uuid.uuid4().hex[:4]}",
+                                        "name": "Dự Án Facebook 01",
+                                        "type": "facebook",
+                                        "description": "Thư mục quản lý cookie & tài khoản Facebook",
+                                        "c_user": "",
+                                        "fbName": "",
+                                        "avatar": "",
+                                        "profileUrl": "",
+                                        "cookieStr": "",
+                                        "cookies": [],
+                                        "eaagToken": "",
+                                        "dtsg": "",
+                                        "status": "Chưa kiểm tra",
+                                        "lastExtracted": 0,
+                                        "createdAt": int(time.time() * 1000)
+                                    }
+                                ]
+                                modified = True
+                        if modified:
+                            save_projects(projs)
+                        return projs
+            except Exception as e:
+                print(f"[Projects Error] {e}")
 
-    default_proj = [
-        {
-            "id": "proj_main",
-            "name": "Dự Án Mặc Định (Máy Chrome 01)",
-            "description": "Quản lý máy Chrome và các thư mục dự án con",
-            "token": "BW-PROJ-MAIN9999",
-            "createdAt": int(time.time() * 1000),
-            "subProjects": [
-                {
-                    "id": f"sub_fb_{int(time.time())}_init",
-                    "name": "Dự Án Facebook 01",
-                    "type": "facebook",
-                    "description": "Thư mục quản lý cookie & tài khoản Facebook",
-                    "c_user": "",
-                    "fbName": "",
-                    "avatar": "",
-                    "profileUrl": "",
-                    "cookieStr": "",
-                    "cookies": [],
-                    "eaagToken": "",
-                    "dtsg": "",
-                    "status": "Chưa kiểm tra",
-                    "lastExtracted": 0,
-                    "createdAt": int(time.time() * 1000)
-                }
-            ]
-        }
-    ]
-    save_projects(default_proj)
-    return default_proj
+        default_proj = [
+            {
+                "id": "proj_main",
+                "name": "Dự Án Mặc Định (Máy Chrome 01)",
+                "description": "Quản lý máy Chrome và các thư mục dự án con",
+                "token": "BW-PROJ-MAIN9999",
+                "createdAt": int(time.time() * 1000),
+                "subProjects": [
+                    {
+                        "id": f"sub_fb_{int(time.time())}_init",
+                        "name": "Dự Án Facebook 01",
+                        "type": "facebook",
+                        "description": "Thư mục quản lý cookie & tài khoản Facebook",
+                        "c_user": "",
+                        "fbName": "",
+                        "avatar": "",
+                        "profileUrl": "",
+                        "cookieStr": "",
+                        "cookies": [],
+                        "eaagToken": "",
+                        "dtsg": "",
+                        "status": "Chưa kiểm tra",
+                        "lastExtracted": 0,
+                        "createdAt": int(time.time() * 1000)
+                    }
+                ]
+            }
+        ]
+        save_projects(default_proj)
+        return default_proj
 
 def save_projects(projects_list):
-    try:
-        with open(PROJECTS_PATH, "w", encoding="utf-8") as f:
-            json.dump({"projects": projects_list}, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        print(f"[Save Projects Error] {e}")
+    with PROJECTS_LOCK:
+        try:
+            tmp_path = PROJECTS_PATH + f".tmp.{os.getpid()}_{uuid.uuid4().hex[:6]}"
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump({"projects": projects_list}, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, PROJECTS_PATH)
+        except Exception as e:
+            print(f"[Save Projects Error] {e}")
 
 def find_project_by_token(token):
     if not token:
@@ -1739,20 +1749,20 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                     </button>
                 </li>
 
-                <li class="menu-label">Điều Khiển Trình Duyệt</li>
-                <li class="menu-item" data-sub-menu="sub-browser">
+                <li class="menu-label" id="sideMenuBrowserLabel">Điều Khiển Trình Duyệt</li>
+                <li class="menu-item" data-sub-menu="sub-browser" id="sideMenuBrowserItem">
                     <button onclick="switchSubMenu('sub-browser')">
                         <span class="nav-icon">🌐</span>
                         <span class="menu-title" id="sideMenuBrowserTitle">Điều Khiển Tab Facebook</span>
                     </button>
                 </li>
-                <li class="menu-item" data-sub-menu="sub-scripts">
+                <li class="menu-item" data-sub-menu="sub-scripts" id="sideMenuScriptsItem">
                     <button onclick="switchSubMenu('sub-scripts')">
                         <span class="nav-icon">💻</span>
                         <span class="menu-title">JavaScript Console</span>
                     </button>
                 </li>
-                <li class="menu-item" data-sub-menu="sub-logs">
+                <li class="menu-item" data-sub-menu="sub-logs" id="sideMenuLogsItem">
                     <button onclick="switchSubMenu('sub-logs')">
                         <span class="nav-icon">📜</span>
                         <span class="menu-title">Nhật Ký Lệnh</span>
@@ -3774,6 +3784,31 @@ Sản phẩm tuyệt vời quá</textarea>
                         </div>
                     </div>
 
+                    <!-- CẢNH BÁO & KHÓA CHỨC NĂNG KHI LỆCH TÀI KHOẢN SO VỚI TRÌNH DUYỆT CHROME -->
+                    <div id="fbAccountMismatchAlert" style="display:none; margin-bottom:20px; padding:18px 20px; border-radius:10px; background:linear-gradient(135deg, rgba(239, 68, 68, 0.18) 0%, rgba(153, 27, 27, 0.28) 100%); border:2px solid #ef4444; color:#fca5a5; box-shadow:0 6px 20px rgba(239, 68, 68, 0.25);">
+                        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;">
+                            <div style="flex:1; min-width:280px;">
+                                <div style="font-size:15px; font-weight:800; color:#ff4d4f; display:flex; align-items:center; gap:8px;">
+                                    <span style="font-size:18px;">🔒</span> <span>ĐÃ KHÓA TOÀN BỘ CHỨC NĂNG DO SAI TÀI KHOẢN FACEBOOK!</span>
+                                </div>
+                                <div id="fbAccountMismatchAlertText" style="font-size:13px; color:#fecaca; margin-top:8px; line-height:1.6;">
+                                    Tài khoản đang đăng nhập trên Chrome không khớp với Facebook UID của thư mục này. Tất cả các chức năng Đăng bài, Cào dữ liệu, Tương tác và Điều khiển đều bị khóa để bảo vệ dữ liệu.
+                                </div>
+                                <div style="margin-top:10px; font-size:12px; color:#fbcfe8; font-weight:600;">
+                                    👉 Bạn chỉ có thể chọn 1 trong 2 giải pháp bên dưới để tiếp tục:
+                                </div>
+                            </div>
+                            <div style="display:flex; flex-direction:column; gap:10px; align-items:stretch; min-width:320px;">
+                                <button class="btn-green btn-md" onclick="quickCreateSubForBrowserUid()" style="box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4); font-weight:700; text-align:left; padding:9px 14px; font-size:12.5px;">
+                                    <span>➕</span> <span><b>Cách 1:</b> Tạo Dự Án Con Mới Cho Nick Chrome Này</span>
+                                </button>
+                                <button class="btn-sm" onclick="rescanAndOverwriteFbAccount()" style="background:#dc2626; color:#fff; border:1px solid #ef4444; box-shadow: 0 4px 14px rgba(220, 38, 38, 0.4); font-weight:700; text-align:left; padding:9px 14px; font-size:12.5px;">
+                                    <span>🔄</span> <span><b>Cách 2:</b> Quét & Nạp Đè Toàn Bộ Vào Thư Mục Này</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- 4 STATS CARDS -->
                     <div class="grid-cards" style="margin-bottom:0;">
                         <div class="card" style="background:#090e1c;">
@@ -4431,6 +4466,21 @@ Sản phẩm tuyệt vời quá</textarea>
             "sub-logs": { title: "📜 Nhật Ký Lệnh", el: document.getElementById("view-sub-logs") }
         };
 
+        // KIỂM TRA LỆCH TÀI KHOẢN FACEBOOK VỚI CHROME
+        function checkSubProjectMismatch(sub) {
+            if (!sub) return { isMismatch: false, cUser: "", browserFbUid: "" };
+            const subType = sub.type || 'facebook';
+            if (subType !== 'facebook') return { isMismatch: false, cUser: "", browserFbUid: "" };
+            
+            const cUser = sub.c_user ? String(sub.c_user).trim() : "";
+            const nodes = (latestParentData && latestParentData.nodes) || [];
+            const activeNode = nodes[0] || null;
+            const browserFbUid = (activeNode && activeNode.browserFbUid) ? String(activeNode.browserFbUid).trim() : "";
+
+            const isMismatch = !!(cUser && browserFbUid && browserFbUid !== cUser);
+            return { isMismatch, cUser, browserFbUid };
+        }
+
         function switchSubMenu(targetKey, updateHash = true) {
             closeMobileSidebar();
             if (targetKey === "sub-cookies" || targetKey === "sub-token") targetKey = "sub-account-info";
@@ -4438,6 +4488,13 @@ Sản phẩm tuyệt vời quá</textarea>
             const p = allProjects.find(x => x.id === currentProjectId);
             const sub = p ? (p.subProjects || []).find(s => s.id === currentSubProjectId) : null;
             const subType = sub ? (sub.type || 'facebook') : 'facebook';
+
+            // KHÓA TOÀN BỘ CHỨC NĂNG NẾU LỆCH TÀI KHOẢN TRÊN CHROME
+            const mismatchStatus = checkSubProjectMismatch(sub);
+            if (mismatchStatus.isMismatch && targetKey !== 'sub-account-info') {
+                alert(`🔒 TÍNH NĂNG BỊ KHÓA DO KHÁC TÀI KHOẢN!\n\nThư mục này của Nick UID: ${mismatchStatus.cUser}\nTrong khi Chrome đang đăng nhập Nick UID: ${mismatchStatus.browserFbUid}\n\n👉 Bạn chỉ có thể:\n1. Tạo Dự Án Con mới cho Nick Chrome này\n2. Hoặc bấm Quét & Nạp Đè toàn bộ vào thư mục này!`);
+                targetKey = 'sub-account-info';
+            }
 
             // Phân biệt rõ: Nếu không phải Facebook, không mở các menu tự động hóa của Facebook
             if (subType !== 'facebook') {
@@ -4859,6 +4916,48 @@ async function triggerRunNow(postId) {
                 if (cookieDecoderDesc) cookieDecoderDesc.textContent = `Phân tích cấu trúc session cookie và kiểm tra tính toàn vẹn của tài khoản ${pCfg.name} (${pCfg.domain}).`;
                 if (pillarsBox) pillarsBox.style.display = "none";
             }
+
+            // KHÓA / MỞ KHÓA THANH ĐIỀU HƯỚNG BÊN TRÁI NẾU SAI TÀI KHOẢN
+            const projObj = allProjects.find(p => p.id === currentProjectId);
+            const subObj = projObj ? (projObj.subProjects || []).find(s => s.id === (subId || currentSubProjectId)) : null;
+            const mismatchStatus = checkSubProjectMismatch(subObj);
+
+            const lockedMenuIds = [
+                "sideMenuPostFbGroup",
+                "postFbSubTree",
+                "sideMenuScraperItem",
+                "sideMenuInteractionItem",
+                "sideMenuBrowserItem",
+                "sideMenuScriptsItem"
+            ];
+
+            if (mismatchStatus.isMismatch) {
+                lockedMenuIds.forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) {
+                        el.style.opacity = "0.35";
+                        el.style.filter = "grayscale(100%)";
+                        el.style.cursor = "not-allowed";
+                        el.setAttribute("title", `🔒 Bị khóa do lệch tài khoản (Chrome: ${mismatchStatus.browserFbUid} ≠ Thư mục: ${mismatchStatus.cUser})`);
+                    }
+                });
+                if (autoLabel) {
+                    autoLabel.innerHTML = `<span>Chức Năng Tự Động Hóa</span> <span style="color:#ef4444; font-size:10px; font-weight:800; margin-left:4px;">🔒 [BỊ KHÓA]</span>`;
+                }
+            } else {
+                lockedMenuIds.forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) {
+                        el.style.opacity = "1";
+                        el.style.filter = "none";
+                        el.style.cursor = "pointer";
+                        el.removeAttribute("title");
+                    }
+                });
+                if (autoLabel) {
+                    autoLabel.textContent = isFb ? "Chức Năng Tự Động Hóa" : `Chức Năng ${pCfg.name}`;
+                }
+            }
         }
 
         function exitToParentProject(updateHash = true) {
@@ -5067,6 +5166,22 @@ async function triggerRunNow(postId) {
                 const scrapedCount = (f.scrapedData || []).length;
                 const postCount = (f.postQueue || []).length;
 
+                const nodes = (latestParentData && latestParentData.nodes) || [];
+                const activeNode = nodes[0] || null;
+                const browserFbUid = (activeNode && activeNode.browserFbUid) ? String(activeNode.browserFbUid).trim() : "";
+                let fbCardStatusHtml = '<b style="color:var(--warning);">⚪ Chưa quét</b>';
+                if (f.c_user) {
+                    if (browserFbUid && browserFbUid === String(f.c_user).trim()) {
+                        fbCardStatusHtml = '<b style="color:var(--success);">🟢 LIVE (Khớp Chrome)</b>';
+                    } else if (browserFbUid && browserFbUid !== String(f.c_user).trim()) {
+                        fbCardStatusHtml = '<b style="color:#ef4444;">⚠️ Khác UID Chrome</b>';
+                    } else {
+                        fbCardStatusHtml = `<b style="color:#38bdf8;">Đã nạp (${cookieCount} cookies)</b>`;
+                    }
+                } else if (hasCookie) {
+                    fbCardStatusHtml = `<b style="color:var(--warning);">Chưa có c_user (${cookieCount} cookies)</b>`;
+                }
+
                 const statsHtml = isFb ? `
                     <div style="background:#050914; border:1px solid #1e293b; border-radius:8px; padding:10px 12px; font-size:12px; margin-bottom:14px;">
                         <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
@@ -5074,8 +5189,8 @@ async function triggerRunNow(postId) {
                             <span style="font-family:monospace; font-weight:700; color:#38bdf8;">facebook.com</span>
                         </div>
                         <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
-                            <span style="color:var(--text-muted);">Phiên Cookie FB:</span>
-                            <b style="color:${hasCookie ? 'var(--success)' : 'var(--warning)'};">${hasCookie ? '🟢 Sẵn sàng (' + cookieCount + ' cookies)' : '⚪ Chưa quét'}</b>
+                            <span style="color:var(--text-muted);">Trạng thái Nick:</span>
+                            ${fbCardStatusHtml}
                         </div>
                         <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
                             <span style="color:var(--text-muted);">Nick FB:</span>
@@ -5250,18 +5365,60 @@ async function triggerRunNow(postId) {
                 }
                 if (accUid) accUid.textContent = cUser || "---";
 
+                // Lấy UID Facebook hiện tại đang hoạt động trên trình duyệt Chrome từ node kết nối
+                const nodes = (latestParentData && latestParentData.nodes) || [];
+                const activeNode = nodes[0] || null;
+                const browserFbUid = (activeNode && activeNode.browserFbUid) ? String(activeNode.browserFbUid).trim() : "";
+                const isBrowserOnline = nodes.length > 0;
+
+                const mismatchAlert = document.getElementById("fbAccountMismatchAlert");
+                const mismatchText = document.getElementById("fbAccountMismatchAlertText");
+
                 if (cUser) {
-                    if (accStatusBadge) accStatusBadge.innerHTML = '<span class="dot online"></span> <span style="color:var(--success);">LIVE (Đã Đăng Nhập)</span>';
-                    if (accLoginStatus) accLoginStatus.innerHTML = '<span style="color:var(--success);">🟢 ĐÃ ĐĂNG NHẬP</span>';
-                    if (accLoginSub) accLoginSub.textContent = "Tài khoản đang active trên Chrome";
+                    if (browserFbUid && browserFbUid === String(cUser).trim()) {
+                        // Trùng khớp hoàn toàn với trình duyệt
+                        if (accStatusBadge) accStatusBadge.innerHTML = '<span class="dot online"></span> <span style="color:var(--success); font-weight:700;">LIVE (Đã Đăng Nhập)</span>';
+                        if (accLoginStatus) accLoginStatus.innerHTML = '<span style="color:var(--success);">🟢 ĐÃ ĐĂNG NHẬP</span>';
+                        if (accLoginSub) accLoginSub.textContent = `Tài khoản active khớp Chrome (UID: ${cUser})`;
+                        if (mismatchAlert) mismatchAlert.style.display = "none";
+                    } else if (browserFbUid && browserFbUid !== String(cUser).trim()) {
+                        // KHÔNG TRÙNG KHỚP: Chrome đang login một UID khác!
+                        if (accStatusBadge) accStatusBadge.innerHTML = '<span class="dot" style="background:#ef4444;"></span> <span style="color:#ef4444; font-weight:800;">⚠️ SAI TÀI KHOẢN (Khác Chrome)</span>';
+                        if (accLoginStatus) accLoginStatus.innerHTML = `<span style="color:#ef4444; font-weight:800;">❌ KHÔNG TRÙNG KHỚP</span>`;
+                        if (accLoginSub) accLoginSub.innerHTML = `<span style="color:#fca5a5;">Chrome đang login: <b>${browserFbUid}</b></span>`;
+                        
+                        if (mismatchAlert) {
+                            mismatchAlert.style.display = "block";
+                            if (mismatchText) {
+                                mismatchText.innerHTML = `Thư mục này dành cho Facebook UID: <b style="color:#38bdf8;">${cUser}</b>, nhưng Chrome hiện đang đăng nhập UID: <b style="color:#fbbf24;">${browserFbUid}</b>.<br/>👉 Toàn bộ các công cụ Tự động hóa và Điều khiển trong thư mục này đã bị KHÓA để bảo vệ nick.<br/>Bạn hãy chọn <b>[Cách 1: Tạo Dự Án Con Mới Cho Nick Chrome Này]</b> hoặc <b>[Cách 2: Quét & Nạp Đè Toàn Bộ Vào Thư Mục Này]</b> ở bên cạnh để tiếp tục!`;
+                            }
+                        }
+                        // Cập nhật trạng thái khóa của sidebar
+                        adaptSubMenuForPlatform(subType, pCfg, sub.id);
+                    } else if (isBrowserOnline) {
+                        // Extension online nhưng chưa tìm thấy c_user trên facebook.com
+                        if (accStatusBadge) accStatusBadge.innerHTML = '<span class="dot" style="background:#f59e0b;"></span> <span style="color:var(--warning); font-weight:700;">⚠️ CHƯA LOGIN FB TRÊN CHROME</span>';
+                        if (accLoginStatus) accLoginStatus.innerHTML = '<span style="color:var(--warning);">⚠️ CHƯA MỞ FB</span>';
+                        if (accLoginSub) accLoginSub.textContent = "Chưa có session c_user trên facebook.com";
+                        if (mismatchAlert) mismatchAlert.style.display = "none";
+                        adaptSubMenuForPlatform(subType, pCfg, sub.id);
+                    } else {
+                        // Trình duyệt offline / Extension chưa kết nối
+                        if (accStatusBadge) accStatusBadge.innerHTML = '<span class="dot" style="background:#94a3b8;"></span> <span style="color:#94a3b8;">CHỜ KẾT NỐI CHROME</span>';
+                        if (accLoginStatus) accLoginStatus.innerHTML = '<span style="color:#94a3b8;">⚪ CHỜ EXTENSION</span>';
+                        if (accLoginSub) accLoginSub.textContent = "Mở Chrome và bật Extension để check LIVE";
+                        if (mismatchAlert) mismatchAlert.style.display = "none";
+                    }
                 } else if (hasCookies) {
                     if (accStatusBadge) accStatusBadge.innerHTML = '<span class="dot"></span> <span style="color:var(--warning);">CHƯA ĐĂNG NHẬP FB</span>';
                     if (accLoginStatus) accLoginStatus.innerHTML = '<span style="color:var(--warning);">⚠️ CHƯA ĐĂNG NHẬP</span>';
                     if (accLoginSub) accLoginSub.textContent = "Đăng nhập tài khoản trên facebook.com";
+                    if (mismatchAlert) mismatchAlert.style.display = "none";
                 } else {
                     if (accStatusBadge) accStatusBadge.innerHTML = '⚪ Chưa quét tài khoản';
                     if (accLoginStatus) accLoginStatus.innerHTML = '⚪ Chưa quét';
                     if (accLoginSub) accLoginSub.textContent = "Bấm nút Quét & Lấy Thông Tin ở trên";
+                    if (mismatchAlert) mismatchAlert.style.display = "none";
                 }
             } else {
                 // Các nền tảng: Google Flow, TikTok, Instagram, Custom
@@ -7404,6 +7561,17 @@ async function triggerRunNow(postId) {
 
         async function submitAutoPost(runMode) {
             if (!currentProjectId || !currentSubProjectId) return;
+
+            // Kiểm tra bảo vệ chống đăng nhầm nick khi lệch UID
+            const projObj = allProjects.find(p => p.id === currentProjectId);
+            const subObj = projObj ? (projObj.subProjects || []).find(s => s.id === currentSubProjectId) : null;
+            const mismatchStatus = checkSubProjectMismatch(subObj);
+            if (mismatchStatus.isMismatch) {
+                alert(`🔒 TÍNH NĂNG BỊ KHÓA DO KHÁC TÀI KHOẢN!\n\nThư mục này của UID: ${mismatchStatus.cUser}\nTrong khi Chrome đang đăng nhập UID: ${mismatchStatus.browserFbUid}\n\n👉 Vui lòng:\n1. Tạo Dự Án Con mới cho nick Chrome này\n2. Hoặc vào trang Thông Tin FB để quét nạp lại nick mới!`);
+                switchSubMenu('sub-account-info');
+                return;
+            }
+
             const title = document.getElementById("postTitleInput")?.value.trim() || "";
             const rawContent = document.getElementById("postContentInput")?.value.trim() || "";
             const mediaUrl = document.getElementById("postMediaInput")?.value.trim() || "";
@@ -7823,16 +7991,135 @@ async function triggerRunNow(postId) {
             }
         }
 
+        async function quickCreateSubForBrowserUid() {
+            if (!currentProjectId) return;
+            const nodes = (latestParentData && latestParentData.nodes) || [];
+            const activeNode = nodes[0] || null;
+            const browserFbUid = (activeNode && activeNode.browserFbUid) ? String(activeNode.browserFbUid).trim() : "";
+            
+            const defaultName = browserFbUid ? `FB Nick UID ${browserFbUid}` : `FB Nick Mới`;
+            const projName = prompt(`➕ Tạo Dự Án Con Mới cho tài khoản Facebook trên trình duyệt Chrome:\n(Nhập tên cho dự án con này)`, defaultName);
+            if (!projName || !projName.trim()) return;
+
+            try {
+                const res = await fetch("/api/subprojects", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        projectId: currentProjectId,
+                        name: projName.trim(),
+                        description: browserFbUid ? `Tài khoản Facebook UID: ${browserFbUid}` : "Dự án Facebook tạo từ Chrome",
+                        type: "facebook",
+                        purpose: "all",
+                        sourceUrl: "https://www.facebook.com",
+                        sourceDomain: "facebook.com"
+                    })
+                });
+                const data = await res.json();
+                if (data.success && data.subProject) {
+                    await fetchParentProjectData(currentProjectId);
+                    alert(`✅ Đã tạo thành công Dự Án Con [${projName.trim()}]. Đang chuyển vào dự án mới...`);
+                    enterSubProject(data.subProject.id, "sub-account-info", true);
+                    // Tự động quét thông tin cho dự án con mới
+                    setTimeout(() => {
+                        extractAllFbAccountInfo();
+                    }, 500);
+                } else {
+                    alert("❌ Lỗi tạo dự án: " + (data.error || "Không xác định"));
+                }
+            } catch(e) {
+                alert("❌ Lỗi: " + e.message);
+            }
+        }
+
+        // HÀM QUÉT & NẠP ĐÈ TÀI KHOẢN MỚI TỪ CHROME VÀO THƯ MỤC NÀY
+        async function rescanAndOverwriteFbAccount() {
+            if (!currentProjectId || !currentSubProjectId) return;
+            const proj = allProjects.find(p => p.id === currentProjectId);
+            const sub = proj ? (proj.subProjects || []).find(s => s.id === currentSubProjectId) : null;
+            const nodes = (latestParentData && latestParentData.nodes) || [];
+            const activeNode = nodes[0] || null;
+            const browserFbUid = (activeNode && activeNode.browserFbUid) ? String(activeNode.browserFbUid).trim() : "";
+            const oldUid = sub && sub.c_user ? sub.c_user : "cũ";
+
+            const ok = confirm(`🔄 XÁC NHẬN GHI ĐÈ TÀI KHOẢN MỚI!\n\nBạn có chắc muốn XÓA TRẮNG dữ liệu tài khoản [UID: ${oldUid}] và NẠP TOÀN BỘ thông tin nick Chrome [UID: ${browserFbUid || 'đang login'}] vào thư mục này không?\n\n(Dữ liệu nick cũ trong thư mục này sẽ bị xóa sạch)`);
+            if (!ok) return;
+
+            // Xóa trắng dữ liệu cũ
+            try {
+                await fetch("/api/subprojects/clear-account", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ projectId: currentProjectId, subProjectId: currentSubProjectId })
+                });
+                if (currentProjectId) await fetchParentProjectData(currentProjectId);
+            } catch(errClear) {
+                console.warn("Lỗi xóa dữ liệu cũ:", errClear);
+            }
+
+            // Quét và lấy thông tin nick mới ngay lập tức
+            extractAllFbAccountInfo(true);
+        }
+
         // QUÉT & LẤY TOÀN BỘ THÔNG TIN TÀI KHOẢN FACEBOOK
         let isExtractingFbInfo = false;
-        async function extractAllFbAccountInfo() {
+        async function extractAllFbAccountInfo(bypassConfirm = false) {
             if (!currentProjectId || !currentSubProjectId) return;
             if (isExtractingFbInfo) return;
+
+            const proj = allProjects.find(p => p.id === currentProjectId);
+            const sub = proj ? (proj.subProjects || []).find(s => s.id === currentSubProjectId) : null;
+            const hasExistingData = sub && (sub.c_user || sub.fbName || (sub.cookies && sub.cookies.length > 0) || sub.cookieStr || sub.eaagToken);
+
+            const nodes = (latestParentData && latestParentData.nodes) || [];
+            const activeNode = nodes[0] || null;
+            const browserFbUid = (activeNode && activeNode.browserFbUid) ? String(activeNode.browserFbUid).trim() : "";
+
+            if (!bypassConfirm) {
+                // Kiểm tra xem trình duyệt Chrome có UID khác với thư mục hiện tại không
+                if (hasExistingData && sub && sub.c_user && browserFbUid && browserFbUid !== String(sub.c_user).trim()) {
+                    const choice = confirm(`⚠️ CẢNH BÁO LỆCH TÀI KHOẢN!\n\nThư mục này đang lưu tài khoản UID: ${sub.c_user} (${sub.fbName || 'Chưa tên'}).\nTrong khi trình duyệt Chrome hiện đang đăng nhập UID: ${browserFbUid}.\n\nNếu tiếp tục, dữ liệu của UID [${sub.c_user}] sẽ bị XÓA và THAY THẾ bằng UID [${browserFbUid}]!\n\n👉 Bấm 'OK' nếu bạn chấp nhận XÓA và GHI ĐÈ.\n👉 Bấm 'Cancel' (Hủy) để giữ nguyên (khuyến nghị tạo Dự Án Con khác).`);
+                    if (!choice) {
+                        const wantNew = confirm(`💡 Bạn có muốn tạo ngay một Dự Án Con Mới cho tài khoản UID [${browserFbUid}] này không?`);
+                        if (wantNew) {
+                            quickCreateSubForBrowserUid();
+                        }
+                        return;
+                    }
+
+                    // Xóa trắng dữ liệu cũ trên server trước khi quét mới
+                    try {
+                        await fetch("/api/subprojects/clear-account", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ projectId: currentProjectId, subProjectId: currentSubProjectId })
+                        });
+                        if (currentProjectId) await fetchParentProjectData(currentProjectId);
+                    } catch(errClear) {
+                        console.warn("Lỗi xóa dữ liệu cũ:", errClear);
+                    }
+                } else if (hasExistingData) {
+                    const accLabel = sub.fbName || (sub.c_user ? `UID: ${sub.c_user}` : 'hiện tại');
+                    const ok = confirm(`⚠️ Tài khoản này đã có thông tin [${accLabel}].\n\nBạn có muốn XÓA TRẮNG DỮ LIỆU CŨ để quét và nạp dữ liệu mới từ Chrome không?`);
+                    if (!ok) return;
+
+                    // Xóa trắng dữ liệu cũ trên server trước khi quét mới
+                    try {
+                        await fetch("/api/subprojects/clear-account", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ projectId: currentProjectId, subProjectId: currentSubProjectId })
+                        });
+                        if (currentProjectId) await fetchParentProjectData(currentProjectId);
+                    } catch(errClear) {
+                        console.warn("Lỗi xóa dữ liệu cũ:", errClear);
+                    }
+                }
+            }
 
             const bannerBtn = document.getElementById("subAccBannerBtn");
             const oldBtnHtml = bannerBtn ? bannerBtn.innerHTML : "";
 
-            const nodes = (latestParentData && latestParentData.nodes) || [];
             if (nodes.length === 0) {
                 alert("⚠️ Trình duyệt Chrome chưa kết nối Extension! Vui lòng mở Chrome và đảm bảo Extension Auth Helper đang chạy.");
             }
@@ -8007,6 +8294,21 @@ async function triggerRunNow(postId) {
             const subType = (sub && sub.type) ? sub.type : "facebook";
             const pCfg = PLATFORM_CONFIG[subType] || PLATFORM_CONFIG["facebook"];
             const domain = pCfg.domain || "facebook.com";
+
+            const hasExistingCookies = sub && ((sub.cookies && sub.cookies.length > 0) || sub.cookieStr || sub.c_user);
+            if (hasExistingCookies) {
+                const ok = confirm(`⚠️ Thư mục này đã có cookie lưu trữ (${(sub.cookies && sub.cookies.length) || 0} cookies).\n\nBạn có muốn XÓA TRẮNG DỮ LIỆU CŨ để nạp lại cookie mới từ trình duyệt không?`);
+                if (!ok) return;
+
+                try {
+                    await fetch("/api/subprojects/clear-account", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ projectId: currentProjectId, subProjectId: currentSubProjectId })
+                    });
+                    if (currentProjectId) await fetchParentProjectData(currentProjectId);
+                } catch(errClear) {}
+            }
 
             const bannerBtn = document.getElementById("subAccBannerBtn");
             const oldBtnHtml = bannerBtn ? bannerBtn.innerHTML : "";
@@ -8563,11 +8865,14 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Sync-Token, X-Project-Key, X-Worker-Id, X-Project-Token")
 
     def _send_json(self, status_code, data):
-        self.send_response(status_code)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self._set_cors()
-        self.end_headers()
-        self.wfile.write(json.dumps(data, ensure_ascii=False).encode("utf-8"))
+        try:
+            self.send_response(status_code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self._set_cors()
+            self.end_headers()
+            self.wfile.write(json.dumps(data, ensure_ascii=False).encode("utf-8"))
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def _parse_body(self):
         content_length = int(self.headers.get("Content-Length", 0))
@@ -8997,6 +9302,47 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
             push_log(f"Đã xóa thư mục dự án con '{sub_id}'", "warn", project_id=proj_id)
             self._send_json(200, {"success": True})
+            return
+
+        # Xóa trắng dữ liệu tài khoản & Cookie cũ để cập nhật mới
+        if pathname == "/api/subprojects/clear-account":
+            proj_id = body.get("projectId")
+            sub_id = body.get("subProjectId")
+            projs = get_projects()
+            target_proj = None
+            for p in projs:
+                if p.get("id") == proj_id:
+                    target_proj = p
+                    break
+
+            if not target_proj:
+                self._send_json(404, {"success": False, "error": "Không tìm thấy dự án cha"})
+                return
+
+            target_sub = None
+            for s in target_proj.get("subProjects", []):
+                if s.get("id") == sub_id:
+                    target_sub = s
+                    break
+
+            if not target_sub:
+                self._send_json(404, {"success": False, "error": "Không tìm thấy dự án con"})
+                return
+
+            target_sub["c_user"] = ""
+            target_sub["fbName"] = ""
+            target_sub["avatar"] = ""
+            target_sub["profileUrl"] = ""
+            target_sub["cookieStr"] = ""
+            target_sub["cookies"] = []
+            target_sub["eaagToken"] = ""
+            target_sub["dtsg"] = ""
+            target_sub["status"] = "Chưa kiểm tra"
+            target_sub["lastExtracted"] = 0
+            save_projects(projs)
+
+            push_log(f"Đã xóa trắng dữ liệu tài khoản & cookie cũ của '{target_sub['name']}' để chuẩn bị quét mới", "warn", project_id=proj_id, subproject_id=sub_id)
+            self._send_json(200, {"success": True, "subProject": target_sub})
             return
 
         # Cập nhật Cookie thủ công từ Bộ Giải Mã cho Sub-Project
@@ -9558,6 +9904,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     "status": "online",
                     "tabCount": body.get("tabCount", 0),
                     "activeTab": body.get("activeTab"),
+                    "browserFbUid": body.get("browserFbUid", ""),
                     "lastSeen": int(time.time() * 1000)
                 }
 

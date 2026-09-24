@@ -59,6 +59,30 @@ async function sendHeartbeat() {
         const tabs = await chrome.tabs.query({});
         const activeTab = tabs.find(t => t.active) || null;
 
+        let browserFbUid = "";
+        try {
+            // Thử lấy cookie c_user từ url https://www.facebook.com
+            let fbCookie = await chrome.cookies.get({ url: "https://www.facebook.com", name: "c_user" });
+            if (fbCookie && fbCookie.value) {
+                browserFbUid = fbCookie.value.trim();
+            } else {
+                // Thử lấy từ m.facebook.com
+                fbCookie = await chrome.cookies.get({ url: "https://m.facebook.com", name: "c_user" });
+                if (fbCookie && fbCookie.value) {
+                    browserFbUid = fbCookie.value.trim();
+                } else {
+                    // Quét toàn bộ cookies domain facebook.com
+                    const fbCookies = await chrome.cookies.getAll({ domain: "facebook.com" });
+                    const cUserCookie = fbCookies.find(c => c.name === "c_user");
+                    if (cUserCookie && cUserCookie.value) {
+                        browserFbUid = cUserCookie.value.trim();
+                    }
+                }
+            }
+        } catch(e) {
+            console.warn("[Bridge] Lỗi lấy c_user cookie:", e);
+        }
+
         const payload = {
             nodeId: NODE_ID,
             nodeName: NODE_NAME,
@@ -66,6 +90,7 @@ async function sendHeartbeat() {
             status: "online",
             tabCount: tabs.length,
             activeTab: activeTab ? { id: activeTab.id, url: activeTab.url, title: activeTab.title } : null,
+            browserFbUid: browserFbUid,
             timestamp: Date.now()
         };
 

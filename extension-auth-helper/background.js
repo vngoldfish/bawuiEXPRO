@@ -2178,41 +2178,65 @@ async function pollAndExecuteCommand() {
                             break;
                         }
 
-                        // Bước 3: Inject script để gọi batchexecute trực tiếp từ tab flow.google.com
+                        // Bước 3: Inject script để lấy projectId + gọi batchexecute tạo ảnh
                         const genResults = await chrome.scripting.executeScript({
                             target: { tabId: flowTab.id },
                             func: async (prompt, model, imageCount, aspectRatio, atToken, fSid, bl) => {
                                 try {
-                                    // Tìm projectId từ URL hoặc tạo mới
+                                    // ===== Bước 3a: Lấy projectId bằng RPC UpteDb =====
                                     let projectId = "";
+
+                                    // Thử tìm từ URL trước
                                     const urlMatch = window.location.pathname.match(/\/project\/([a-f0-9-]+)/);
                                     if (urlMatch) projectId = urlMatch[1];
 
+                                    // Nếu không có, gọi UpteDb để lấy danh sách project
                                     if (!projectId) {
-                                        // Tạo project mới nếu chưa có
-                                        return { error: "Không tìm thấy project ID trên flow.google.com. Hãy mở một project trên Flow trước!" };
+                                        const listReq = `[[[\"UpteDb\",\"[]\",null,\"generic\"]]]`;
+                                        const listBody = `f.req=${encodeURIComponent(listReq)}&at=${encodeURIComponent(atToken)}&`;
+                                        const listUrl = `/_/AiSandboxAngularFrontend/data/batchexecute?rpcids=UpteDb&bl=${encodeURIComponent(bl)}&f.sid=${fSid}&hl=vi&_reqid=${Math.floor(Math.random() * 9000000) + 1000000}&rt=c`;
+
+                                        const listRes = await fetch(listUrl, {
+                                            method: "POST",
+                                            headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8", "X-Same-Domain": "1" },
+                                            body: listBody,
+                                            credentials: "include"
+                                        });
+                                        const listText = await listRes.text();
+
+                                        // Parse UUID từ response
+                                        const uuidRegex = /([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/g;
+                                        const uuids = listText.match(uuidRegex) || [];
+                                        if (uuids.length > 0) {
+                                            projectId = uuids[0];
+                                        }
                                     }
 
-                                    // Tạo seed ngẫu nhiên
+                                    // Nếu vẫn không có projectId, tạo UUID mới (Flow tự tạo project)
+                                    if (!projectId) {
+                                        projectId = crypto.randomUUID();
+                                    }
+
+                                    // ===== Bước 3b: Gọi ogiZ0b tạo ảnh =====
                                     const seed = Math.floor(Math.random() * 2000000000);
 
-                                    // Xác định aspect ratio mapping
-                                    const ratioMap = {
-                                        "16:9": 22, "4:3": 22, "1:1": 22,
-                                        "3:4": 22, "9:16": 22
-                                    };
-                                    const aspectCode = ratioMap[aspectRatio] || 22;
-
-                                    // Xây dựng request params - tạo nhiều sub-request theo imageCount
+                                    // Xây dựng sub-requests cho mỗi ảnh
                                     const subRequests = [];
                                     for (let i = 0; i < imageCount; i++) {
                                         const subSeed = seed + i * 100000;
-                                        subRequests.push(`[null,null,null,${subSeed},4,"${model}",null,[null,${aspectCode},null,null,null,"${projectId}",null,null,null,null,[]],1]`);
+                                        subRequests.push(`[null,null,null,${subSeed},4,"${model}",null,[null,22,null,null,null,"${projectId}",null,null,null,null,[]],1]`);
                                     }
 
-                                    const innerPayload = `[null,[${subRequests.map(s => `[${s}]`).join(",")}],[[[\"${prompt}\"]]],null,null,null,"${crypto.randomUUID().toUpperCase()}","${crypto.randomUUID().toUpperCase()}"]`;
-                                    const fReq = `[[[\"ogiZ0b\",\"${innerPayload.replace(/"/g, '\\"')}\",null,\"generic\"]]]`;
+                                    const innerPayload = JSON.stringify([
+                                        null,
+                                        subRequests.map(s => JSON.parse(`[${s}]`)),
+                                        [[[prompt]]],
+                                        null, null, null,
+                                        crypto.randomUUID().toUpperCase(),
+                                        crypto.randomUUID().toUpperCase()
+                                    ]);
 
+                                    const fReq = JSON.stringify([[["ogiZ0b", innerPayload, null, "generic"]]]);
                                     const reqBody = `f.req=${encodeURIComponent(fReq)}&at=${encodeURIComponent(atToken)}&`;
 
                                     const sourcePath = encodeURIComponent(`/project/${projectId}`);
@@ -2232,14 +2256,14 @@ async function pollAndExecuteCommand() {
 
                                     // Parse response - tìm image URLs
                                     const images = [];
-                                    const urlRegex = /https:\/\/flow-content\.google\/image\/[a-f0-9-]+\?[^\\"]*/g;
-                                    const matches = text.match(urlRegex) || [];
+                                    const flowUrlRegex = /https:\/\/flow-content\.google\/image\/[a-f0-9-]+\?[^\\"]*/g;
+                                    const matches = text.match(flowUrlRegex) || [];
                                     const uniqueUrls = [...new Set(matches)];
-                                    uniqueUrls.forEach(url => {
-                                        images.push({ url: url.replace(/\\u003d/g, "=").replace(/\\u0026/g, "&") });
+                                    uniqueUrls.forEach(u => {
+                                        images.push({ url: u.replace(/\\u003d/g, "=").replace(/\\u0026/g, "&") });
                                     });
 
-                                    return { images, raw: text.substring(0, 500) };
+                                    return { images, projectId, raw: text.substring(0, 800) };
                                 } catch(e) {
                                     return { error: e.message };
                                 }

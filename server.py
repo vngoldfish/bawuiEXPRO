@@ -3883,9 +3883,9 @@ Sản phẩm tuyệt vời quá</textarea>
                         <div style="flex:1; min-width:220px;">
                             <label style="font-size:12px; font-weight:700; color:var(--text-muted); margin-bottom:6px; display:block;">🍌 Model AI</label>
                             <select id="flowImageModelSelect" style="width:100%; padding:10px 12px; font-size:13px; font-weight:700;">
-                                <option value="GEM_PIX">🍌 Nano Banana Pro</option>
-                                <option value="GEM_PIX_2">🍌 Nano Banana 2</option>
-                                <option value="NARWHAL" selected>🍌 Nano Banana 2 Lite</option>
+                                <option value="GEM_PIX_2">🍌 Nano Banana Pro</option>
+                                <option value="NARWHAL">🍌 Nano Banana 2</option>
+                                <option value="HARBOR_SEAL" selected>🍌 Nano Banana 2 Lite</option>
                             </select>
                         </div>
                         <div style="min-width:200px;">
@@ -9578,6 +9578,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 "nodes": active_nodes,
                 "projectCount": len(projs),
                 "pendingCount": len(pending_commands),
+                "pendingCommands": pending_commands,
                 "uptimeSec": uptime_sec,
                 "recentLogs": live_logs[-40:]
             })
@@ -10060,7 +10061,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
         # GOOGLE FLOW: API TẠO ẢNH AI
         # POST /api/v1/flow/generate-image
         # =====================================================================
-        if pathname in ("/api/v1/flow/generate-image",):
+        if pathname in ("/api/v1/flow/generate-image", "/api/flow/generate-image", "/api/subprojects/flow-image/generate"):
 
             proj_id = body.get("projectId", "")
             sub_id = body.get("subProjectId", "")
@@ -10689,6 +10690,14 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     if "EAA" in data_str:
                         latest_project_results[proj_id]["eaagToken"] = data_str
 
+                elif action == "INSPECT_FLOW":
+                    latest_project_results[proj_id]["flowInfo"] = body.get("flowInfo")
+                    latest_project_results[proj_id]["inspectError"] = body.get("error")
+
+                elif action == "TEST_FLOW_GEN":
+                    latest_project_results[proj_id]["testFlowGen"] = body.get("data")
+                    latest_project_results[proj_id]["testFlowError"] = body.get("error")
+
             # Update specific sub-project in projects.json
             if proj_id:
                 projs = get_projects()
@@ -10797,24 +10806,51 @@ class BridgeHandler(BaseHTTPRequestHandler):
             if action == "FLOW_GENERATE_IMAGE":
                 img_req_id = body.get("imageRequestId") or orig_cmd.get("imageRequestId")
                 flow_images = body.get("images", [])
-                if proj_id and target_sub_id and img_req_id:
+                if img_req_id:
                     projs = get_projects()
+                    found = False
                     for p in projs:
-                        if p.get("id") == proj_id:
-                            for s in p.get("subProjects", []):
-                                if s.get("id") == target_sub_id:
-                                    for img_item in s.get("imageQueue", []):
-                                        if img_item.get("id") == img_req_id:
-                                            if success and flow_images:
-                                                img_item["status"] = "completed"
-                                                img_item["images"] = flow_images
-                                                img_item["completedAt"] = int(time.time() * 1000)
+                        if proj_id and p.get("id") != proj_id:
+                            continue
+                        for s in p.get("subProjects", []):
+                            if target_sub_id and s.get("id") != target_sub_id:
+                                continue
+                            for img_item in s.get("imageQueue", []):
+                                if img_item.get("id") == img_req_id:
+                                    if success and flow_images:
+                                        processed_imgs = []
+                                        for img_obj in flow_images:
+                                            u = img_obj.get("url", "") if isinstance(img_obj, dict) else str(img_obj)
+                                            orig_u = img_obj.get("originalUrl", u) if isinstance(img_obj, dict) else str(img_obj)
+                                            if u and not u.startswith("data:") and u.startswith("http"):
+                                                try:
+                                                    req = urllib.request.Request(u, headers={"User-Agent": "Mozilla/5.0"})
+                                                    with urllib.request.urlopen(req, timeout=10) as resp:
+                                                        img_bytes = resp.read()
+                                                        ct = resp.headers.get_content_type() or "image/jpeg"
+                                                        b64_str = base64.b64encode(img_bytes).decode("utf-8")
+                                                        processed_imgs.append({
+                                                            "url": f"data:{ct};base64,{b64_str}",
+                                                            "originalUrl": orig_u
+                                                        })
+                                                except Exception:
+                                                    processed_imgs.append(img_obj if isinstance(img_obj, dict) else {"url": u})
                                             else:
-                                                img_item["status"] = "failed"
-                                                img_item["lastError"] = body.get("error", "Extension không thể tạo ảnh")
-                                            save_projects(projs)
-                                            break
+                                                processed_imgs.append(img_obj if isinstance(img_obj, dict) else {"url": u})
+
+                                        img_item["status"] = "completed"
+                                        img_item["images"] = processed_imgs
+                                        img_item["completedAt"] = int(time.time() * 1000)
+                                        img_item.pop("lastError", None)
+                                    else:
+                                        img_item["status"] = "failed"
+                                        img_item["lastError"] = body.get("error", "Extension không thể tạo ảnh")
+                                    save_projects(projs)
+                                    found = True
                                     break
+                            if found:
+                                break
+                        if found:
                             break
 
             log_msg = f"Đã thực thi [{action}]: "
@@ -10831,6 +10867,13 @@ class BridgeHandler(BaseHTTPRequestHandler):
             elif action == "FLOW_GENERATE_IMAGE":
                 img_count = len(body.get('images', []))
                 log_msg += f"🎨 Tạo ảnh Flow {'thành công (' + str(img_count) + ' ảnh)' if success else 'thất bại: ' + str(body.get('error'))}"
+            elif action == "INSPECT_FLOW":
+                try:
+                    with open(os.path.join(os.path.dirname(__file__), "flow_inspect.json"), "w", encoding="utf-8") as f:
+                        json.dump(body.get("flowInfo") or body, f, ensure_ascii=False, indent=2)
+                except Exception:
+                    pass
+                log_msg += f"INSPECT_FLOW: url={body.get('flowInfo', {}).get('url')} | inputs={len(body.get('flowInfo', {}).get('inputs', []))}"
             else:
                 log_msg += "Thành công" if success else f"Lỗi: {body.get('error')}"
 

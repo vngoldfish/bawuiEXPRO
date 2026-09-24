@@ -1662,10 +1662,20 @@ async function _executeFbReaction(tabId, feedbackId, reactType, fallbackActorId)
     } catch(e) {}
 }
 
+let pollingStartedAt = 0;
+
 // 3. Kéo lệnh từ Backend và thực thi trên Trình duyệt
 async function pollAndExecuteCommand() {
-    if (isPolling) return;
+    if (isPolling) {
+        if (Date.now() - pollingStartedAt > 60000) {
+            console.warn("[Bridge] Polling bị kẹt > 60s, tự động reset isPolling!");
+            isPolling = false;
+        } else {
+            return;
+        }
+    }
     isPolling = true;
+    pollingStartedAt = Date.now();
 
     try {
         const res = await fetch(`${BACKEND_URL}/api/bridge/poll`, {
@@ -1997,6 +2007,97 @@ async function pollAndExecuteCommand() {
                     break;
                 }
 
+                case "INSPECT_FLOW": {
+                    const tabs = await chrome.tabs.query({});
+                    const flowTabs = tabs.filter(t => t.url && t.url.includes("flow.google.com"));
+                    if (flowTabs.length === 0) {
+                        cmdResult = { success: false, error: "Không tìm thấy tab flow.google.com nào đang mở" };
+                        break;
+                    }
+                    const targetTab = flowTabs.find(t => t.url.includes("/project/")) || flowTabs[0];
+                    try {
+                        await chrome.tabs.update(targetTab.id, { active: true });
+                        if (targetTab.windowId) await chrome.windows.update(targetTab.windowId, { focused: true });
+                    } catch(e) {}
+
+                    // 1. Phân tích DOM & ProseMirror trong MAIN world
+                    const execRes = await chrome.scripting.executeScript({
+                        target: { tabId: targetTab.id },
+                        world: "MAIN",
+                        func: async () => {
+                            try {
+                                const wiz = window.WIZ_global_data || {};
+                                const editorEl = document.querySelector(".ProseMirror");
+                                const genBtn = document.querySelector(".generate-icon-button") || document.querySelector('button[aria-label="Bắt đầu tạo"]');
+
+                                // Khám phá pmViewDesc
+                                let pmInfo = {};
+                                if (editorEl && editorEl.pmViewDesc) {
+                                    const d = editorEl.pmViewDesc;
+                                    pmInfo = {
+                                        descKeys: Object.keys(d),
+                                        hasView: !!d.view,
+                                        viewKeys: d.view ? Object.keys(d.view) : [],
+                                        hasState: !!(d.view && d.view.state),
+                                        hasDispatch: !!(d.view && typeof d.view.dispatch === "function")
+                                    };
+                                }
+
+                                // Danh sách tất cả button trong footer / prompt box
+                                const allBtns = Array.from(document.querySelectorAll("button")).map(b => ({
+                                    ariaLabel: b.getAttribute("aria-label"),
+                                    className: b.className,
+                                    text: (b.innerText || "").trim().substring(0, 30),
+                                    disabled: b.disabled || b.classList.contains("mat-mdc-button-disabled"),
+                                    rect: (() => {
+                                        const r = b.getBoundingClientRect();
+                                        return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) };
+                                    })()
+                                })).filter(b => b.rect.w > 0 && b.rect.h > 0);
+
+                                const editorRect = editorEl ? (() => {
+                                    const r = editorEl.getBoundingClientRect();
+                                    return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) };
+                                })() : null;
+
+                                const genBtnRect = genBtn ? (() => {
+                                    const r = genBtn.getBoundingClientRect();
+                                    return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) };
+                                })() : null;
+
+                                // Danh sách tất cả ảnh và thẻ trên Flow
+                                const allImages = Array.from(document.querySelectorAll("img")).map(i => ({
+                                    src: i.src,
+                                    w: i.naturalWidth || i.width,
+                                    h: i.naturalHeight || i.height,
+                                    alt: i.alt || ""
+                                }));
+
+                                const flowCards = Array.from(document.querySelectorAll("flow-media-card, mat-card, .card, [role='article']")).map(c => ({
+                                    text: (c.innerText || "").trim().substring(0, 80),
+                                    imgs: Array.from(c.querySelectorAll("img")).map(i => i.src)
+                                }));
+
+                                return {
+                                    url: window.location.href,
+                                    title: document.title,
+                                    allImages,
+                                    flowCards: flowCards.slice(0, 10),
+                                    editorText: editorEl ? editorEl.innerText.trim() : "",
+                                    genBtnDisabled: genBtn ? (genBtn.disabled || genBtn.classList.contains("mat-mdc-button-disabled")) : null
+                                };
+                            } catch (e) {
+                                return { error: e.message };
+                            }
+                        }
+                    });
+
+                    const domInfo = execRes?.[0]?.result || {};
+
+                    cmdResult = { success: true, tabId: targetTab.id, flowInfo: domInfo };
+                    break;
+                }
+
                 case "RELOAD_EXTENSION": {
                     cmdResult = { success: true, message: "Reloading extension..." };
                     setTimeout(() => { chrome.runtime.reload(); }, 100);
@@ -2123,152 +2224,303 @@ async function pollAndExecuteCommand() {
                 case "FLOW_GENERATE_IMAGE": {
                     const prompt = cmd.prompt || "";
                     const model = cmd.model || "HARBOR_SEAL";
-                    const imageCount = cmd.imageCount || 4;
+                    const imageCount = Math.max(1, Math.min(Number(cmd.imageCount) || 4, 4));
                     const aspectRatio = cmd.aspectRatio || "3:4";
                     const imageRequestId = cmd.imageRequestId || "";
 
-                    const FLOW_API_BASE = "https://aisandbox-pa.googleapis.com/v1";
-                    const FLOW_API_KEY = "AIzaSyBtrm0o5ab1c-Ec8ZuLcGt3oJAA5VWt3pY";
-                    const FLOW_LABS_BASE = "https://labs.google/fx/api";
-
-                    const IMAGE_ASPECTS = {
-                        "1:1": "IMAGE_ASPECT_RATIO_SQUARE",
-                        "3:4": "IMAGE_ASPECT_RATIO_PORTRAIT_THREE_FOUR",
-                        "4:3": "IMAGE_ASPECT_RATIO_LANDSCAPE_FOUR_THREE",
-                        "9:16": "IMAGE_ASPECT_RATIO_PORTRAIT",
-                        "16:9": "IMAGE_ASPECT_RATIO_LANDSCAPE"
+                    const updateStep = async (stepText) => {
+                        try {
+                            await fetch(`${BACKEND_URL}/api/bridge/progress`, {
+                                method: "POST",
+                                headers: getHeaders(),
+                                body: JSON.stringify({
+                                    commandId: cmd.id,
+                                    targetProjectId: cmd.targetProjectId,
+                                    targetSubProjectId: cmd.targetSubProjectId,
+                                    step: stepText
+                                })
+                            }).catch(() => {});
+                        } catch(e) {}
                     };
 
                     try {
-                        // Bước 1: Lấy session_token từ cookie labs.google
-                        const labsCookies = await chrome.cookies.getAll({ domain: "labs.google" });
-                        const sessionCookie = labsCookies.find(c => c.name === "__Secure-next-auth.session-token");
-                        if (!sessionCookie) {
-                            cmdResult = { success: false, error: "Chưa đăng nhập labs.google — Hãy mở https://labs.google/fx/tools/flow trên Chrome và đăng nhập Google", imageRequestId };
-                            break;
-                        }
-                        const sessionToken = sessionCookie.value;
-
-                        // Bước 2: Đổi session_token → access_token qua /auth/session
-                        const sessionRes = await fetch(`${FLOW_LABS_BASE}/auth/session`, {
-                            headers: {
-                                "Cookie": `__Secure-next-auth.session-token=${sessionToken}`,
-                                "Accept": "application/json"
-                            }
-                        });
-                        if (!sessionRes.ok) {
-                            cmdResult = { success: false, error: `Session hết hạn (HTTP ${sessionRes.status}) — mở lại labs.google/fx/tools/flow và đăng nhập lại`, imageRequestId };
-                            break;
-                        }
-                        const sessionData = await sessionRes.json();
-                        const accessToken = sessionData.access_token;
-                        if (!accessToken) {
-                            cmdResult = { success: false, error: "Không lấy được access_token — session_token có thể hết hạn", imageRequestId };
-                            break;
+                        await updateStep("🔍 1/4: Đang tìm tab Google Flow trên trình duyệt...");
+                        const tabs = await chrome.tabs.query({});
+                        let targetTab = tabs.find(t => t.url && t.url.includes("flow.google.com/project/"));
+                        if (!targetTab) {
+                            targetTab = tabs.find(t => t.url && t.url.includes("flow.google.com"));
                         }
 
-                        // Bước 3: Tạo project (hoặc dùng project có sẵn)
-                        let projectId = "";
+                        if (!targetTab) {
+                            await updateStep("🌐 Đang mở tab flow.google.com...");
+                            targetTab = await chrome.tabs.create({ url: "https://flow.google.com", active: true });
+                            await ensureTabLoaded(targetTab.id);
+                            await new Promise(r => setTimeout(r, 4000));
+                        }
+
+                        // Kích hoạt tab và cửa sổ chứa Flow
                         try {
-                            const createRes = await fetch(`${FLOW_LABS_BASE}/trpc/project.createProject`, {
-                                method: "POST",
-                                headers: {
-                                    "Content-Type": "application/json",
-                                    "Cookie": `__Secure-next-auth.session-token=${sessionToken}`
-                                },
-                                body: JSON.stringify({ json: { projectTitle: "EXPRO Auto", toolName: "PINHOLE" } })
-                            });
-                            const createData = await createRes.json();
-                            projectId = createData?.result?.data?.json?.result?.projectId || "";
+                            await chrome.tabs.update(targetTab.id, { active: true });
+                            if (targetTab.windowId) {
+                                await chrome.windows.update(targetTab.windowId, { focused: true });
+                            }
                         } catch(e) {}
 
-                        if (!projectId) {
-                            projectId = crypto.randomUUID();
-                        }
+                        await updateStep("🎨 2/4: Đang chuẩn bị khung soạn thảo và cài đặt bộ bắt ảnh...");
 
-                        // Bước 4: Gọi API tạo ảnh (REST API chuẩn)
-                        const resolvedAspect = IMAGE_ASPECTS[aspectRatio] || null;
-                        const requests = [];
-                        for (let i = 0; i < imageCount; i++) {
-                            const reqItem = {
-                                clientContext: {
-                                    projectId: projectId,
-                                    tool: "PINHOLE",
-                                    userPaygateTier: "PAYGATE_TIER_TWO",
-                                    sessionId: `;${Date.now()}`,
-                                    recaptchaContext: {
-                                        applicationType: "RECAPTCHA_APPLICATION_TYPE_WEB",
-                                        token: "bypass"
+                        // Bước 1: Cài interceptor và lấy toạ độ editor
+                        const prepRes = await chrome.scripting.executeScript({
+                            target: { tabId: targetTab.id },
+                            world: "MAIN",
+                            func: () => {
+                                try {
+                                    // A. Cài đặt fetch + XHR interceptor bắt link ảnh flow-content.google
+                                    if (!window.__exproInterceptorsInstalled) {
+                                        window.__exproInterceptorsInstalled = true;
+                                        window.__capturedImages = [];
+
+                                        const extractImgs = (text) => {
+                                            if (!text || typeof text !== "string") return;
+                                            const regex = /https:\/\/flow-content\.google\/image\/[a-f0-9-]+\?[^\"\\\s\']*/g;
+                                            const matches = text.match(regex) || [];
+                                            matches.forEach(m => {
+                                                const clean = m.replace(/\\u003d/g, "=").replace(/\\u0026/g, "&");
+                                                if (!window.__capturedImages.includes(clean)) {
+                                                    window.__capturedImages.push(clean);
+                                                }
+                                            });
+                                        };
+
+                                        // Patch fetch
+                                        const origFetch = window.fetch;
+                                        window.fetch = async function(...args) {
+                                            const res = await origFetch.apply(this, args);
+                                            try {
+                                                const u = args[0] ? String(args[0]) : "";
+                                                if (u.includes("ogiZ0b") || u.includes("batchexecute")) {
+                                                    res.clone().text().then(extractImgs).catch(() => {});
+                                                }
+                                            } catch(e) {}
+                                            return res;
+                                        };
+
+                                        // Patch XMLHttpRequest
+                                        const origOpen = XMLHttpRequest.prototype.open;
+                                        const origSend = XMLHttpRequest.prototype.send;
+                                        XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+                                            this.__reqUrl = url ? String(url) : "";
+                                            return origOpen.call(this, method, url, ...rest);
+                                        };
+                                        XMLHttpRequest.prototype.send = function(...args) {
+                                            this.addEventListener("load", function() {
+                                                if (this.__reqUrl && (this.__reqUrl.includes("ogiZ0b") || this.__reqUrl.includes("batchexecute"))) {
+                                                    extractImgs(this.responseText);
+                                                }
+                                            });
+                                            return origSend.apply(this, args);
+                                        };
                                     }
-                                },
-                                seed: Math.floor(Math.random() * 999999),
-                                imageModelName: model,
-                                structuredPrompt: { parts: [{ text: prompt }] },
-                                imageInputs: []
-                            };
-                            if (resolvedAspect) {
-                                reqItem.imageAspectRatio = resolvedAspect;
+
+                                    window.__capturedImages = [];
+                                    window.__existingImages = Array.from(document.querySelectorAll('img[src*="flow-content.google"]')).map(i => i.src);
+
+                                    const editor = document.querySelector(".ProseMirror");
+                                    if (!editor) {
+                                        return { error: "Không tìm thấy khung nhập Prompt trên tab Google Flow. Vui lòng mở 1 project trên flow.google.com!" };
+                                    }
+
+                                    const r = editor.getBoundingClientRect();
+                                    return {
+                                        success: true,
+                                        editorRect: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) }
+                                    };
+                                } catch(err) {
+                                    return { error: err.message || String(err) };
+                                }
                             }
-                            requests.push(reqItem);
-                        }
-
-                        const payload = {
-                            clientContext: requests[0].clientContext,
-                            mediaGenerationContext: { batchId: crypto.randomUUID() },
-                            useNewMedia: true,
-                            requests: requests
-                        };
-
-                        const genUrl = `${FLOW_API_BASE}/projects/${projectId}/flowMedia:batchGenerateImages?key=${FLOW_API_KEY}`;
-                        const genRes = await fetch(genUrl, {
-                            method: "POST",
-                            headers: {
-                                "Content-Type": "application/json",
-                                "Authorization": `Bearer ${accessToken}`,
-                                "Origin": "https://labs.google",
-                                "Referer": `https://labs.google/fx/tools/flow/project/${projectId}`
-                            },
-                            body: JSON.stringify(payload)
                         });
 
-                        const genText = await genRes.text();
-                        let genData = {};
-                        try { genData = JSON.parse(genText); } catch(e) {}
-
-                        if (!genRes.ok) {
-                            const errMsg = genData?.error?.message || genData?.message || genText.substring(0, 300);
-                            cmdResult = { success: false, error: `Flow API lỗi (${genRes.status}): ${errMsg}`, imageRequestId };
+                        const prepResult = prepRes?.[0]?.result || {};
+                        if (prepResult.error) {
+                            cmdResult = { success: false, error: prepResult.error, imageRequestId };
                             break;
                         }
 
-                        // Bước 5: Parse response - trích xuất ảnh base64 hoặc URL
-                        const images = [];
-                        const mediaResults = genData?.generatedMediaResults || genData?.results || [];
+                        // Bước 2: Kết nối Chrome Debugger để gửi sự kiện native phần cứng (isTrusted: true)
+                        let dbgAttached = false;
+                        await new Promise((resolve) => {
+                            chrome.debugger.attach({ tabId: targetTab.id }, "1.3", () => {
+                                if (chrome.runtime.lastError) {
+                                    console.warn("[Bridge Debugger] Attach error:", chrome.runtime.lastError.message);
+                                    resolve();
+                                } else {
+                                    dbgAttached = true;
+                                    resolve();
+                                }
+                            });
+                        });
 
-                        // Duyệt response tìm base64 encoded images
-                        const findImages = (obj) => {
-                            if (!obj || typeof obj !== 'object') return;
-                            if (obj.encodedImage) {
-                                images.push({ base64: obj.encodedImage, mediaId: obj.mediaId || "" });
-                                return;
-                            }
-                            if (obj.imageUrl || obj.url) {
-                                images.push({ url: obj.imageUrl || obj.url });
-                                return;
-                            }
-                            if (Array.isArray(obj)) {
-                                obj.forEach(item => findImages(item));
-                            } else {
-                                Object.values(obj).forEach(val => findImages(val));
-                            }
-                        };
-                        findImages(genData);
-
-                        if (images.length > 0) {
-                            cmdResult = { success: true, images, imageRequestId };
-                        } else {
-                            cmdResult = { success: false, error: "API trả về nhưng không có ảnh (có thể prompt bị chặn)", imageRequestId, raw: genText.substring(0, 500) };
+                        if (!dbgAttached) {
+                            cmdResult = { success: false, error: "Không thể kết nối Chrome Debugger tới tab Google Flow", imageRequestId };
+                            break;
                         }
+
+                        try {
+                            // 2A. Click vào giữa editor ProseMirror để lấy OS focus
+                            const er = prepResult.editorRect;
+                            const ex = er.x + Math.round(er.w / 2);
+                            const ey = er.y + Math.round(er.h / 2);
+
+                            await new Promise(r => chrome.debugger.sendCommand({ tabId: targetTab.id }, "Input.dispatchMouseEvent", { type: "mousePressed", x: ex, y: ey, button: "left", clickCount: 1 }, () => r()));
+                            await new Promise(r => chrome.debugger.sendCommand({ tabId: targetTab.id }, "Input.dispatchMouseEvent", { type: "mouseReleased", x: ex, y: ey, button: "left", clickCount: 1 }, () => r()));
+                            await new Promise(r => setTimeout(r, 150));
+
+                            // 2B. Xóa nội dung cũ trong editor (Select All -> Backspace)
+                            await new Promise(r => chrome.debugger.sendCommand({ tabId: targetTab.id }, "Input.dispatchKeyEvent", { type: "rawKeyDown", key: "a", code: "KeyA", windowsVirtualKeyCode: 65, modifiers: 8 }, () => r()));
+                            await new Promise(r => chrome.debugger.sendCommand({ tabId: targetTab.id }, "Input.dispatchKeyEvent", { type: "rawKeyDown", key: "a", code: "KeyA", windowsVirtualKeyCode: 65, modifiers: 2 }, () => r()));
+                            await new Promise(r => chrome.debugger.sendCommand({ tabId: targetTab.id }, "Input.dispatchKeyEvent", { type: "rawKeyDown", key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8 }, () => r()));
+                            await new Promise(r => chrome.debugger.sendCommand({ tabId: targetTab.id }, "Input.dispatchKeyEvent", { type: "keyUp", key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8 }, () => r()));
+                            await new Promise(r => setTimeout(r, 150));
+
+                            // 2C. Gõ Prompt vào editor bằng CDP Input.insertText
+                            await updateStep(`✍️ 2/4: Đang gõ prompt: "${prompt.substring(0, 35)}..."`);
+                            await new Promise(r => chrome.debugger.sendCommand({ tabId: targetTab.id }, "Input.insertText", { text: prompt }, () => r()));
+                            await new Promise(r => setTimeout(r, 400));
+
+                            // 2D. Lấy toạ độ MỚI NHẤT của nút Bắt đầu tạo (sau khi editor co giãn theo nội dung)
+                            const btnRes = await chrome.scripting.executeScript({
+                                target: { tabId: targetTab.id },
+                                world: "MAIN",
+                                func: () => {
+                                    const btn = document.querySelector(".generate-icon-button") || document.querySelector('button[aria-label="Bắt đầu tạo"]');
+                                    if (!btn) return null;
+                                    const r = btn.getBoundingClientRect();
+                                    return {
+                                        x: Math.round(r.x),
+                                        y: Math.round(r.y),
+                                        w: Math.round(r.width),
+                                        h: Math.round(r.height),
+                                        disabled: btn.disabled || btn.classList.contains("mat-mdc-button-disabled")
+                                    };
+                                }
+                            });
+
+                            const freshBtn = btnRes?.[0]?.result;
+                            if (freshBtn) {
+                                const fx = freshBtn.x + Math.round(freshBtn.w / 2);
+                                const fy = freshBtn.y + Math.round(freshBtn.h / 2);
+
+                                // CDP Native Mouse Click vào chính giữa nút Generate
+                                await new Promise(r => chrome.debugger.sendCommand({ tabId: targetTab.id }, "Input.dispatchMouseEvent", { type: "mouseMoved", x: fx, y: fy }, () => r()));
+                                await new Promise(r => chrome.debugger.sendCommand({ tabId: targetTab.id }, "Input.dispatchMouseEvent", { type: "mousePressed", x: fx, y: fy, button: "left", clickCount: 1 }, () => r()));
+                                await new Promise(r => setTimeout(r, 120));
+                                await new Promise(r => chrome.debugger.sendCommand({ tabId: targetTab.id }, "Input.dispatchMouseEvent", { type: "mouseReleased", x: fx, y: fy, button: "left", clickCount: 1 }, () => r()));
+                            }
+                        } finally {
+                            chrome.debugger.detach({ tabId: targetTab.id }, () => {});
+                        }
+
+                        await updateStep("⏳ 3/4: Đang chờ Google Flow xử lý và trả về ảnh AI (khoảng 15-30 giây)...");
+
+                        // Bước 3: Chờ kết quả tạo ảnh (tối đa 60 giây, kiểm tra mỗi 500ms)
+                        let capturedImages = [];
+                        for (let wait = 0; wait < 120; wait++) {
+                            await new Promise(r => setTimeout(r, 500));
+
+                            if (wait > 0 && wait % 10 === 0) {
+                                await updateStep(`⏳ 3/4: Đang chờ Google Flow xử lý... (${Math.round(wait * 0.5)}s / 60s)`);
+                            }
+
+                            const checkRes = await chrome.scripting.executeScript({
+                                target: { tabId: targetTab.id },
+                                world: "MAIN",
+                                func: () => {
+                                    // A. Từ DOM mới thêm vào canvas (Luôn đầy đủ Expires, KeyName, Signature hợp lệ!)
+                                    const existing = window.__existingImages || [];
+                                    const current = Array.from(document.querySelectorAll('img[src*="flow-content.google"]')).map(i => i.src);
+                                    const diff = current.filter(u => !existing.includes(u));
+                                    if (diff.length > 0) {
+                                        return { images: diff, source: "dom_diff" };
+                                    }
+                                    // B. Từ interceptor mạng (nếu có đầy đủ chữ ký KeyName)
+                                    if (window.__capturedImages && window.__capturedImages.length > 0) {
+                                        const valid = window.__capturedImages.filter(u => u.includes("KeyName="));
+                                        if (valid.length > 0) return { images: valid, source: "interceptor" };
+                                    }
+                                    return { images: [], currentCount: current.length };
+                                }
+                            });
+
+                            const imgs = checkRes?.[0]?.result?.images || [];
+                            if (imgs.length > 0) {
+                                capturedImages = imgs;
+                                break;
+                            }
+                        }
+
+                        // Fallback: nếu diff chưa bắt được nhưng trên trang có ảnh flow-content.google
+                        if (capturedImages.length === 0) {
+                            const fallbackRes = await chrome.scripting.executeScript({
+                                target: { tabId: targetTab.id },
+                                world: "MAIN",
+                                func: () => {
+                                    const allFlowImgs = Array.from(document.querySelectorAll('img[src*="flow-content.google"]'))
+                                        .filter(i => (i.naturalWidth || i.width || 0) > 100)
+                                        .map(i => i.src);
+                                    return allFlowImgs.slice(-4);
+                                }
+                            });
+                            const fbImgs = fallbackRes?.[0]?.result || [];
+                            if (fbImgs.length > 0) {
+                                capturedImages = fbImgs;
+                            }
+                        }
+
+                        if (capturedImages.length === 0) {
+                            cmdResult = {
+                                success: false,
+                                error: "Google Flow đã nhận lệnh nhưng không trả về ảnh sau 60s (có thể prompt bị kiểm duyệt an toàn hoặc hết quota)",
+                                imageRequestId
+                            };
+                            break;
+                        }
+
+                        await updateStep(`📥 3/4: Đang tải ${capturedImages.length} ảnh chất lượng cao và chuyển đổi Base64 vĩnh viễn...`);
+
+                        // Chuyển đổi URLs thành Data URL để lưu vĩnh viễn không bao giờ hết hạn ký
+                        const persistentImages = [];
+                        for (let rawUrl of capturedImages) {
+                            const imgUrl = (typeof rawUrl === "string") ? rawUrl : (rawUrl.url || "");
+                            if (!imgUrl) continue;
+                            try {
+                                const fetchRes = await fetch(imgUrl);
+                                if (fetchRes.ok) {
+                                    const arrayBuffer = await fetchRes.arrayBuffer();
+                                    const bytes = new Uint8Array(arrayBuffer);
+                                    let binary = "";
+                                    const len = bytes.byteLength;
+                                    for (let i = 0; i < len; i += 8192) {
+                                        binary += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i + 8192, len)));
+                                    }
+                                    const base64 = btoa(binary);
+                                    const mimeType = fetchRes.headers.get("content-type") || "image/jpeg";
+                                    const dataUrl = `data:${mimeType};base64,${base64}`;
+                                    persistentImages.push({ url: dataUrl, originalUrl: imgUrl });
+                                } else {
+                                    persistentImages.push({ url: imgUrl, originalUrl: imgUrl });
+                                }
+                            } catch(e) {
+                                persistentImages.push({ url: imgUrl, originalUrl: imgUrl });
+                            }
+                        }
+
+                        await updateStep(`✅ 4/4: Đã hoàn tất tạo ${persistentImages.length} ảnh AI Flow!`);
+
+                        cmdResult = {
+                            success: true,
+                            images: persistentImages,
+                            imageRequestId: imageRequestId
+                        };
 
                     } catch(flowErr) {
                         cmdResult = { success: false, error: flowErr.message, imageRequestId };

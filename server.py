@@ -1747,6 +1747,14 @@ HTML_DASHBOARD = """<!DOCTYPE html>
                     </button>
                 </li>
 
+                <!-- GOOGLE FLOW: TẠO ẢNH AI -->
+                <li class="menu-item" data-sub-menu="sub-flow-image" id="sideMenuFlowImageItem" style="display:none;">
+                    <button onclick="switchSubMenu('sub-flow-image')">
+                        <span class="nav-icon">🎨</span>
+                        <span class="menu-title" id="sideMenuFlowImageTitle">Tạo Ảnh AI (Flow)</span>
+                    </button>
+                </li>
+
                 <!-- NỀN TẢNG KHÁC -->
                 <li class="menu-item" data-sub-menu="sub-other-notice" id="sideMenuOtherNoticeItem" style="display:none;">
                     <button onclick="switchSubMenu('sub-other-notice')">
@@ -3795,6 +3803,120 @@ Sản phẩm tuyệt vời quá</textarea>
                 </div>
             </section>
 
+            <!-- MENU GOOGLE FLOW: TẠO ẢNH AI -->
+            <section class="route-view" id="view-sub-flow-image">
+                <!-- BANNER -->
+                <div class="card" style="margin-bottom:20px; background:linear-gradient(135deg, #042f2e 0%, #134e4a 100%); border-color:#2dd4bf;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px;">
+                        <div>
+                            <h2 style="font-size:18px; font-weight:800; color:#fff; display:flex; align-items:center; gap:8px;">
+                                <span>🎨</span> <span>Google Flow — AI Image Generator</span>
+                            </h2>
+                            <p style="font-size:13px; color:#cbd5e1; margin-top:4px;">
+                                Tạo ảnh AI bằng Imagen (HARBOR_SEAL) thông qua Google Flow. Nhập mô tả prompt và hệ thống sẽ gửi yêu cầu qua Chrome Extension đến flow.google.com để tạo ảnh.
+                            </p>
+                        </div>
+                        <span class="badge-folder" style="background:rgba(45,212,191,0.25); color:#5eead4; border:1px solid rgba(45,212,191,0.4); padding:6px 14px; font-size:12px;">
+                            🌊 Imagen / HARBOR_SEAL Engine
+                        </span>
+                    </div>
+                </div>
+
+                <!-- 3 KPI CARDS -->
+                <div class="grid-cards grid-responsive-sm" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:14px; margin-bottom:20px;">
+                    <div class="card" style="border-color:#2dd4bf;">
+                        <div class="card-title">🎨 Tổng Ảnh Đã Tạo</div>
+                        <div class="card-value" id="kpiFlowTotalImages" style="color:#2dd4bf;">0</div>
+                        <div class="card-sub">Tổng số ảnh AI đã generate</div>
+                    </div>
+                    <div class="card" style="border-color:#fbbf24;">
+                        <div class="card-title">⏳ Đang Xử Lý</div>
+                        <div class="card-value" id="kpiFlowPendingImages" style="color:#fbbf24;">0</div>
+                        <div class="card-sub">Đang chờ tạo ảnh</div>
+                    </div>
+                    <div class="card" style="border-color:#34d399;">
+                        <div class="card-title">✅ Hoàn Thành</div>
+                        <div class="card-value" id="kpiFlowCompletedImages" style="color:#34d399;">0</div>
+                        <div class="card-sub">Ảnh đã tạo thành công</div>
+                    </div>
+                </div>
+
+                <!-- SOẠN PROMPT TẠO ẢNH -->
+                <div class="card" style="margin-bottom:24px; border-color:#202d46;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                        <h3 style="font-size:16px; color:#2dd4bf; margin:0; display:flex; align-items:center; gap:8px;">
+                            <span>✍️</span> <span>Nhập Prompt Tạo Ảnh AI</span>
+                        </h3>
+                    </div>
+
+                    <!-- PROMPT INPUT -->
+                    <div style="margin-bottom:16px;">
+                        <label style="font-size:12px; font-weight:700; color:var(--text-muted); margin-bottom:6px; display:block;">📝 Prompt mô tả ảnh muốn tạo (Tiếng Việt hoặc Tiếng Anh)</label>
+                        <textarea id="flowImagePromptInput" rows="4" style="width:100%; resize:vertical; font-size:14px; line-height:1.6; padding:12px;" placeholder="Ví dụ: Một chú mèo dễ thương đang ngồi trên đống tiền vàng, phong cách 3D render, nền gradient xanh tím..."></textarea>
+                    </div>
+
+                    <!-- OPTIONS ROW -->
+                    <div style="display:flex; gap:16px; flex-wrap:wrap; margin-bottom:16px; align-items:flex-end;">
+                        <div style="flex:1; min-width:180px;">
+                            <label style="font-size:12px; font-weight:700; color:var(--text-muted); margin-bottom:6px; display:block;">🤖 Model AI</label>
+                            <select id="flowImageModelSelect" style="width:100%; padding:8px 12px; font-size:13px;">
+                                <option value="HARBOR_SEAL" selected>🖼️ Imagen 3 (HARBOR_SEAL) — Chất lượng cao</option>
+                            </select>
+                        </div>
+                        <div style="flex:1; min-width:140px;">
+                            <label style="font-size:12px; font-weight:700; color:var(--text-muted); margin-bottom:6px; display:block;">🔢 Số ảnh tạo</label>
+                            <select id="flowImageCountSelect" style="width:100%; padding:8px 12px; font-size:13px;">
+                                <option value="4" selected>4 ảnh</option>
+                                <option value="2">2 ảnh</option>
+                                <option value="1">1 ảnh</option>
+                            </select>
+                        </div>
+                        <div style="flex:1; min-width:140px;">
+                            <label style="font-size:12px; font-weight:700; color:var(--text-muted); margin-bottom:6px; display:block;">📐 Tỷ lệ ảnh</label>
+                            <select id="flowImageRatioSelect" style="width:100%; padding:8px 12px; font-size:13px;">
+                                <option value="3:4" selected>3:4 (Dọc)</option>
+                                <option value="4:3">4:3 (Ngang)</option>
+                                <option value="1:1">1:1 (Vuông)</option>
+                                <option value="16:9">16:9 (Widescreen)</option>
+                                <option value="9:16">9:16 (Story/Reels)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- SUBMIT BUTTONS -->
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                            <button type="button" class="btn-green btn-lg" onclick="submitFlowImageGenerate()" style="background:linear-gradient(135deg,#0d9488,#14b8a6); box-shadow:0 4px 15px rgba(20,184,166,0.35);">
+                                <span>🎨</span> <span>TẠO ẢNH AI NGAY</span>
+                            </button>
+                            <button type="button" class="btn-purple btn-lg" onclick="submitFlowImageGenerate('queue')">
+                                <span>➕</span> <span>Lưu Vào Hàng Đợi</span>
+                            </button>
+                        </div>
+                        <span id="flowImageStatusText" style="font-size:13px; font-weight:700;"></span>
+                    </div>
+                </div>
+
+                <!-- KẾT QUẢ ẢNH ĐÃ TẠO -->
+                <div class="card" style="border-color:#202d46;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:12px;">
+                        <h4 style="font-size:16px; color:#fff; margin:0; display:flex; align-items:center; gap:8px;">
+                            <span>🖼️</span> <span>Gallery Ảnh Đã Tạo</span>
+                            <span class="badge-folder" style="background:rgba(45,212,191,0.2); color:#5eead4; border:1px solid rgba(45,212,191,0.4);" id="flowImageCountBadge">0 Ảnh</span>
+                        </h4>
+                    </div>
+
+                    <!-- GALLERY CONTAINER -->
+                    <div id="flowImageGalleryContainer">
+                        <div style="color:var(--text-muted); font-size:13px; padding:32px 20px; text-align:center;">
+                            <span style="font-size:32px;">🎨</span>
+                            <div style="font-weight:700; color:#cbd5e1; margin-top:8px;">Chưa có ảnh nào được tạo</div>
+                            <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">Nhập prompt mô tả ở trên và bấm [🎨 TẠO ẢNH AI NGAY] để bắt đầu!</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <!-- MENU TỰ ĐỘNG HÓA 3: TƯƠNG TÁC / SEEDING / NUÔI NICK (INTERACTION STUDIO) -->
             <section class="route-view" id="view-sub-interaction">
                 <!-- BANNER -->
@@ -4588,6 +4710,7 @@ Sản phẩm tuyệt vời quá</textarea>
             "sub-post-story": { title: "📖 POST FACEBOOK — Facebook Story", el: document.getElementById("view-sub-post-story") },
             "sub-api-doc": { title: "📖 POST FACEBOOK — Chi Tiết Các Endpoint API", el: document.getElementById("view-sub-api-doc") },
             "sub-post-manager": { title: "📑 POST FACEBOOK — Quản Lý Bài Viết Đã Đăng", el: document.getElementById("view-sub-post-manager") },
+            "sub-flow-image": { title: "🎨 GOOGLE FLOW — Tạo Ảnh AI", el: document.getElementById("view-sub-flow-image") },
             "sub-interaction": { title: "💬 Studio Tương Tác / Nuôi Nick FB", el: document.getElementById("view-sub-interaction") },
             "sub-other-notice": { title: "💡 Trạng Thái Tự Động Hóa Nền Tảng", el: document.getElementById("view-sub-other-notice") },
             "sub-browser": { title: "🌐 Điều Khiển Tab Facebook", el: document.getElementById("view-sub-browser") },
@@ -4627,11 +4750,19 @@ Sản phẩm tuyệt vời quá</textarea>
 
             // Phân biệt rõ: Nếu không phải Facebook, không mở các menu tự động hóa của Facebook
             if (subType !== 'facebook') {
-                if (targetKey === 'sub-scraper' || targetKey === 'sub-autopost' || targetKey === 'sub-post-video' || targetKey === 'sub-post-reels' || targetKey === 'sub-post-story' || targetKey === 'sub-api-doc' || targetKey === 'sub-post-manager' || targetKey === 'sub-interaction') {
-                    targetKey = 'sub-other-notice';
+                if (subType === 'flow') {
+                    // FLOW: cho phép sub-flow-image, chặn các menu Facebook
+                    if (targetKey === 'sub-scraper' || targetKey === 'sub-autopost' || targetKey === 'sub-post-video' || targetKey === 'sub-post-reels' || targetKey === 'sub-post-story' || targetKey === 'sub-api-doc' || targetKey === 'sub-post-manager' || targetKey === 'sub-interaction') {
+                        targetKey = 'sub-flow-image';
+                    }
+                } else {
+                    // CÁC NỀN TẢNG KHÁC: chặn tất cả menu FB + Flow
+                    if (targetKey === 'sub-scraper' || targetKey === 'sub-autopost' || targetKey === 'sub-post-video' || targetKey === 'sub-post-reels' || targetKey === 'sub-post-story' || targetKey === 'sub-api-doc' || targetKey === 'sub-post-manager' || targetKey === 'sub-interaction' || targetKey === 'sub-flow-image') {
+                        targetKey = 'sub-other-notice';
+                    }
                 }
             } else {
-                if (targetKey === 'sub-other-notice') {
+                if (targetKey === 'sub-other-notice' || targetKey === 'sub-flow-image') {
                     targetKey = 'sub-account-info';
                 }
             }
@@ -4994,6 +5125,8 @@ async function triggerRunNow(postId) {
                 if (scraperItem) scraperItem.style.display = "block";
                 if (interactionItem) interactionItem.style.display = "block";
                 if (otherNoticeItem) otherNoticeItem.style.display = "none";
+                const flowImageItemFb = document.getElementById("sideMenuFlowImageItem");
+                if (flowImageItemFb) flowImageItemFb.style.display = "none";
                 if (sideAccount) sideAccount.textContent = "Thông Tin & Cookie FB";
                 if (sideBrowser) sideBrowser.textContent = "Điều Khiển Tab Facebook";
             } else {
@@ -5008,6 +5141,16 @@ async function triggerRunNow(postId) {
                     const otherNoticeTitle = document.getElementById("sideMenuOtherNoticeTitle");
                     if (otherNoticeTitle) otherNoticeTitle.textContent = `Kịch Bản ${pCfg.name}`;
                 }
+                
+                // Google Flow: Hiển thị menu Tạo Ảnh AI
+                const flowImageItem = document.getElementById("sideMenuFlowImageItem");
+                if (flowImageItem) {
+                    flowImageItem.style.display = (subType === 'flow') ? 'block' : 'none';
+                }
+                if (subType === 'flow' && otherNoticeItem) {
+                    otherNoticeItem.style.display = 'none';
+                }
+
                 if (sideAccount) sideAccount.textContent = `Tài Khoản & Cookie ${pCfg.name}`;
                 if (sideBrowser) sideBrowser.textContent = `Điều Khiển Tab ${pCfg.name}`;
 
@@ -5625,6 +5768,11 @@ async function triggerRunNow(postId) {
 
             // 10. Interaction & Seeding Studio
             renderInteractionStudio(sub, pCfg);
+
+            // 11. Google Flow: Image Gallery
+            if (subType === 'flow' && typeof renderFlowImageGallery === 'function') {
+                renderFlowImageGallery(sub);
+            }
         }
 
         function renderSubBrowserQuickButtons(subType) {
@@ -7786,6 +7934,142 @@ async function triggerRunNow(postId) {
             renderPostQueueList(filtered, "postManagerTableContainer", "postManagerCountBadge", "📑", "Không có bài viết nào phù hợp bộ lọc", "Đăng bài từ các Studio (Bài Viết, Video, Reels, Story) để bắt đầu quản lý!");
         }
 
+        // ===== GOOGLE FLOW: AI IMAGE GENERATION =====
+        async function submitFlowImageGenerate(mode) {
+            if (!currentProjectId || !currentSubProjectId) return;
+
+            const prompt = document.getElementById('flowImagePromptInput')?.value.trim() || '';
+            const model = document.getElementById('flowImageModelSelect')?.value || 'HARBOR_SEAL';
+            const count = parseInt(document.getElementById('flowImageCountSelect')?.value || '4');
+            const ratio = document.getElementById('flowImageRatioSelect')?.value || '3:4';
+            const statusEl = document.getElementById('flowImageStatusText');
+
+            if (!prompt) {
+                alert('Vui lòng nhập prompt mô tả ảnh muốn tạo!');
+                return;
+            }
+
+            const isQueue = (mode === 'queue');
+
+            if (statusEl) {
+                statusEl.textContent = isQueue ? '⏳ Đang lưu vào hàng đợi...' : '🎨 Đang gửi yêu cầu tạo ảnh AI qua Extension...';
+                statusEl.style.color = 'var(--accent)';
+            }
+
+            try {
+                const payload = {
+                    projectId: currentProjectId,
+                    subProjectId: currentSubProjectId,
+                    prompt,
+                    model,
+                    imageCount: count,
+                    aspectRatio: ratio,
+                    runNow: !isQueue
+                };
+
+                const res = await fetch('/api/v1/flow/generate-image', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await res.json();
+                if (data.success) {
+                    if (statusEl) {
+                        statusEl.textContent = isQueue ? '✅ Đã lưu vào hàng đợi tạo ảnh!' : '🎨 Đã gửi yêu cầu tạo ảnh thành công! Đang chờ kết quả...';
+                        statusEl.style.color = 'var(--success)';
+                    }
+                    document.getElementById('flowImagePromptInput').value = '';
+
+                    setTimeout(() => {
+                        if (currentProjectId) fetchParentProjectData(currentProjectId);
+                    }, 800);
+                } else {
+                    if (statusEl) {
+                        statusEl.textContent = '❌ ' + extractErrorMsg(data.error, 'Lỗi tạo ảnh');
+                        statusEl.style.color = 'var(--danger)';
+                    }
+                }
+            } catch(e) {
+                if (statusEl) {
+                    statusEl.textContent = '❌ Lỗi: ' + e.message;
+                    statusEl.style.color = 'var(--danger)';
+                }
+            }
+        }
+
+        function renderFlowImageGallery(sub) {
+            const imageQueue = sub.imageQueue || [];
+            const container = document.getElementById('flowImageGalleryContainer');
+            const countBadge = document.getElementById('flowImageCountBadge');
+            const kpiTotal = document.getElementById('kpiFlowTotalImages');
+            const kpiPending = document.getElementById('kpiFlowPendingImages');
+            const kpiCompleted = document.getElementById('kpiFlowCompletedImages');
+
+            let pendingCount = 0, completedCount = 0;
+            imageQueue.forEach(item => {
+                if (item.status === 'completed') completedCount++;
+                else pendingCount++;
+            });
+
+            if (kpiTotal) kpiTotal.textContent = imageQueue.length;
+            if (kpiPending) kpiPending.textContent = pendingCount;
+            if (kpiCompleted) kpiCompleted.textContent = completedCount;
+            if (countBadge) countBadge.textContent = `${imageQueue.length} Ảnh`;
+
+            if (!container) return;
+
+            if (imageQueue.length === 0) {
+                container.innerHTML = `
+                    <div style="color:var(--text-muted); font-size:13px; padding:32px 20px; text-align:center;">
+                        <span style="font-size:32px;">🎨</span>
+                        <div style="font-weight:700; color:#cbd5e1; margin-top:8px;">Chưa có ảnh nào được tạo</div>
+                        <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">Nhập prompt mô tả ở trên và bấm [🎨 TẠO ẢNH AI NGAY] để bắt đầu!</div>
+                    </div>
+                `;
+                return;
+            }
+
+            const sorted = [...imageQueue].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+            let html = '<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:16px;">';
+            sorted.forEach(item => {
+                const images = item.images || [];
+                const prompt = item.prompt || 'N/A';
+                const status = item.status || 'pending';
+                const createdAt = item.createdAt ? new Date(item.createdAt).toLocaleString('vi-VN') : '---';
+
+                const statusBadge = status === 'completed'
+                    ? '<span style="color:#34d399; font-size:11px; font-weight:700;">✅ Hoàn thành</span>'
+                    : status === 'failed'
+                        ? '<span style="color:#f87171; font-size:11px; font-weight:700;">❌ Thất bại</span>'
+                        : '<span style="color:#fbbf24; font-size:11px; font-weight:700;">⏳ Đang xử lý</span>';
+
+                html += `<div style="background:#0d1425; border:1px solid #1e293b; border-radius:12px; overflow:hidden;">`;
+
+                if (images.length > 0) {
+                    html += `<div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:2px;">`;
+                    images.slice(0, 4).forEach(img => {
+                        const imgUrl = img.url || img;
+                        html += `<div style="aspect-ratio:3/4; overflow:hidden; cursor:pointer;" onclick="window.open('${imgUrl}','_blank')">`;
+                        html += `<img src="${imgUrl}" style="width:100%; height:100%; object-fit:cover;" loading="lazy" onerror="this.src='data:image/svg+xml,<svg xmlns=http://www.w3.org/2000/svg viewBox=0 0 100 100><text y=50 x=25 font-size=30>🖼️</text></svg>';" />`;
+                        html += `</div>`;
+                    });
+                    html += `</div>`;
+                }
+
+                html += `<div style="padding:12px;">`;
+                html += `<div style="font-size:12px; color:#cbd5e1; line-height:1.5; margin-bottom:8px; max-height:48px; overflow:hidden;">${prompt.substring(0, 120)}${prompt.length > 120 ? '...' : ''}</div>`;
+                html += `<div style="display:flex; justify-content:space-between; align-items:center;">`;
+                html += statusBadge;
+                html += `<span style="font-size:10px; color:#64748b;">${createdAt}</span>`;
+                html += `</div>`;
+                html += `</div></div>`;
+            });
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
         async function submitAutoPost(runMode) {
             if (!currentProjectId || !currentSubProjectId) return;
 
@@ -9702,6 +9986,83 @@ class BridgeHandler(BaseHTTPRequestHandler):
             save_projects(projs)
             push_log(f"Đã xóa toàn bộ dữ liệu cào của '{target_sub['name']}'", "warn", project_id=proj_id, subproject_id=sub_id)
             self._send_json(200, {"success": True})
+            return
+
+        # =====================================================================
+        # GOOGLE FLOW: API TẠO ẢNH AI
+        # POST /api/v1/flow/generate-image
+        # =====================================================================
+        if pathname in ("/api/v1/flow/generate-image",):
+            try:
+                body = json.loads(raw_body.decode("utf-8"))
+            except:
+                self._send_json(400, {"success": False, "error": "Invalid JSON"})
+                return
+
+            proj_id = body.get("projectId", "")
+            sub_id = body.get("subProjectId", "")
+            prompt = body.get("prompt", "").strip()
+            model = body.get("model", "HARBOR_SEAL")
+            image_count = body.get("imageCount", 4)
+            aspect_ratio = body.get("aspectRatio", "3:4")
+            run_now = body.get("runNow", True)
+
+            if not proj_id or not sub_id:
+                self._send_json(400, {"success": False, "error": "Missing projectId or subProjectId"})
+                return
+            if not prompt:
+                self._send_json(400, {"success": False, "error": "Missing prompt"})
+                return
+
+            projs = load_projects()
+            proj = next((p for p in projs if p["id"] == proj_id), None)
+            if not proj:
+                self._send_json(404, {"success": False, "error": "Project not found"})
+                return
+            sub = next((s for s in proj.get("subProjects", []) if s["id"] == sub_id), None)
+            if not sub:
+                self._send_json(404, {"success": False, "error": "SubProject not found"})
+                return
+
+            import time as _time
+            image_request_id = f"flowimg_{int(_time.time() * 1000)}_{random.randint(1000, 9999)}"
+            image_item = {
+                "id": image_request_id,
+                "prompt": prompt,
+                "model": model,
+                "imageCount": image_count,
+                "aspectRatio": aspect_ratio,
+                "status": "pending" if run_now else "queued",
+                "images": [],
+                "createdAt": int(_time.time() * 1000),
+                "runNow": run_now
+            }
+
+            if "imageQueue" not in sub:
+                sub["imageQueue"] = []
+            sub["imageQueue"].append(image_item)
+            save_projects(projs)
+
+            push_log(f"🎨 Yêu cầu tạo ảnh AI Flow: '{prompt[:60]}...' (Model: {model}, Count: {image_count})", "info", project_id=proj_id, subproject_id=sub_id)
+
+            # Nếu runNow, gửi lệnh tới Extension qua pendingCommands
+            if run_now:
+                cmd = {
+                    "action": "FLOW_GENERATE_IMAGE",
+                    "prompt": prompt,
+                    "model": model,
+                    "imageCount": image_count,
+                    "aspectRatio": aspect_ratio,
+                    "imageRequestId": image_request_id,
+                    "projectId": proj_id,
+                    "subProjectId": sub_id
+                }
+                if "pendingCommands" not in sub:
+                    sub["pendingCommands"] = []
+                sub["pendingCommands"].append(cmd)
+                save_projects(projs)
+
+            self._send_json(200, {"success": True, "imageRequestId": image_request_id})
             return
 
         # =====================================================================

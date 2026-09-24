@@ -4056,6 +4056,14 @@ Sản phẩm tuyệt vời quá</textarea>
         // =========================================================
         // MOBILE SIDEBAR TOGGLE
         // =========================================================
+        // Helper: trích xuất thông báo lỗi từ API response (hỗ trợ cả string và object)
+        function extractErrorMsg(err, fallback) {
+            if (!err) return fallback || "Lỗi không xác định";
+            if (typeof err === 'string') return err;
+            if (typeof err === 'object' && err.message) return err.message;
+            try { return JSON.stringify(err); } catch(e) { return fallback || "Lỗi không xác định"; }
+        }
+
         function toggleMobileSidebar() {
             document.body.classList.toggle('sidebar-open');
             const overlay = document.querySelector('.sidebar-overlay');
@@ -5914,7 +5922,7 @@ async function triggerRunNow(postId) {
                     alert("💾 Đã lưu và áp dụng thành công bộ Cookie mới cho Dự Án Con này!");
                     fetchParentProjectData(currentProjectId);
                 } else {
-                    alert("Lỗi khi lưu cookie: " + (data.error || "Không xác định"));
+                    alert("Lỗi khi lưu cookie: " + extractErrorMsg(data.error, "Không xác định"));
                 }
             } catch(e) {
                 alert("Lỗi kết nối máy chủ: " + e.message);
@@ -6744,7 +6752,7 @@ async function triggerRunNow(postId) {
                     }, 600);
                 } else {
                     if (statusEl) {
-                        statusEl.textContent = "❌ " + (data.error || "Lỗi tạo bài đăng");
+                        statusEl.textContent = "❌ " + extractErrorMsg(data.error, "Lỗi tạo bài đăng");
                         statusEl.style.color = "var(--danger)";
                     }
                 }
@@ -6847,7 +6855,7 @@ async function triggerRunNow(postId) {
                     closeAddSeedingModal();
                     if (currentProjectId) fetchParentProjectData(currentProjectId);
                 } else {
-                    alert("❌ Lỗi: " + (data.error || "Không thể gửi seeding"));
+                    alert("❌ Lỗi: " + extractErrorMsg(data.error, "Không thể gửi seeding"));
                 }
             } catch(e) {
                 alert("❌ Lỗi kết nối: " + e.message);
@@ -6871,7 +6879,7 @@ async function triggerRunNow(postId) {
                     alert("🚀 Đã phát lệnh đăng bài ngay lên Extension Chrome!");
                     if (currentProjectId) fetchParentProjectData(currentProjectId);
                 } else {
-                    alert("❌ Lỗi: " + (data.error || "Không thể thực thi"));
+                    alert("❌ Lỗi: " + extractErrorMsg(data.error, "Không thể thực thi"));
                 }
             } catch(e) {
                 alert("❌ Lỗi kết nối: " + e.message);
@@ -6947,7 +6955,7 @@ async function triggerRunNow(postId) {
                     closeEditScheduleModal();
                     if (currentProjectId) fetchParentProjectData(currentProjectId);
                 } else {
-                    alert("❌ Lỗi: " + (data.error || "Không thể cập nhật lịch đăng"));
+                    alert("❌ Lỗi: " + extractErrorMsg(data.error, "Không thể cập nhật lịch đăng"));
                 }
             } catch(e) {
                 alert("❌ Lỗi kết nối: " + e.message);
@@ -7511,7 +7519,7 @@ async function triggerRunNow(postId) {
                     }, 600);
                 } else {
                     if (statusEl) {
-                        statusEl.textContent = "❌ " + (data.error || "Lỗi tạo bài đăng");
+                        statusEl.textContent = "❌ " + extractErrorMsg(data.error, "Lỗi tạo bài đăng");
                         statusEl.style.color = "var(--danger)";
                     }
                 }
@@ -7533,7 +7541,7 @@ async function triggerRunNow(postId) {
                 if (data.success) {
                     if (currentProjectId) fetchParentProjectData(currentProjectId);
                 } else {
-                    alert("Lỗi: " + (data.error || "Không thể xóa bài"));
+                    alert("Lỗi: " + extractErrorMsg(data.error, "Không thể xóa bài"));
                 }
             } catch(e) {
                 alert("Lỗi: " + e.message);
@@ -7787,7 +7795,7 @@ async function triggerRunNow(postId) {
                     }, 1000);
                     fetchParentProjectData(currentProjectId);
                 } else {
-                    statusEl.textContent = "❌ Lỗi: " + data.error;
+                    statusEl.textContent = "❌ Lỗi: " + extractErrorMsg(data.error);
                     statusEl.style.color = "var(--danger)";
                 }
             } catch(e) {
@@ -7808,7 +7816,7 @@ async function triggerRunNow(postId) {
                 if (data.success) {
                     fetchParentProjectData(currentProjectId);
                 } else {
-                    alert("❌ Lỗi: " + data.error);
+                    alert("❌ Lỗi: " + extractErrorMsg(data.error));
                 }
             } catch(e) {
                 alert("❌ Lỗi: " + e.message);
@@ -8212,7 +8220,7 @@ async function triggerRunNow(postId) {
                     }, 1000);
                     fetchProjects();
                 } else {
-                    statusEl.textContent = "❌ Lỗi: " + data.error;
+                    statusEl.textContent = "❌ Lỗi: " + extractErrorMsg(data.error);
                     statusEl.style.color = "var(--danger)";
                 }
             } catch(e) {
@@ -8243,7 +8251,7 @@ async function triggerRunNow(postId) {
                     alert("✅ Đã tạo mã Token mới:\\n" + data.project.token);
                     fetchProjects();
                 } else {
-                    alert("❌ Lỗi: " + data.error);
+                    alert("❌ Lỗi: " + extractErrorMsg(data.error));
                 }
             } catch(e) {
                 alert("❌ Lỗi: " + e.message);
@@ -8262,7 +8270,7 @@ async function triggerRunNow(postId) {
                 if (data.success) {
                     fetchProjects();
                 } else {
-                    alert("❌ Lỗi: " + data.error);
+                    alert("❌ Lỗi: " + extractErrorMsg(data.error));
                 }
             } catch(e) {
                 alert("❌ Lỗi: " + e.message);
@@ -8325,7 +8333,7 @@ async function triggerRunNow(postId) {
                     statusEl.textContent = "✅ Đã lưu! Bấm Reload 🔄 trên chrome://extensions";
                     statusEl.style.color = "var(--success)";
                 } else {
-                    statusEl.textContent = "❌ Lỗi: " + data.error;
+                    statusEl.textContent = "❌ Lỗi: " + extractErrorMsg(data.error);
                     statusEl.style.color = "var(--danger)";
                 }
             } catch(e) {

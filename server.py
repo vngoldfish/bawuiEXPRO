@@ -8032,18 +8032,23 @@ async function triggerRunNow(postId) {
 
             const sorted = [...imageQueue].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
-            let html = '<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:16px;">';
+            let html = '<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:16px;">';
             sorted.forEach(item => {
                 const images = item.images || [];
                 const prompt = item.prompt || 'N/A';
                 const status = item.status || 'pending';
+                const model = item.model || 'HARBOR_SEAL';
+                const ratio = item.aspectRatio || '3:4';
+                const count = item.imageCount || 4;
                 const createdAt = item.createdAt ? new Date(item.createdAt).toLocaleString('vi-VN') : '---';
 
                 const statusBadge = status === 'completed'
                     ? '<span style="color:#34d399; font-size:11px; font-weight:700;">✅ Hoàn thành</span>'
                     : status === 'failed'
                         ? '<span style="color:#f87171; font-size:11px; font-weight:700;">❌ Thất bại</span>'
-                        : '<span style="color:#fbbf24; font-size:11px; font-weight:700;">⏳ Đang xử lý</span>';
+                        : status === 'queued'
+                            ? '<span style="color:#a78bfa; font-size:11px; font-weight:700;">📋 Trong hàng đợi</span>'
+                            : '<span style="color:#fbbf24; font-size:11px; font-weight:700;">⏳ Đang chờ Extension xử lý...</span>';
 
                 html += `<div style="background:#0d1425; border:1px solid #1e293b; border-radius:12px; overflow:hidden;">`;
 
@@ -8052,14 +8057,36 @@ async function triggerRunNow(postId) {
                     images.slice(0, 4).forEach(img => {
                         const imgUrl = img.url || img;
                         html += `<div style="aspect-ratio:3/4; overflow:hidden; cursor:pointer;" onclick="window.open('${imgUrl}','_blank')">`;
-                        html += `<img src="${imgUrl}" style="width:100%; height:100%; object-fit:cover;" loading="lazy" onerror="this.src='data:image/svg+xml,<svg xmlns=http://www.w3.org/2000/svg viewBox=0 0 100 100><text y=50 x=25 font-size=30>🖼️</text></svg>';" />`;
+                        html += `<img src="${imgUrl}" style="width:100%; height:100%; object-fit:cover;" loading="lazy" />`;
                         html += `</div>`;
                     });
+                    html += `</div>`;
+                } else {
+                    // Placeholder cho pending/queued items
+                    html += `<div style="display:flex; align-items:center; justify-content:center; padding:32px 16px; background:linear-gradient(135deg,#0f172a,#1e293b); min-height:140px;">`;
+                    if (status === 'pending') {
+                        html += `<div style="text-align:center;">`;
+                        html += `<div style="font-size:36px; animation:pulse 2s infinite;">🎨</div>`;
+                        html += `<div style="color:#fbbf24; font-size:12px; font-weight:700; margin-top:8px;">Đang chờ Extension tạo ${count} ảnh...</div>`;
+                        html += `<div style="color:#64748b; font-size:11px; margin-top:4px;">Model: ${model} | Tỷ lệ: ${ratio}</div>`;
+                        html += `</div>`;
+                    } else if (status === 'queued') {
+                        html += `<div style="text-align:center;">`;
+                        html += `<div style="font-size:36px;">📋</div>`;
+                        html += `<div style="color:#a78bfa; font-size:12px; font-weight:700; margin-top:8px;">Đã lưu vào hàng đợi (${count} ảnh)</div>`;
+                        html += `<div style="color:#64748b; font-size:11px; margin-top:4px;">Model: ${model} | Tỷ lệ: ${ratio}</div>`;
+                        html += `</div>`;
+                    } else {
+                        html += `<div style="text-align:center;">`;
+                        html += `<div style="font-size:36px;">❌</div>`;
+                        html += `<div style="color:#f87171; font-size:12px; font-weight:700; margin-top:8px;">Tạo ảnh thất bại</div>`;
+                        html += `</div>`;
+                    }
                     html += `</div>`;
                 }
 
                 html += `<div style="padding:12px;">`;
-                html += `<div style="font-size:12px; color:#cbd5e1; line-height:1.5; margin-bottom:8px; max-height:48px; overflow:hidden;">${prompt.substring(0, 120)}${prompt.length > 120 ? '...' : ''}</div>`;
+                html += `<div style="font-size:13px; color:#e2e8f0; line-height:1.5; margin-bottom:8px; max-height:60px; overflow:hidden; font-weight:600;">"${prompt.substring(0, 120)}${prompt.length > 120 ? '...' : ''}"</div>`;
                 html += `<div style="display:flex; justify-content:space-between; align-items:center;">`;
                 html += statusBadge;
                 html += `<span style="font-size:10px; color:#64748b;">${createdAt}</span>`;

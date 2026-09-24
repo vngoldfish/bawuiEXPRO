@@ -3883,9 +3883,9 @@ Sản phẩm tuyệt vời quá</textarea>
                         <div style="flex:1; min-width:220px;">
                             <label style="font-size:12px; font-weight:700; color:var(--text-muted); margin-bottom:6px; display:block;">🍌 Model AI</label>
                             <select id="flowImageModelSelect" style="width:100%; padding:10px 12px; font-size:13px; font-weight:700;">
-                                <option value="GEM_PIX_2">🍌 Nano Banana Pro</option>
-                                <option value="NARWHAL">🍌 Nano Banana 2</option>
-                                <option value="HARBOR_SEAL" selected>🍌 Nano Banana 2 Lite</option>
+                                <option value="GEM_PIX">🍌 Nano Banana Pro</option>
+                                <option value="GEM_PIX_2">🍌 Nano Banana 2</option>
+                                <option value="NARWHAL" selected>🍌 Nano Banana 2 Lite</option>
                             </select>
                         </div>
                         <div style="min-width:200px;">

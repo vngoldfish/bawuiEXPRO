@@ -2127,161 +2127,149 @@ async function pollAndExecuteCommand() {
                     const aspectRatio = cmd.aspectRatio || "3:4";
                     const imageRequestId = cmd.imageRequestId || "";
 
+                    const FLOW_API_BASE = "https://aisandbox-pa.googleapis.com/v1";
+                    const FLOW_API_KEY = "AIzaSyBtrm0o5ab1c-Ec8ZuLcGt3oJAA5VWt3pY";
+                    const FLOW_LABS_BASE = "https://labs.google/fx/api";
+
+                    const IMAGE_ASPECTS = {
+                        "1:1": "IMAGE_ASPECT_RATIO_SQUARE",
+                        "3:4": "IMAGE_ASPECT_RATIO_PORTRAIT_THREE_FOUR",
+                        "4:3": "IMAGE_ASPECT_RATIO_LANDSCAPE_FOUR_THREE",
+                        "9:16": "IMAGE_ASPECT_RATIO_PORTRAIT",
+                        "16:9": "IMAGE_ASPECT_RATIO_LANDSCAPE"
+                    };
+
                     try {
-                        // Bước 1: Lấy cookies flow.google.com
-                        const flowCookies = await chrome.cookies.getAll({ domain: "flow.google.com" });
-                        if (flowCookies.length === 0) {
-                            cmdResult = { success: false, error: "Chưa đăng nhập flow.google.com trên Chrome", imageRequestId };
+                        // Bước 1: Lấy session_token từ cookie labs.google
+                        const labsCookies = await chrome.cookies.getAll({ domain: "labs.google" });
+                        const sessionCookie = labsCookies.find(c => c.name === "__Secure-next-auth.session-token");
+                        if (!sessionCookie) {
+                            cmdResult = { success: false, error: "Chưa đăng nhập labs.google — Hãy mở https://labs.google/fx/tools/flow trên Chrome và đăng nhập Google", imageRequestId };
                             break;
                         }
+                        const sessionToken = sessionCookie.value;
 
-                        // Bước 2: Mở tab flow.google.com để lấy at= token và f.sid
-                        const flowTab = await chrome.tabs.create({ url: "https://flow.google.com", active: false });
-                        await new Promise(r => setTimeout(r, 4000)); // Chờ trang load
-
-                        // Inject script để lấy token
-                        const tokenResults = await chrome.scripting.executeScript({
-                            target: { tabId: flowTab.id },
-                            func: () => {
-                                try {
-                                    // Tìm at= token từ WIZ_global_data hoặc page source
-                                    const pageText = document.documentElement.innerHTML;
-                                    let atToken = "";
-                                    let fSid = "";
-                                    let bl = "";
-
-                                    // Tìm at token
-                                    const atMatch = pageText.match(/\"SNlM0e\":\"([^\"]+)\"/);
-                                    if (atMatch) atToken = atMatch[1];
-
-                                    // Tìm f.sid
-                                    const sidMatch = pageText.match(/\"FdrFJe\":\"(-?\d+)\"/);
-                                    if (sidMatch) fSid = sidMatch[1];
-
-                                    // Tìm bl
-                                    const blMatch = pageText.match(/\"cfb2h\":\"([^\"]+)\"/);
-                                    if (blMatch) bl = blMatch[1];
-
-                                    return { atToken, fSid, bl };
-                                } catch(e) {
-                                    return { error: e.message };
-                                }
+                        // Bước 2: Đổi session_token → access_token qua /auth/session
+                        const sessionRes = await fetch(`${FLOW_LABS_BASE}/auth/session`, {
+                            headers: {
+                                "Cookie": `__Secure-next-auth.session-token=${sessionToken}`,
+                                "Accept": "application/json"
                             }
                         });
-
-                        const tokenData = tokenResults?.[0]?.result || {};
-                        const { atToken, fSid, bl } = tokenData;
-
-                        if (!atToken) {
-                            await chrome.tabs.remove(flowTab.id).catch(() => {});
-                            cmdResult = { success: false, error: "Không lấy được token từ flow.google.com. Hãy đăng nhập Flow trước!", imageRequestId };
+                        if (!sessionRes.ok) {
+                            cmdResult = { success: false, error: `Session hết hạn (HTTP ${sessionRes.status}) — mở lại labs.google/fx/tools/flow và đăng nhập lại`, imageRequestId };
+                            break;
+                        }
+                        const sessionData = await sessionRes.json();
+                        const accessToken = sessionData.access_token;
+                        if (!accessToken) {
+                            cmdResult = { success: false, error: "Không lấy được access_token — session_token có thể hết hạn", imageRequestId };
                             break;
                         }
 
-                        // Bước 3: Inject script để lấy projectId + gọi batchexecute tạo ảnh
-                        const genResults = await chrome.scripting.executeScript({
-                            target: { tabId: flowTab.id },
-                            func: async (prompt, model, imageCount, aspectRatio, atToken, fSid, bl) => {
-                                try {
-                                    // ===== Bước 3a: Lấy projectId bằng RPC UpteDb =====
-                                    let projectId = "";
+                        // Bước 3: Tạo project (hoặc dùng project có sẵn)
+                        let projectId = "";
+                        try {
+                            const createRes = await fetch(`${FLOW_LABS_BASE}/trpc/project.createProject`, {
+                                method: "POST",
+                                headers: {
+                                    "Content-Type": "application/json",
+                                    "Cookie": `__Secure-next-auth.session-token=${sessionToken}`
+                                },
+                                body: JSON.stringify({ json: { projectTitle: "EXPRO Auto", toolName: "PINHOLE" } })
+                            });
+                            const createData = await createRes.json();
+                            projectId = createData?.result?.data?.json?.result?.projectId || "";
+                        } catch(e) {}
 
-                                    // Thử tìm từ URL trước
-                                    const urlMatch = window.location.pathname.match(/\/project\/([a-f0-9-]+)/);
-                                    if (urlMatch) projectId = urlMatch[1];
+                        if (!projectId) {
+                            projectId = crypto.randomUUID();
+                        }
 
-                                    // Nếu không có, gọi UpteDb để lấy danh sách project
-                                    if (!projectId) {
-                                        const listReq = `[[[\"UpteDb\",\"[]\",null,\"generic\"]]]`;
-                                        const listBody = `f.req=${encodeURIComponent(listReq)}&at=${encodeURIComponent(atToken)}&`;
-                                        const listUrl = `/_/AiSandboxAngularFrontend/data/batchexecute?rpcids=UpteDb&bl=${encodeURIComponent(bl)}&f.sid=${fSid}&hl=vi&_reqid=${Math.floor(Math.random() * 9000000) + 1000000}&rt=c`;
-
-                                        const listRes = await fetch(listUrl, {
-                                            method: "POST",
-                                            headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8", "X-Same-Domain": "1" },
-                                            body: listBody,
-                                            credentials: "include"
-                                        });
-                                        const listText = await listRes.text();
-
-                                        // Parse UUID từ response
-                                        const uuidRegex = /([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/g;
-                                        const uuids = listText.match(uuidRegex) || [];
-                                        if (uuids.length > 0) {
-                                            projectId = uuids[0];
-                                        }
+                        // Bước 4: Gọi API tạo ảnh (REST API chuẩn)
+                        const resolvedAspect = IMAGE_ASPECTS[aspectRatio] || null;
+                        const requests = [];
+                        for (let i = 0; i < imageCount; i++) {
+                            const reqItem = {
+                                clientContext: {
+                                    projectId: projectId,
+                                    tool: "PINHOLE",
+                                    userPaygateTier: "PAYGATE_TIER_TWO",
+                                    sessionId: `;${Date.now()}`,
+                                    recaptchaContext: {
+                                        applicationType: "RECAPTCHA_APPLICATION_TYPE_WEB",
+                                        token: "bypass"
                                     }
+                                },
+                                seed: Math.floor(Math.random() * 999999),
+                                imageModelName: model,
+                                structuredPrompt: { parts: [{ text: prompt }] },
+                                imageInputs: []
+                            };
+                            if (resolvedAspect) {
+                                reqItem.imageAspectRatio = resolvedAspect;
+                            }
+                            requests.push(reqItem);
+                        }
 
-                                    // Nếu vẫn không có projectId, tạo UUID mới (Flow tự tạo project)
-                                    if (!projectId) {
-                                        projectId = crypto.randomUUID();
-                                    }
+                        const payload = {
+                            clientContext: requests[0].clientContext,
+                            mediaGenerationContext: { batchId: crypto.randomUUID() },
+                            useNewMedia: true,
+                            requests: requests
+                        };
 
-                                    // ===== Bước 3b: Gọi ogiZ0b tạo ảnh =====
-                                    const seed = Math.floor(Math.random() * 2000000000);
-
-                                    // Xây dựng sub-requests cho mỗi ảnh
-                                    const subRequests = [];
-                                    for (let i = 0; i < imageCount; i++) {
-                                        const subSeed = seed + i * 100000;
-                                        subRequests.push(`[null,null,null,${subSeed},4,"${model}",null,[null,22,null,null,null,"${projectId}",null,null,null,null,[]],1]`);
-                                    }
-
-                                    const innerPayload = JSON.stringify([
-                                        null,
-                                        subRequests.map(s => JSON.parse(`[${s}]`)),
-                                        [[[prompt]]],
-                                        null, null, null,
-                                        crypto.randomUUID().toUpperCase(),
-                                        crypto.randomUUID().toUpperCase()
-                                    ]);
-
-                                    const fReq = JSON.stringify([[["ogiZ0b", innerPayload, null, "generic"]]]);
-                                    const reqBody = `f.req=${encodeURIComponent(fReq)}&at=${encodeURIComponent(atToken)}&`;
-
-                                    const sourcePath = encodeURIComponent(`/project/${projectId}`);
-                                    const url = `/_/AiSandboxAngularFrontend/data/batchexecute?rpcids=ogiZ0b&source-path=${sourcePath}&bl=${encodeURIComponent(bl)}&f.sid=${fSid}&hl=vi&_reqid=${Math.floor(Math.random() * 9000000) + 1000000}&rt=c`;
-
-                                    const res = await fetch(url, {
-                                        method: "POST",
-                                        headers: {
-                                            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-                                            "X-Same-Domain": "1"
-                                        },
-                                        body: reqBody,
-                                        credentials: "include"
-                                    });
-
-                                    const text = await res.text();
-
-                                    // Parse response - tìm image URLs
-                                    const images = [];
-                                    const flowUrlRegex = /https:\/\/flow-content\.google\/image\/[a-f0-9-]+\?[^\\"]*/g;
-                                    const matches = text.match(flowUrlRegex) || [];
-                                    const uniqueUrls = [...new Set(matches)];
-                                    uniqueUrls.forEach(u => {
-                                        images.push({ url: u.replace(/\\u003d/g, "=").replace(/\\u0026/g, "&") });
-                                    });
-
-                                    return { images, projectId, raw: text.substring(0, 800) };
-                                } catch(e) {
-                                    return { error: e.message };
-                                }
+                        const genUrl = `${FLOW_API_BASE}/projects/${projectId}/flowMedia:batchGenerateImages?key=${FLOW_API_KEY}`;
+                        const genRes = await fetch(genUrl, {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json",
+                                "Authorization": `Bearer ${accessToken}`,
+                                "Origin": "https://labs.google",
+                                "Referer": `https://labs.google/fx/tools/flow/project/${projectId}`
                             },
-                            args: [prompt, model, imageCount, aspectRatio, atToken, fSid, bl]
+                            body: JSON.stringify(payload)
                         });
 
-                        // Đóng tab
-                        await chrome.tabs.remove(flowTab.id).catch(() => {});
+                        const genText = await genRes.text();
+                        let genData = {};
+                        try { genData = JSON.parse(genText); } catch(e) {}
 
-                        const genData = genResults?.[0]?.result || {};
-                        if (genData.error) {
-                            cmdResult = { success: false, error: genData.error, imageRequestId };
-                        } else if (genData.images && genData.images.length > 0) {
-                            cmdResult = { success: true, images: genData.images, imageRequestId };
-                        } else {
-                            cmdResult = { success: false, error: "Không nhận được ảnh từ Flow (có thể prompt bị chặn)", imageRequestId };
+                        if (!genRes.ok) {
+                            const errMsg = genData?.error?.message || genData?.message || genText.substring(0, 300);
+                            cmdResult = { success: false, error: `Flow API lỗi (${genRes.status}): ${errMsg}`, imageRequestId };
+                            break;
                         }
+
+                        // Bước 5: Parse response - trích xuất ảnh base64 hoặc URL
+                        const images = [];
+                        const mediaResults = genData?.generatedMediaResults || genData?.results || [];
+
+                        // Duyệt response tìm base64 encoded images
+                        const findImages = (obj) => {
+                            if (!obj || typeof obj !== 'object') return;
+                            if (obj.encodedImage) {
+                                images.push({ base64: obj.encodedImage, mediaId: obj.mediaId || "" });
+                                return;
+                            }
+                            if (obj.imageUrl || obj.url) {
+                                images.push({ url: obj.imageUrl || obj.url });
+                                return;
+                            }
+                            if (Array.isArray(obj)) {
+                                obj.forEach(item => findImages(item));
+                            } else {
+                                Object.values(obj).forEach(val => findImages(val));
+                            }
+                        };
+                        findImages(genData);
+
+                        if (images.length > 0) {
+                            cmdResult = { success: true, images, imageRequestId };
+                        } else {
+                            cmdResult = { success: false, error: "API trả về nhưng không có ảnh (có thể prompt bị chặn)", imageRequestId, raw: genText.substring(0, 500) };
+                        }
+
                     } catch(flowErr) {
                         cmdResult = { success: false, error: flowErr.message, imageRequestId };
                     }

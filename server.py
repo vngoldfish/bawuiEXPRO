@@ -23,7 +23,6 @@ import json
 import time
 import uuid
 import shutil
-import db_storage
 import platform
 import random
 import threading
@@ -141,15 +140,6 @@ def _load_projects_file(filepath):
 
 def get_projects():
     with PROJECTS_LOCK:
-        # 1. Ưu tiên nạp từ SQLite WAL (Primary High-Speed Storage)
-        try:
-            db_projs = db_storage.get_all_projects_from_db()
-            if db_projs:
-                return db_projs
-        except Exception as db_err:
-            print(f"[DB Storage Warning] Lỗi đọc SQLite: {db_err}")
-
-        # 2. Dự phòng: Đọc từ projects.json nếu CSDL chưa có dữ liệu
         projs = _load_projects_file(PROJECTS_PATH)
         if projs is None:
             # CORRUPTION GUARD: Nếu projects.json có dung lượng > 0 nhưng không nạp được
@@ -192,11 +182,6 @@ def get_projects():
                         }
                     ]
                     modified = True
-            # Đồng bộ dữ liệu sang SQLite WAL
-            try:
-                db_storage.save_projects_to_db(projs)
-            except Exception:
-                pass
             if modified:
                 save_projects(projs)
             return projs
@@ -238,15 +223,9 @@ def save_projects(projects_list):
         print(f"[Save Projects Warning] projects_list không phải list: {type(projects_list)}")
         return
     with PROJECTS_LOCK:
-        # 1. Ghi vào SQLite WAL (Primary High-Speed Storage)
-        try:
-            db_storage.save_projects_to_db(projects_list)
-        except Exception as db_err:
-            print(f"[DB Save Error] {db_err}")
-
-        # 2. Xoay vòng backup và ghi file projects.json siêu nhẹ (<150KB)
         tmp_path = None
         try:
+            # 1. Tự động sao lưu và xoay vòng backup trước khi ghi đè nếu file chính hợp lệ
             if os.path.exists(PROJECTS_PATH) and os.path.getsize(PROJECTS_PATH) > 0:
                 try:
                     if os.path.exists(PROJECTS_BACKUP_PATH):
@@ -254,6 +233,23 @@ def save_projects(projects_list):
                     shutil.copy2(PROJECTS_PATH, PROJECTS_BACKUP_PATH)
                 except Exception as bak_err:
                     print(f"[Backup Warning] Không thể sao lưu file dự án: {bak_err}")
+
+            # 2. Ghi ra tệp tạm trên cùng thư mục để đảm bảo atomic replace trên cùng filesystem
+            tmp_path = PROJECTS_PATH + f".tmp.{os.getpid()}_{uuid.uuid4().hex[:6]}"
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump({"projects": projects_list}, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+
+            # 3. Thay thế nguyên tử (atomic replace)
+            os.replace(tmp_path, PROJECTS_PATH)
+        except Exception as e:
+            print(f"[Save Projects Error] {e}")
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
 
             # 2. Ghi ra tệp tạm trên cùng thư mục để đảm bảo atomic replace trên cùng filesystem
             tmp_path = PROJECTS_PATH + f".tmp.{os.getpid()}_{uuid.uuid4().hex[:6]}"
@@ -486,20 +482,6 @@ def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, 
     else:
         status = "pending"
         progress_step = "Đã lưu vào hàng đợi (chờ phát lệnh)"
-
-    # Tách chuỗi Base64 ảnh/video ra đĩa vật lý để giải phóng RAM và chống phình to dữ liệu
-    media_file_path = ""
-    if isinstance(media_data, dict) and media_data.get("base64"):
-        saved_rel, saved_web = db_storage.save_uploaded_media(
-            media_data.get("base64"),
-            filename=media_data.get("fileName"),
-            mime_type=media_data.get("mimeType"),
-            prefix=f"post_{post_id}"
-        )
-        if saved_rel:
-            media_file_path = saved_rel
-            media_url = saved_web
-            media_data["base64"] = ""
 
     post_entry = {
         "id": post_id,

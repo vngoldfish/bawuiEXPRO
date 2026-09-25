@@ -24,6 +24,7 @@ extension-auth-helper-backup/
 *.temp
 *.swp
 *.swo
+flow_inspect.json
 
 # IDE & Editor files
 .vscode/

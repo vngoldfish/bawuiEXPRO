@@ -4,7 +4,7 @@
  */
 
 let BACKEND_URL = "http://127.0.0.1:9999";
-let AUTH_TOKEN = "";
+let AUTH_TOKEN = "BW-PROJ-MAIN9999";
 let NODE_NAME = "My Chrome Node";
 let PROJECT_NAME = "";
 let NODE_ID = "bridge_" + Math.random().toString(36).slice(2, 10);
@@ -32,7 +32,12 @@ async function initConfig() {
             await chrome.storage.local.set({ backendUrl: BACKEND_URL });
         }
 
-        if (data.authToken) AUTH_TOKEN = data.authToken.trim();
+        if (data.authToken && data.authToken.trim()) {
+            AUTH_TOKEN = data.authToken.trim();
+        } else {
+            AUTH_TOKEN = "BW-PROJ-MAIN9999";
+            await chrome.storage.local.set({ authToken: AUTH_TOKEN });
+        }
         if (data.nodeName) NODE_NAME = data.nodeName.trim();
 
         if (data.nodeId) NODE_ID = data.nodeId;
@@ -83,6 +88,55 @@ async function sendHeartbeat() {
             console.warn("[Bridge] Lỗi lấy c_user cookie:", e);
         }
 
+        // Quét thông tin phiên Google Flow đang active trên trình duyệt
+        let browserFlowEmail = "";
+        let browserFlowProjectId = "";
+        let browserFlowLoggedIn = false;
+        try {
+            const flowOsid = await chrome.cookies.get({ url: "https://flow.google.com", name: "OSID" });
+            const googleSid = await chrome.cookies.get({ url: "https://www.google.com", name: "SID" });
+            browserFlowLoggedIn = !!((flowOsid && flowOsid.value) || (googleSid && googleSid.value));
+
+            const flowTab = tabs.find(t => t.url && t.url.includes("flow.google.com"));
+            if (flowTab && flowTab.url) {
+                const pm = flowTab.url.match(/\/project\/([a-f0-9-]+)/i);
+                if (pm) browserFlowProjectId = pm[1];
+            }
+
+            const cachedFlow = await chrome.storage.local.get(["cachedFlowEmail", "cachedFlowGoogleUid"]);
+            browserFlowEmail = cachedFlow.cachedFlowEmail || cachedFlow.cachedFlowGoogleUid || "";
+
+            // Nếu chưa có cached email nhưng tab flow.google.com đang mở, tự động đọc nhanh
+            if (!browserFlowEmail && flowTab && flowTab.id && !flowTab.url.startsWith("chrome://")) {
+                try {
+                    const [res] = await chrome.scripting.executeScript({
+                        target: { tabId: flowTab.id },
+                        func: () => {
+                            try {
+                                if (window.WIZ_global_data) {
+                                    const em = window.WIZ_global_data.oPEP7c || window.WIZ_global_data.o692Sc;
+                                    if (em && String(em).includes("@")) return String(em).trim();
+                                }
+                            } catch(e) {}
+                            try {
+                                const av = document.querySelector('img[src*="googleusercontent.com"], a[aria-label*="@"], div[aria-label*="@"], button[aria-label*="@"]');
+                                if (av) {
+                                    const label = av.getAttribute('aria-label') || av.getAttribute('title') || '';
+                                    const m = label.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+                                    if (m) return m[1].trim();
+                                }
+                            } catch(e) {}
+                            return "";
+                        }
+                    });
+                    if (res && res.result) {
+                        browserFlowEmail = res.result;
+                        await chrome.storage.local.set({ cachedFlowEmail: browserFlowEmail });
+                    }
+                } catch(e) {}
+            }
+        } catch(e) {}
+
         const payload = {
             nodeId: NODE_ID,
             nodeName: NODE_NAME,
@@ -91,6 +145,9 @@ async function sendHeartbeat() {
             tabCount: tabs.length,
             activeTab: activeTab ? { id: activeTab.id, url: activeTab.url, title: activeTab.title } : null,
             browserFbUid: browserFbUid,
+            browserFlowEmail: browserFlowEmail,
+            browserFlowProjectId: browserFlowProjectId,
+            browserFlowLoggedIn: browserFlowLoggedIn,
             timestamp: Date.now()
         };
 
@@ -1936,6 +1993,203 @@ async function pollAndExecuteCommand() {
                     break;
                 }
 
+                case "GET_FLOW_ACCOUNT": {
+                    // 1. Quét cookies của cả flow.google.com và .google.com
+                    const flowCookies = await chrome.cookies.getAll({ domain: "flow.google.com" });
+                    const googleCookies = await chrome.cookies.getAll({ domain: "google.com" });
+
+                    // Gộp & khử trùng lặp
+                    const cookieMap = new Map();
+                    [...googleCookies, ...flowCookies].forEach(c => {
+                        cookieMap.set(`${c.name}@${c.domain}`, c);
+                    });
+                    const allCookies = Array.from(cookieMap.values());
+                    const cookieStr = allCookies.map(c => `${c.name}=${c.value}`).join("; ");
+
+                    // Tìm các cookie nhận diện phiên Google quan trọng
+                    let sid = "";
+                    let ssid = "";
+                    let hsid = "";
+                    let sapisid = "";
+                    let osid = "";
+                    let secure1psid = "";
+                    for (const c of allCookies) {
+                        if (c.name === "SID") sid = c.value;
+                        if (c.name === "SSID") ssid = c.value;
+                        if (c.name === "HSID") hsid = c.value;
+                        if (c.name === "SAPISID") sapisid = c.value;
+                        if (c.name === "OSID") osid = c.value;
+                        if (c.name === "__Secure-1PSID") secure1psid = c.value;
+                    }
+
+                    const isLoggedIn = !!(sid || secure1psid || osid);
+
+                    let accountInfo = {
+                        platform: "flow",
+                        domain: "flow.google.com",
+                        name: "",
+                        email: "",
+                        avatar: "",
+                        googleUid: "",
+                        uid: "",
+                        projectId: "",
+                        projectName: "",
+                        profileUrl: "https://flow.google.com",
+                        isLoggedIn: isLoggedIn,
+                        cookieCount: allCookies.length,
+                        cookieStr: cookieStr,
+                        cookies: allCookies,
+                        token: "",
+                        wizAt: ""
+                    };
+
+                    // 2. Quét thông tin từ Tab Google Flow đang mở
+                    const tabs = await chrome.tabs.query({});
+                    let flowTab = tabs.find(t => t.url && t.url.includes("flow.google.com/project/"))
+                        || tabs.find(t => t.url && t.url.includes("flow.google.com"));
+
+                    let createdTabId = null;
+                    if (!flowTab) {
+                        try {
+                            const newTab = await chrome.tabs.create({ url: "https://flow.google.com", active: false });
+                            createdTabId = newTab.id;
+                            await ensureTabLoaded(createdTabId);
+                            await new Promise(r => setTimeout(r, 4000));
+                            flowTab = newTab;
+                        } catch(e) {}
+                    }
+
+                    if (flowTab && flowTab.id) {
+                        try {
+                            const scanRes = await chrome.scripting.executeScript({
+                                target: { tabId: flowTab.id },
+                                world: "MAIN",
+                                func: () => {
+                                    try {
+                                        let name = "";
+                                        let email = "";
+                                        let avatar = "";
+                                        let googleUid = "";
+                                        let projectId = "";
+                                        let projectName = "";
+
+                                        // A. Project ID từ URL
+                                        const urlMatch = location.href.match(/\/project\/([a-f0-9-]+)/i);
+                                        if (urlMatch) projectId = urlMatch[1];
+
+                                        // B. WIZ_global_data
+                                        const wiz = window.WIZ_global_data || {};
+                                        const at = wiz.SNlM0e || "";
+                                        if (wiz.oPEP7c) googleUid = String(wiz.oPEP7c);
+                                        if (!googleUid && wiz.S06Grb) googleUid = String(wiz.S06Grb);
+
+                                        // C. Quét avatar & Google account button
+                                        const profileCandidates = Array.from(document.querySelectorAll(
+                                            'a[href*="accounts.google.com"], button[aria-label*="Google" i], button[aria-label*="tài khoản" i], button[aria-label*="account" i], [aria-label*="@"]'
+                                        ));
+
+                                        for (const el of profileCandidates) {
+                                            const label = el.getAttribute("aria-label") || el.getAttribute("title") || "";
+                                            if (label) {
+                                                const em = label.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+                                                if (em && !email) email = em[1];
+
+                                                const nm = label.match(/(?:Tài khoản Google|Google Account|Tài khoản|Account)[:\s]+([^(\n\r]+?)(?:\s*\(|\s*\n|$)/i);
+                                                if (nm && nm[1] && !name) {
+                                                    const cleanName = nm[1].trim();
+                                                    if (!cleanName.includes("@") && cleanName.length > 1) {
+                                                        name = cleanName;
+                                                    }
+                                                }
+                                            }
+                                            const img = el.querySelector("img") || (el.tagName === "IMG" ? el : null);
+                                            if (img && img.src && (img.src.includes("googleusercontent.com") || img.src.includes("ggpht.com"))) {
+                                                avatar = img.src;
+                                            }
+                                        }
+
+                                        // D. Quét ảnh đại diện googleusercontent.com trong toàn bộ trang
+                                        if (!avatar) {
+                                            const gImgs = Array.from(document.querySelectorAll('img[src*="googleusercontent.com"], img[src*="ggpht.com"]'));
+                                            for (const img of gImgs) {
+                                                const s = img.src || "";
+                                                if (!s.includes("favicon") && !s.includes("logo") && (img.naturalWidth > 16 || img.width > 16 || !img.width)) {
+                                                    avatar = s;
+                                                    break;
+                                                }
+                                            }
+                                        }
+
+                                        // E. Tên Project Flow từ DOM
+                                        const pTitleEl = document.querySelector(".project-title, .title-input, [data-test-id='project-title'], header h1, header h2");
+                                        if (pTitleEl) {
+                                            projectName = (pTitleEl.innerText || pTitleEl.value || "").trim();
+                                        }
+                                        if (!projectName) {
+                                            const dt = document.title || "";
+                                            if (dt && !dt.toLowerCase().includes("flow")) {
+                                                projectName = dt.replace(/\s*-\s*Google Flow.*/i, "").trim();
+                                            }
+                                        }
+
+                                        return { name, email, avatar, googleUid, projectId, projectName, at, url: location.href };
+                                    } catch(e) {
+                                        return { error: e.message };
+                                    }
+                                }
+                            });
+
+                            const data = scanRes?.[0]?.result || {};
+                            if (data.name) accountInfo.name = data.name;
+                            if (data.email) accountInfo.email = data.email;
+                            if (data.avatar) accountInfo.avatar = data.avatar;
+                            if (data.googleUid) accountInfo.googleUid = data.googleUid;
+                            if (data.projectId) accountInfo.projectId = data.projectId;
+                            if (data.projectName) accountInfo.projectName = data.projectName;
+                            if (data.at) accountInfo.wizAt = data.at;
+                            if (data.at) accountInfo.token = data.at;
+
+                        } catch(scanErr) {
+                            console.warn("[Bridge] Lỗi inject script Flow:", scanErr);
+                        }
+                    }
+
+                    // Tự động gán fallback nếu thiếu
+                    if (!accountInfo.name && accountInfo.email) {
+                        accountInfo.name = accountInfo.email.split("@")[0];
+                    }
+                    if (!accountInfo.name && accountInfo.projectName) {
+                        accountInfo.name = accountInfo.projectName;
+                    }
+                    if (!accountInfo.name) {
+                        accountInfo.name = isLoggedIn ? "Google Flow User" : "Chưa đăng nhập Flow";
+                    }
+
+                    accountInfo.uid = accountInfo.email || accountInfo.googleUid || accountInfo.projectId || (isLoggedIn ? "Google Account (LIVE)" : "");
+                    if (accountInfo.projectId) {
+                        accountInfo.profileUrl = `https://flow.google.com/project/${accountInfo.projectId}`;
+                    }
+
+                    // Lưu cache email & projectId để nhịp Heartbeat luôn nhận diện được tài khoản Flow trên Chrome
+                    if (accountInfo.email || accountInfo.googleUid || accountInfo.projectId) {
+                        try {
+                            chrome.storage.local.set({
+                                cachedFlowEmail: accountInfo.email || "",
+                                cachedFlowGoogleUid: accountInfo.googleUid || "",
+                                cachedFlowProjectId: accountInfo.projectId || ""
+                            });
+                        } catch(e) {}
+                    }
+
+                    // Đóng tab tạm nếu vừa mở ngầm
+                    if (createdTabId) {
+                        setTimeout(() => { chrome.tabs.remove(createdTabId).catch(() => {}); }, 1000);
+                    }
+
+                    cmdResult = { success: true, ...accountInfo };
+                    break;
+                }
+
                 case "OPEN_TAB": {
                     const newTab = await chrome.tabs.create({ url: cmd.url || "https://www.google.com", active: cmd.active !== false });
                     cmdResult = { success: true, tabId: newTab.id, url: newTab.url };
@@ -1973,6 +2227,416 @@ async function pollAndExecuteCommand() {
                         success: true,
                         tabs: tabs.map(t => ({ id: t.id, url: t.url, title: t.title, active: t.active }))
                     };
+                    break;
+                }
+
+                case "FLOW_DEBUG_INSPECT": {
+                    const tabs = await chrome.tabs.query({});
+                    const targetTab = tabs.find(t => t.url && t.url.includes("flow.google.com/project/")) || tabs.find(t => t.url && t.url.includes("flow.google.com"));
+                    if (!targetTab) {
+                        cmdResult = { success: false, error: "No flow tab found" };
+                        break;
+                    }
+                    const res = await chrome.scripting.executeScript({
+                        target: { tabId: targetTab.id },
+                        world: "MAIN",
+                        func: (testAction) => {
+                            try {
+                                const ed = document.querySelector(".ProseMirror");
+                                const btn = document.querySelector(".generate-icon-button") 
+                                         || document.querySelector('button[type="submit"]')
+                                         || document.querySelector('button[aria-label="Bắt đầu tạo"]')
+                                         || document.querySelector('button[aria-label*="tạo" i]')
+                                         || document.querySelector('button[aria-label*="generate" i]');
+
+                                const form = btn ? btn.closest('form') : (ed ? ed.closest('form') : null);
+
+                                let actionResult = null;
+                                const forms = Array.from(document.querySelectorAll("form")).map(f => ({
+                                    action: f.action,
+                                    id: f.id,
+                                    className: f.className,
+                                    containsBtn: btn ? f.contains(btn) : false,
+                                    containsEd: ed ? f.contains(ed) : false
+                                }));
+
+                                const getZoneListeners = (element) => {
+                                    if (!element) return null;
+                                    const res = {};
+                                    for (let k in element) {
+                                        if (k.includes("zone") || k.includes("event") || k.includes("Listener") || k.includes("__ng")) {
+                                            res[k] = typeof element[k] === "function" ? "[Function]" : (Array.isArray(element[k]) ? `[Array(${element[k].length})]` : typeof element[k]);
+                                        }
+                                    }
+                                    return res;
+                                };
+
+                                const zoneInfo = {
+                                    btn: getZoneListeners(btn),
+                                    flowBtn: getZoneListeners(document.querySelector("flow-generate-icon-button")),
+                                    ed: getZoneListeners(ed)
+                                };
+
+                                if (testAction === "pointer_sequence" && btn) {
+                                    try {
+                                        const evOpts = { bubbles: true, cancelable: true, view: window, pointerId: 1, isPrimary: true, button: 0 };
+                                        btn.dispatchEvent(new PointerEvent("pointerdown", evOpts));
+                                        btn.dispatchEvent(new MouseEvent("mousedown", evOpts));
+                                        btn.dispatchEvent(new PointerEvent("pointerup", evOpts));
+                                        btn.dispatchEvent(new MouseEvent("mouseup", evOpts));
+                                        btn.dispatchEvent(new MouseEvent("click", evOpts));
+                                        actionResult = "pointer_sequence dispatched on btn";
+                                    } catch(e) {
+                                        actionResult = "pointer_sequence error: " + e.message;
+                                    }
+                                } else if (testAction === "pointer_sequence_icon") {
+                                    try {
+                                        const icon = btn ? btn.querySelector("mat-icon") : null;
+                                        const target = icon || btn;
+                                        if (target) {
+                                            const evOpts = { bubbles: true, cancelable: true, view: window, pointerId: 1, isPrimary: true, button: 0 };
+                                            target.dispatchEvent(new PointerEvent("pointerdown", evOpts));
+                                            target.dispatchEvent(new MouseEvent("mousedown", evOpts));
+                                            target.dispatchEvent(new PointerEvent("pointerup", evOpts));
+                                            target.dispatchEvent(new MouseEvent("mouseup", evOpts));
+                                            target.dispatchEvent(new MouseEvent("click", evOpts));
+                                            actionResult = "pointer_sequence dispatched on " + target.tagName;
+                                        }
+                                    } catch(e) {
+                                        actionResult = "pointer_sequence_icon error: " + e.message;
+                                    }
+                                } else if (testAction === "press_ctrl_enter" && ed) {
+                                    try {
+                                        ed.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, which: 13, ctrlKey: true, bubbles: true, cancelable: true }));
+                                        ed.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", code: "Enter", keyCode: 13, which: 13, ctrlKey: true, bubbles: true, cancelable: true }));
+                                        actionResult = "Ctrl+Enter dispatched";
+                                    } catch(e) {
+                                        actionResult = "Ctrl+Enter error: " + e.message;
+                                    }
+                                } else if (testAction === "press_cmd_enter" && ed) {
+                                    try {
+                                        ed.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, which: 13, metaKey: true, bubbles: true, cancelable: true }));
+                                        ed.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", code: "Enter", keyCode: 13, which: 13, metaKey: true, bubbles: true, cancelable: true }));
+                                        actionResult = "Cmd+Enter dispatched";
+                                    } catch(e) {
+                                        actionResult = "Cmd+Enter error: " + e.message;
+                                    }
+                                } else if (testAction === "press_plain_enter" && ed) {
+                                    try {
+                                        ed.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+                                        ed.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+                                        actionResult = "Plain Enter dispatched";
+                                    } catch(e) {
+                                        actionResult = "Plain Enter error: " + e.message;
+                                    }
+                                } else if (testAction === "click_btn" && btn) {
+                                    try {
+                                        btn.click();
+                                        actionResult = "btn.click() called";
+                                    } catch(e) {
+                                        actionResult = "btn.click() error: " + e.message;
+                                    }
+                                }
+
+                                let ngLView = null;
+                                let p = btn;
+                                while (p && !(p.__ngContext__ && Array.isArray(p.__ngContext__))) {
+                                    p = p.parentElement;
+                                }
+                                if (p && Array.isArray(p.__ngContext__)) {
+                                    ngLView = p.tagName + ": " + p.__ngContext__.map(x => x && typeof x === 'object' ? (x.constructor ? x.constructor.name : typeof x) : typeof x).slice(0, 25).join(", ");
+                                }
+
+                                let parentChain = [];
+                                let curr = btn;
+                                for (let i = 0; i < 5 && curr; i++) {
+                                    const c = curr.getAttribute ? (curr.getAttribute('class') || '') : '';
+                                    parentChain.push(`${curr.tagName}.${c.replace(/\s+/g, '.')}`);
+                                    curr = curr.parentElement;
+                                }
+
+                                const imgs = Array.from(document.querySelectorAll("img")).map(i => i.src);
+                                const flowImgs = imgs.filter(s => s.includes("flow-content.google") || s.includes("/asb/"));
+
+                                const btnRect = btn ? btn.getBoundingClientRect() : null;
+                                const edRect = ed ? ed.getBoundingClientRect() : null;
+
+                                let elAtPoint = null;
+                                if (btnRect) {
+                                    const fx = Math.round((btnRect.left !== undefined ? btnRect.left : btnRect.x) + (btnRect.width || 0) / 2);
+                                    const fy = Math.round((btnRect.top !== undefined ? btnRect.top : btnRect.y) + (btnRect.height || 0) / 2);
+                                    const el = document.elementFromPoint(fx, fy);
+                                    const c = el && el.getAttribute ? (el.getAttribute('class') || '') : '';
+                                    elAtPoint = el ? `${el.tagName}.${c.replace(/\s+/g, '.')}` : null;
+                                }
+
+                                // Inspect CDK Overlays
+                                const overlays = Array.from(document.querySelectorAll(".cdk-overlay-pane")).map(o => ({
+                                    className: o.className,
+                                    text: (o.innerText || '').substring(0, 100)
+                                }));
+                                const backdrops = document.querySelectorAll(".cdk-overlay-backdrop");
+
+                                let backdropClosed = false;
+                                if (testAction === "dismiss_overlay") {
+                                    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, which: 27, bubbles: true }));
+                                    document.dispatchEvent(new KeyboardEvent("keyup", { key: "Escape", code: "Escape", keyCode: 27, which: 27, bubbles: true }));
+                                    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, which: 27, bubbles: true }));
+                                    window.dispatchEvent(new KeyboardEvent("keyup", { key: "Escape", code: "Escape", keyCode: 27, which: 27, bubbles: true }));
+                                    document.querySelectorAll(".cdk-overlay-backdrop").forEach(b => {
+                                        b.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+                                    });
+                                    backdropClosed = true;
+                                }
+
+                                return {
+                                    title: document.title,
+                                    url: location.href,
+                                    activeElement: document.activeElement ? document.activeElement.tagName + "." + document.activeElement.className : null,
+                                    editorText: ed ? ed.innerText : null,
+                                    btnFound: !!btn,
+                                    btnTag: btn ? btn.tagName : null,
+                                    btnType: btn ? btn.type : null,
+                                    btnDisabled: btn ? (btn.disabled || btn.classList.contains("mat-mdc-button-disabled")) : null,
+                                    btnAria: btn ? btn.getAttribute("aria-label") : null,
+                                    btnRect: btnRect ? { x: Math.round(btnRect.left || btnRect.x), y: Math.round(btnRect.top || btnRect.y), w: Math.round(btnRect.width), h: Math.round(btnRect.height) } : null,
+                                    edRect: edRect ? { x: Math.round(edRect.left || edRect.x), y: Math.round(edRect.top || edRect.y), w: Math.round(edRect.width), h: Math.round(edRect.height) } : null,
+                                    elAtPoint: elAtPoint,
+                                    ngInfo: null,
+                                    ngLView: ngLView,
+                                    overlays: overlays,
+                                    backdropsCount: backdrops.length,
+                                    backdropClosed: backdropClosed,
+                                    btnParentChain: parentChain,
+                                    hasForm: !!form,
+                                    forms: forms,
+                                    zoneInfo: zoneInfo,
+                                    actionResult: actionResult,
+                                    totalImgs: imgs.length,
+                                    flowImgsCount: flowImgs.length,
+                                    flowImgs: flowImgs.slice(-5),
+                                    capturedImgs: (window.__capturedImages || []).slice(-5)
+                                };
+                            } catch(err) {
+                                return { funcError: err.message, funcStack: err.stack };
+                            }
+                        },
+                        args: [cmd.testAction || ""]
+                    });
+                    let cdpInfo = null;
+                    if (cmd.testAction === "cdp_press_enter") {
+                        let dbgAttached = false;
+                        await new Promise(r => {
+                            chrome.debugger.attach({ tabId: targetTab.id }, "1.3", () => {
+                                if (chrome.runtime.lastError) {
+                                    cdpInfo = "attach warning: " + chrome.runtime.lastError.message;
+                                    r();
+                                } else {
+                                    dbgAttached = true;
+                                    r();
+                                }
+                            });
+                        });
+
+                        if (dbgAttached) {
+                            try {
+                                const sendDbg = (m, p) => new Promise(res => {
+                                    chrome.debugger.sendCommand({ tabId: targetTab.id }, m, p, (ret) => res(ret));
+                                });
+
+                                await sendDbg("Input.dispatchKeyEvent", { type: "rawKeyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, text: "\r", unmodifiedText: "\r" });
+                                await sendDbg("Input.dispatchKeyEvent", { type: "char", text: "\r" });
+                                await sendDbg("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+                                cdpInfo = "cdp Enter key sent";
+                            } catch(e) {
+                                cdpInfo = "cdp send error: " + e.message;
+                            } finally {
+                                try { chrome.debugger.detach({ tabId: targetTab.id }, () => {}); } catch(e) {}
+                            }
+                        }
+                    } else if (cmd.testAction === "cdp_click_btn") {
+                        let dbgAttached = false;
+                        await new Promise(r => {
+                            chrome.debugger.attach({ tabId: targetTab.id }, "1.3", () => {
+                                if (chrome.runtime.lastError) {
+                                    cdpInfo = "attach warning: " + chrome.runtime.lastError.message;
+                                    r();
+                                } else {
+                                    dbgAttached = true;
+                                    r();
+                                }
+                            });
+                        });
+
+                        if (dbgAttached) {
+                            try {
+                                const sendDbg = (m, p) => new Promise(res => {
+                                    chrome.debugger.sendCommand({ tabId: targetTab.id }, m, p, (ret) => res(ret));
+                                });
+
+                                const br = res?.[0]?.result?.btnRect;
+                                if (br) {
+                                    const fx = br.x + Math.round(br.w / 2);
+                                    const fy = br.y + Math.round(br.h / 2);
+                                    await sendDbg("Input.dispatchMouseEvent", { type: "mouseMoved", x: fx, y: fy });
+                                    await sendDbg("Input.dispatchMouseEvent", { type: "mousePressed", x: fx, y: fy, button: "left", clickCount: 1 });
+                                    await new Promise(r => setTimeout(r, 120));
+                                    await sendDbg("Input.dispatchMouseEvent", { type: "mouseReleased", x: fx, y: fy, button: "left", clickCount: 1 });
+                                    cdpInfo = `cdp click sent to (${fx}, ${fy})`;
+                                }
+                            } catch(e) {
+                                cdpInfo = "cdp send error: " + e.message;
+                            } finally {
+                                try { chrome.debugger.detach({ tabId: targetTab.id }, () => {}); } catch(e) {}
+                            }
+                        }
+                    } else if (cmd.testAction === "test_active_click") {
+                        const tabsInWin = await chrome.tabs.query({ active: true, windowId: targetTab.windowId });
+                        const origActiveTab = tabsInWin[0];
+
+                        await chrome.scripting.executeScript({
+                            target: { tabId: targetTab.id },
+                            world: "MAIN",
+                            func: () => {
+                                document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, which: 27, bubbles: true }));
+                                document.querySelectorAll(".cdk-overlay-backdrop").forEach(b => b.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+                            }
+                        });
+
+                        await chrome.tabs.update(targetTab.id, { active: true });
+                        await new Promise(r => setTimeout(r, 120));
+
+                        let dbgAttached = false;
+                        await new Promise(r => {
+                            chrome.debugger.attach({ tabId: targetTab.id }, "1.3", () => {
+                                if (!chrome.runtime.lastError) dbgAttached = true;
+                                r();
+                            });
+                        });
+
+                        if (dbgAttached) {
+                            try {
+                                const sendDbg = (m, p) => new Promise(res => {
+                                    chrome.debugger.sendCommand({ tabId: targetTab.id }, m, p, (ret) => res(ret));
+                                });
+
+                                const btnRes = await chrome.scripting.executeScript({
+                                    target: { tabId: targetTab.id },
+                                    world: "MAIN",
+                                    func: () => {
+                                        const btn = document.querySelector(".generate-icon-button") 
+                                                 || document.querySelector('button[aria-label="Bắt đầu tạo"]')
+                                                 || document.querySelector('button[aria-label*="tạo" i]');
+                                        if (!btn) return null;
+                                        const r = btn.getBoundingClientRect();
+                                        return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height), disabled: btn.disabled };
+                                    }
+                                });
+
+                                const br = btnRes?.[0]?.result;
+                                if (br) {
+                                    const fx = br.x + Math.round(br.w / 2);
+                                    const fy = br.y + Math.round(br.h / 2);
+                                    await sendDbg("Input.dispatchMouseEvent", { type: "mouseMoved", x: fx, y: fy });
+                                    await sendDbg("Input.dispatchMouseEvent", { type: "mousePressed", x: fx, y: fy, button: "left", clickCount: 1 });
+                                    await new Promise(r => setTimeout(r, 60));
+                                    await sendDbg("Input.dispatchMouseEvent", { type: "mouseReleased", x: fx, y: fy, button: "left", clickCount: 1 });
+                                    cdpInfo = `active click sent to (${fx}, ${fy}), disabled: ${br.disabled}`;
+                                }
+                            } finally {
+                                try { chrome.debugger.detach({ tabId: targetTab.id }, () => {}); } catch(e) {}
+                            }
+                        }
+
+                        if (origActiveTab && origActiveTab.id !== targetTab.id) {
+                            await chrome.tabs.update(origActiveTab.id, { active: true });
+                        }
+                    } else if (cmd.testAction === "test_inactive_submit") {
+                        // 1. Inject prompt without activating tab
+                        await chrome.scripting.executeScript({
+                            target: { tabId: targetTab.id },
+                            world: "MAIN",
+                            func: (promptText) => {
+                                document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, which: 27, bubbles: true }));
+                                document.querySelectorAll(".cdk-overlay-backdrop").forEach(b => b.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+
+                                const ed = document.querySelector(".ProseMirror");
+                                if (ed) {
+                                    ed.focus();
+                                    const sel = window.getSelection();
+                                    const range = document.createRange();
+                                    range.selectNodeContents(ed);
+                                    sel.removeAllRanges();
+                                    sel.addRange(range);
+                                    document.execCommand("delete");
+                                    document.execCommand("insertText", false, promptText);
+                                    ed.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+                                    ed.dispatchEvent(new Event("change", { bubbles: true }));
+                                }
+                            },
+                            args: ["test chu chim bay tren troi xanh"]
+                        });
+
+                        await new Promise(r => setTimeout(r, 200));
+
+                        // 2. Attach debugger
+                        let dbgAttached = false;
+                        await new Promise(r => {
+                            chrome.debugger.attach({ tabId: targetTab.id }, "1.3", () => {
+                                if (!chrome.runtime.lastError) dbgAttached = true;
+                                r();
+                            });
+                        });
+
+                        if (dbgAttached) {
+                            try {
+                                const sendDbg = (m, p) => new Promise(res => {
+                                    chrome.debugger.sendCommand({ tabId: targetTab.id }, m, p, (ret) => res(ret));
+                                });
+
+                                const btnRes = await chrome.scripting.executeScript({
+                                    target: { tabId: targetTab.id },
+                                    world: "MAIN",
+                                    func: () => {
+                                        const btn = document.querySelector(".generate-icon-button") 
+                                                 || document.querySelector('button[aria-label="Bắt đầu tạo"]')
+                                                 || document.querySelector('button[aria-label*="tạo" i]');
+                                        if (!btn) return null;
+                                        const r = btn.getBoundingClientRect();
+                                        return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height), disabled: btn.disabled };
+                                    }
+                                });
+
+                                const br = btnRes?.[0]?.result;
+                                if (br) {
+                                    const fx = br.x + Math.round(br.w / 2);
+                                    const fy = br.y + Math.round(br.h / 2);
+                                    await sendDbg("Input.dispatchMouseEvent", { type: "mouseMoved", x: fx, y: fy });
+                                    await sendDbg("Input.dispatchMouseEvent", { type: "mousePressed", x: fx, y: fy, button: "left", clickCount: 1 });
+                                    await new Promise(r => setTimeout(r, 60));
+                                    await sendDbg("Input.dispatchMouseEvent", { type: "mouseReleased", x: fx, y: fy, button: "left", clickCount: 1 });
+                                    cdpInfo = `inactive click sent to (${fx}, ${fy}), disabled: ${br.disabled}`;
+                                }
+                            } finally {
+                                try { chrome.debugger.detach({ tabId: targetTab.id }, () => {}); } catch(e) {}
+                            }
+                        }
+                    }
+
+                    const flowInfo = res?.[0]?.result || {};
+                    if (cdpInfo) flowInfo.cdpInfo = cdpInfo;
+                    cmdResult = { success: true, flowInfo: flowInfo, tabId: targetTab.id };
+                    break;
+                }
+
+                case "SELECT_TAB": {
+                    const tabId = Number(cmd.tabId);
+                    if (tabId) {
+                        await chrome.tabs.update(tabId, { active: true });
+                        cmdResult = { success: true, tabId };
+                    } else {
+                        cmdResult = { success: false, error: "Thiếu tabId" };
+                    }
                     break;
                 }
 
@@ -2015,10 +2679,7 @@ async function pollAndExecuteCommand() {
                         break;
                     }
                     const targetTab = flowTabs.find(t => t.url.includes("/project/")) || flowTabs[0];
-                    try {
-                        await chrome.tabs.update(targetTab.id, { active: true });
-                        if (targetTab.windowId) await chrome.windows.update(targetTab.windowId, { focused: true });
-                    } catch(e) {}
+                    // Chạy ngầm trong background, không kích hoạt tab hoặc cửa sổ Flow
 
                     // 1. Phân tích DOM & ProseMirror trong MAIN world
                     const execRes = await chrome.scripting.executeScript({
@@ -2073,16 +2734,112 @@ async function pollAndExecuteCommand() {
                                     alt: i.alt || ""
                                 }));
 
-                                const flowCards = Array.from(document.querySelectorAll("flow-media-card, mat-card, .card, [role='article']")).map(c => ({
-                                    text: (c.innerText || "").trim().substring(0, 80),
-                                    imgs: Array.from(c.querySelectorAll("img")).map(i => i.src)
-                                }));
+                                // Khám phá menu Lựa chọn khác của Dự án (more-options-button)
+                                const projMoreBtn = document.querySelector(".more-options-button") || document.querySelector('button[aria-label*="dự án" i]');
+                                let projMenuOptions = [];
+                                if (projMoreBtn) {
+                                    projMoreBtn.click();
+                                    await new Promise(r => setTimeout(r, 400));
+                                    projMenuOptions = Array.from(document.querySelectorAll(".mat-mdc-menu-item, [role='menuitem'], .mdc-list-item")).map(m => ({
+                                        text: m.innerText ? m.innerText.trim() : "",
+                                        className: m.className,
+                                        ariaLabel: m.getAttribute("aria-label")
+                                    }));
+                                    document.body.click();
+                                }
+
+                                // Khám phá menu của ô ảnh (Tile menu)
+                                let tileMenuOptions = [];
+                                const flowImgs = Array.from(document.querySelectorAll("img")).filter(i => i.src && (i.src.includes("/asb/") || i.src.includes("flow-content")));
+                                if (flowImgs.length > 0) {
+                                    let cur = flowImgs[0].parentElement;
+                                    let tileMoreBtn = null;
+                                    for (let d = 0; d < 5 && cur && !tileMoreBtn; d++) {
+                                        tileMoreBtn = cur.querySelector('button[aria-label="Tuỳ chọn khác"], button[aria-label*="khác" i], button[aria-label*="options" i]');
+                                        cur = cur.parentElement;
+                                    }
+                                    if (tileMoreBtn) {
+                                        tileMoreBtn.click();
+                                        await new Promise(r => setTimeout(r, 500));
+                                        tileMenuOptions = Array.from(document.querySelectorAll(".mat-mdc-menu-item, [role='menuitem'], .mdc-list-item")).map(m => ({
+                                            text: m.innerText ? m.innerText.trim() : "",
+                                            className: m.className,
+                                            ariaLabel: m.getAttribute("aria-label")
+                                        }));
+                                        document.body.click();
+                                        await new Promise(r => setTimeout(r, 200));
+                                    }
+                                }
+
+                                // Khám phá DOM cây phả hệ của ảnh trên Flow canvas để tìm nút xóa/menu
+                                let imgHierarchy = [];
+                                if (flowImgs.length > 0) {
+                                    let cur = flowImgs[0];
+                                    for (let depth = 0; depth < 10 && cur; depth++) {
+                                        imgHierarchy.push({
+                                            depth,
+                                            tag: cur.tagName.toLowerCase(),
+                                            className: cur.className,
+                                            btns: Array.from(cur.querySelectorAll("button")).map(b => ({
+                                                text: (b.innerText || "").trim().substring(0, 30),
+                                                ariaLabel: b.getAttribute("aria-label"),
+                                                className: b.className
+                                            }))
+                                        });
+                                        cur = cur.parentElement;
+                                    }
+                                }
+
+                                const cardsInfo = Array.from(document.querySelectorAll("flow-media-card, mat-card, .card, [class*='node'], [role='article']")).map(c => {
+                                    const btns = Array.from(c.querySelectorAll("button")).map(b => ({
+                                        text: b.innerText ? b.innerText.trim() : "",
+                                        ariaLabel: b.getAttribute("aria-label"),
+                                        className: b.className
+                                    }));
+                                    const imgs = Array.from(c.querySelectorAll("img")).map(i => i.src);
+                                    return {
+                                        tag: c.tagName,
+                                        className: c.className,
+                                        btns,
+                                        imgCount: imgs.length,
+                                        firstImg: imgs[0] ? imgs[0].substring(0, 80) : ""
+                                    };
+                                }).filter(c => c.imgCount > 0);
+
+                                let testToken = null;
+                                let testTokenErr = null;
+                                try {
+                                    if (window.grecaptcha && window.grecaptcha.enterprise && typeof window.grecaptcha.enterprise.execute === "function") {
+                                        testToken = await window.grecaptcha.enterprise.execute("6LdsFiUsAAAAAIjVDZcuLhaHiDn5nnHVXVRQGeMV");
+                                    }
+                                } catch(te) {
+                                    testTokenErr = te.message || String(te);
+                                }
 
                                 return {
                                     url: window.location.href,
                                     title: document.title,
+                                    testToken: testToken ? (testToken.substring(0, 40) + "...") : null,
+                                    testTokenErr,
+                                    recaptchaInfo: {
+                                        hasGrecaptcha: !!window.grecaptcha,
+                                        hasEnterprise: !!(window.grecaptcha && window.grecaptcha.enterprise),
+                                        enterpriseKeys: (window.grecaptcha && window.grecaptcha.enterprise) ? Object.keys(window.grecaptcha.enterprise) : []
+                                    },
+                                    wizInfo: {
+                                        at: wiz.SNlM0e || "",
+                                        f_sid: wiz["FdrFJe"] || "",
+                                        bl: wiz["cfb2h"] || "",
+                                        oPEP7c: wiz["oPEP7c"] || ""
+                                    },
+                                    allBtns,
+                                    genBtnHTML: genBtn ? genBtn.outerHTML.substring(0, 300) : null,
+                                    editorHTML: editorEl ? editorEl.outerHTML.substring(0, 300) : null,
                                     allImages,
-                                    flowCards: flowCards.slice(0, 10),
+                                    imgHierarchy,
+                                    cardsInfo: cardsInfo.slice(0, 10),
+                                    projMenuOptions,
+                                    tileMenuOptions,
                                     editorText: editorEl ? editorEl.innerText.trim() : "",
                                     genBtnDisabled: genBtn ? (genBtn.disabled || genBtn.classList.contains("mat-mdc-button-disabled")) : null
                                 };
@@ -2222,11 +2979,701 @@ async function pollAndExecuteCommand() {
                 }
 
                 case "FLOW_GENERATE_IMAGE": {
+                    // ===================================================================
+                    // CHIẾN LƯỢC TẠO ẢNH AI CHÍNH XÁC 100%:
+                    // - Định vị tab project & kích hoạt tab strip (KHÔNG focus cửa sổ OS)
+                    // - Gõ Prompt bằng CDP Input.insertText (Angular nhận native input event)
+                    // - Click Generate bằng CDP Input.dispatchMouseEvent (isTrusted: true)
+                    // - Nhận kết quả: CHỈ nhận ảnh MỚI thực sự được tạo (interceptor + DOM diff)
+                    // - TUYỆT ĐỐI KHÔNG dùng fallback lấy ảnh cũ trên canvas (tránh ảnh tùm lum)
+                    // - Chuyển đổi Base64 vĩnh viễn 3 lớp bảo vệ
+                    // ===================================================================
                     const prompt = cmd.prompt || "";
                     const model = cmd.model || "HARBOR_SEAL";
                     const imageCount = Math.max(1, Math.min(Number(cmd.imageCount) || 4, 4));
                     const aspectRatio = cmd.aspectRatio || "3:4";
                     const imageRequestId = cmd.imageRequestId || "";
+                    const flowProjectId = cmd.flowProjectId || "";
+                    let targetTab = null;
+
+                    const showFlowShield = async (tabId, promptText, initialStep) => {
+                        if (!tabId) return;
+                        try {
+                            await chrome.scripting.executeScript({
+                                target: { tabId: tabId },
+                                world: "MAIN",
+                                func: (pText, sText) => {
+                                    let shield = document.getElementById("__expro_flow_blocker");
+                                    if (!shield) {
+                                        shield = document.createElement("div");
+                                        shield.id = "__expro_flow_blocker";
+                                        shield.setAttribute("style", [
+                                            "position: fixed !important",
+                                            "top: 0 !important",
+                                            "left: 0 !important",
+                                            "width: 100vw !important",
+                                            "height: 100vh !important",
+                                            "z-index: 2147483647 !important",
+                                            "background: rgba(10, 15, 29, 0.85) !important",
+                                            "backdrop-filter: blur(8px) !important",
+                                            "-webkit-backdrop-filter: blur(8px) !important",
+                                            "display: flex !important",
+                                            "flex-direction: column !important",
+                                            "align-items: center !important",
+                                            "justify-content: center !important",
+                                            "color: #ffffff !important",
+                                            "font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif !important",
+                                            "user-select: none !important",
+                                            "pointer-events: all !important",
+                                            "transition: opacity 0.3s ease !important"
+                                        ].join(";"));
+
+                                        shield.innerHTML = `
+                                            <style>
+                                                @keyframes __expro_spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+                                                @keyframes __expro_pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+                                            </style>
+                                            <div style="
+                                                background: linear-gradient(145deg, #131d31, #0c1322);
+                                                border: 1px solid #14b8a6;
+                                                border-radius: 20px;
+                                                padding: 32px 36px;
+                                                box-shadow: 0 25px 60px rgba(0, 0, 0, 0.7), 0 0 35px rgba(20, 184, 166, 0.2);
+                                                text-align: center;
+                                                max-width: 460px;
+                                                width: 90%;
+                                            ">
+                                                <div style="
+                                                    width: 52px; height: 52px;
+                                                    margin: 0 auto 16px auto;
+                                                    border: 4px solid rgba(20, 184, 166, 0.2);
+                                                    border-top-color: #2dd4bf;
+                                                    border-radius: 50%;
+                                                    animation: __expro_spin 1s linear infinite;
+                                                "></div>
+                                                <h2 style="margin: 0 0 6px 0; font-size: 19px; font-weight: 800; color: #2dd4bf; letter-spacing: 0.5px;">
+                                                    ⚡ BAWUI EXTENSION PRO
+                                                </h2>
+                                                <div style="font-size: 14px; font-weight: 600; color: #f1f5f9; margin-bottom: 14px;">
+                                                    🎨 Đang tạo ảnh AI tự động từ Dashboard
+                                                </div>
+                                                <div id="__expro_flow_step" style="
+                                                    font-size: 13px;
+                                                    color: #5eead4;
+                                                    background: rgba(20, 184, 166, 0.12);
+                                                    border: 1px solid rgba(45, 212, 191, 0.3);
+                                                    padding: 8px 14px;
+                                                    border-radius: 10px;
+                                                    margin-bottom: 14px;
+                                                    animation: __expro_pulse 2s ease-in-out infinite;
+                                                ">${sText || "Đang xử lý..."}</div>
+                                                <div style="
+                                                    font-size: 12px;
+                                                    color: #94a3b8;
+                                                    line-height: 1.5;
+                                                    margin-bottom: 16px;
+                                                    background: rgba(0,0,0,0.3);
+                                                    padding: 10px 14px;
+                                                    border-radius: 8px;
+                                                    font-style: italic;
+                                                    max-height: 55px;
+                                                    overflow: hidden;
+                                                    text-overflow: ellipsis;
+                                                ">
+                                                    "${pText ? (pText.length > 70 ? pText.substring(0, 70) + '...' : pText) : ''}"
+                                                </div>
+                                                <div style="
+                                                    display: inline-flex;
+                                                    align-items: center;
+                                                    gap: 6px;
+                                                    font-size: 11px;
+                                                    font-weight: 700;
+                                                    background: rgba(239, 68, 68, 0.15);
+                                                    color: #fca5a5;
+                                                    border: 1px solid rgba(239, 68, 68, 0.3);
+                                                    padding: 6px 14px;
+                                                    border-radius: 20px;
+                                                ">
+                                                    <span>🔒</span>
+                                                    <span>ĐÃ KHÓA THAO TÁC — Vui lòng không click hoặc đóng tab này</span>
+                                                </div>
+                                            </div>
+                                        `;
+
+                                        const blockEvent = (e) => { e.stopPropagation(); e.preventDefault(); };
+                                        ["click", "mousedown", "mouseup", "pointerdown", "contextmenu", "wheel"].forEach(evt => {
+                                            shield.addEventListener(evt, blockEvent, true);
+                                        });
+
+                                        if (window.__exproShieldAbort) {
+                                            try { window.__exproShieldAbort.abort(); } catch(e) {}
+                                        }
+                                        window.__exproShieldAbort = new AbortController();
+                                        ["keydown", "keypress", "keyup"].forEach(evt => {
+                                            window.addEventListener(evt, blockEvent, { capture: true, signal: window.__exproShieldAbort.signal });
+                                        });
+
+                                        document.body.appendChild(shield);
+                                    } else {
+                                        const stepEl = document.getElementById("__expro_flow_step");
+                                        if (stepEl && sText) stepEl.textContent = sText;
+                                    }
+                                },
+                                args: [promptText, initialStep]
+                            });
+                        } catch(e) {}
+                    };
+
+                    const hideFlowShield = async (tabId) => {
+                        if (!tabId) return;
+                        try {
+                            await chrome.scripting.executeScript({
+                                target: { tabId: tabId },
+                                world: "MAIN",
+                                func: () => {
+                                    if (window.__exproShieldAbort) {
+                                        try { window.__exproShieldAbort.abort(); } catch(e) {}
+                                        window.__exproShieldAbort = null;
+                                    }
+                                    const shield = document.getElementById("__expro_flow_blocker");
+                                    if (shield) {
+                                        shield.style.opacity = "0";
+                                        setTimeout(() => { shield.remove(); }, 300);
+                                    }
+                                }
+                            });
+                        } catch(e) {}
+                    };
+
+                    const updateStep = async (stepText) => {
+                        try {
+                            await fetch(`${BACKEND_URL}/api/bridge/progress`, {
+                                method: "POST",
+                                headers: getHeaders(),
+                                body: JSON.stringify({
+                                    commandId: cmd.id,
+                                    targetProjectId: cmd.targetProjectId,
+                                    targetSubProjectId: cmd.targetSubProjectId,
+                                    imageRequestId: imageRequestId,
+                                    step: stepText
+                                })
+                            }).catch(() => {});
+                        } catch(e) {}
+
+                        // Cập nhật trực tiếp lên Popup Shield trên tab Flow nếu đang hiển thị
+                        if (targetTab && targetTab.id) {
+                            chrome.scripting.executeScript({
+                                target: { tabId: targetTab.id },
+                                world: "MAIN",
+                                func: (text) => {
+                                    const el = document.getElementById("__expro_flow_step");
+                                    if (el) el.textContent = text;
+                                },
+                                args: [stepText]
+                            }).catch(() => {});
+                        }
+                    };
+
+                    try {
+                        // ──────────── BƯỚC 1: Tìm tab Flow chính xác ────────────
+                        await updateStep("🔍 1/4: Đang tìm tab Google Flow trên trình duyệt...");
+                        const tabs = await chrome.tabs.query({});
+
+                        const expectedUrl = flowProjectId 
+                            ? `https://flow.google.com/project/${flowProjectId}` 
+                            : "https://flow.google.com";
+
+                        if (flowProjectId) {
+                            // A. Tìm tab đã mở đúng flowProjectId này
+                            targetTab = tabs.find(t => t.url && t.url.includes(flowProjectId));
+
+                            // B. Nếu chưa có tab đúng flowProjectId, kiểm tra xem có tab flow.google.com trang chủ không để tái sử dụng
+                            if (!targetTab) {
+                                const homeTab = tabs.find(t => t.url && (t.url.replace(/\/$/, '') === "https://flow.google.com"));
+                                if (homeTab) {
+                                    await updateStep(`🌐 Đang chuyển hướng sang project ${flowProjectId.substring(0, 8)}...`);
+                                    await chrome.tabs.update(homeTab.id, { url: expectedUrl });
+                                    await ensureTabLoaded(homeTab.id);
+                                    await new Promise(r => setTimeout(r, 4500));
+                                    targetTab = homeTab;
+                                }
+                            }
+
+                            // C. Nếu vẫn chưa có tab đúng flowProjectId, mở tab mới ngầm cho project này (không ảnh hưởng tab khác)
+                            if (!targetTab) {
+                                await updateStep(`🌐 Đang mở tab project Google Flow ngầm...`);
+                                targetTab = await chrome.tabs.create({ url: expectedUrl, active: false });
+                                await ensureTabLoaded(targetTab.id);
+                                await new Promise(r => setTimeout(r, 5000));
+                            }
+                        } else {
+                            // Không chỉ định flowProjectId: ưu tiên tab project bất kỳ, rồi tab flow chung
+                            targetTab = tabs.find(t => t.url && t.url.includes("flow.google.com/project/"))
+                                     || tabs.find(t => t.url && t.url.includes("flow.google.com"));
+                            if (!targetTab) {
+                                await updateStep("🌐 Đang mở Google Flow ngầm...");
+                                targetTab = await chrome.tabs.create({ url: expectedUrl, active: false });
+                                await ensureTabLoaded(targetTab.id);
+                                await new Promise(r => setTimeout(r, 5000));
+                            }
+                        }
+
+                        // KHÔNG chuyển tab: giữ nguyên tab hiện tại người dùng đang xem
+                        // Chạy hoàn toàn ngầm trong background
+                        console.log("[Flow Bridge] Giữ nguyên tab của người dùng, không chuyển tab ✓");
+
+                        // Chờ tìm ProseMirror editor (tối đa 15s)
+                        let editorReady = false;
+                        for (let attempt = 0; attempt < 30; attempt++) {
+                            const checkRes = await chrome.scripting.executeScript({
+                                target: { tabId: targetTab.id },
+                                world: "MAIN",
+                                func: () => {
+                                    const ed = document.querySelector(".ProseMirror");
+                                    return !!ed;
+                                }
+                            });
+                            if (checkRes?.[0]?.result) {
+                                editorReady = true;
+                                break;
+                            }
+                            await new Promise(r => setTimeout(r, 500));
+                        }
+
+                        if (!editorReady) {
+                            cmdResult = { success: false, error: "Không tìm thấy khung nhập Prompt (.ProseMirror) trên Google Flow. Hãy mở một project trên Flow trước!", imageRequestId };
+                            break;
+                        }
+
+                        // ──────────── BƯỚC 2: Snapshot ảnh cũ + Cài interceptor + Chuẩn bị editor ────────────
+                        await updateStep("✍️ 2/4: Đang chuẩn bị khung soạn thảo và cài đặt bộ bắt ảnh...");
+
+                        const prepRes = await chrome.scripting.executeScript({
+                            target: { tabId: targetTab.id },
+                            world: "MAIN",
+                            func: () => {
+                                try {
+                                    // A. Snapshot TẤT CẢ ảnh hiện có trên trang để DOM diff loại trừ triệt để
+                                    window.__existingImages = Array.from(document.querySelectorAll("img")).map(i => i.src);
+                                    window.__capturedImages = [];
+
+                                    // B. Cài fetch + XHR interceptor bắt link ảnh mới từ batchexecute
+                                    if (!window.__exproInterceptorsInstalled) {
+                                        window.__exproInterceptorsInstalled = true;
+
+                                        const extractImgs = (text) => {
+                                            if (!text || typeof text !== "string") return;
+                                            const unescaped = text.replace(/\\u003d/g, "=").replace(/\\u0026/g, "&");
+
+                                            // 1. Domain flow-content.google
+                                            const regex1 = /https:\/\/flow-content\.google\/image\/[a-f0-9-]+\?[^"\\'\s}]*/g;
+                                            const m1 = unescaped.match(regex1) || [];
+                                            m1.forEach(m => {
+                                                const clean = m.replace(/\\"/g, "").replace(/\\n/g, "");
+                                                if (clean.includes("KeyName=") && !window.__capturedImages.includes(clean)) {
+                                                    window.__capturedImages.push(clean);
+                                                }
+                                            });
+
+                                            // 2. Domain flow.google.com/asb/
+                                            const regex2 = /https:\/\/flow\.google\.com\/asb\/[A-Za-z0-9_-]+[=s0-9rw-]*/g;
+                                            const m2 = unescaped.match(regex2) || [];
+                                            m2.forEach(m => {
+                                                const clean = m.replace(/\\"/g, "").replace(/\\n/g, "");
+                                                if (!window.__capturedImages.includes(clean)) {
+                                                    window.__capturedImages.push(clean);
+                                                }
+                                            });
+                                        };
+
+                                        const origFetch = window.fetch;
+                                        window.fetch = async function(...args) {
+                                            const res = await origFetch.apply(this, args);
+                                            try {
+                                                const u = args[0] ? String(args[0]) : "";
+                                                if (u.includes("ogiZ0b") || u.includes("batchexecute")) {
+                                                    res.clone().text().then(extractImgs).catch(() => {});
+                                                }
+                                            } catch(e) {}
+                                            return res;
+                                        };
+
+                                        const origOpen = XMLHttpRequest.prototype.open;
+                                        const origSend = XMLHttpRequest.prototype.send;
+                                        XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+                                            this.__reqUrl = url ? String(url) : "";
+                                            return origOpen.call(this, method, url, ...rest);
+                                        };
+                                        XMLHttpRequest.prototype.send = function(...args) {
+                                            this.addEventListener("load", function() {
+                                                if (this.__reqUrl && (this.__reqUrl.includes("ogiZ0b") || this.__reqUrl.includes("batchexecute"))) {
+                                                    extractImgs(this.responseText);
+                                                }
+                                            });
+                                            return origSend.apply(this, args);
+                                        };
+                                    }
+
+                                    const editor = document.querySelector(".ProseMirror");
+                                    if (!editor) return { error: "Không tìm thấy khung nhập Prompt (.ProseMirror)" };
+
+                                    // Xóa sạch nội dung cũ trong ProseMirror trước
+                                    if (editor.pmViewDesc && editor.pmViewDesc.view) {
+                                        const view = editor.pmViewDesc.view;
+                                        const tr = view.state.tr;
+                                        if (view.state.doc.content.size > 0) {
+                                            tr.delete(0, view.state.doc.content.size);
+                                            view.dispatch(tr);
+                                        }
+                                    }
+
+                                    const r = editor.getBoundingClientRect();
+                                    return {
+                                        success: true,
+                                        editorRect: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) }
+                                    };
+                                } catch(err) {
+                                    return { error: err.message || String(err) };
+                                }
+                            }
+                        });
+
+                        const prepData = prepRes?.[0]?.result || {};
+                        if (prepData.error) {
+                            cmdResult = { success: false, error: prepData.error, imageRequestId };
+                            break;
+                        }
+
+                        // ──────────── BƯỚC 3: Gõ Prompt vào ProseMirror + Click Generate qua CDP ────────────
+                        await updateStep(`✍️ 2/4: Đang nhập prompt: "${prompt.substring(0, 35)}..."`);
+
+                        // A. Dọn sạch mọi backdrop/menu overlay đang che khuất màn hình và lấy toạ độ ProseMirror
+                        const initEdRes = await chrome.scripting.executeScript({
+                            target: { tabId: targetTab.id },
+                            world: "MAIN",
+                            func: () => {
+                                document.querySelectorAll(".cdk-overlay-backdrop").forEach(b => b.remove());
+                                document.querySelectorAll(".cdk-overlay-pane").forEach(p => p.remove());
+                                const ed = document.querySelector(".ProseMirror");
+                                if (ed) ed.focus();
+                                const r = ed ? ed.getBoundingClientRect() : null;
+                                return r ? { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) } : null;
+                            }
+                        });
+
+                        const edRect = initEdRes?.[0]?.result;
+                        if (!edRect) {
+                            cmdResult = { success: false, error: "Không tìm thấy toạ độ khung soạn thảo ProseMirror trên Flow", imageRequestId };
+                            break;
+                        }
+
+                        // B. Kết nối CDP Native điều khiển Tab Ngầm (Zero Tab Switching)
+                        let dbgAttached = false;
+                        if (chrome.debugger && typeof chrome.debugger.attach === "function") {
+                            await new Promise(r => {
+                                chrome.debugger.attach({ tabId: targetTab.id }, "1.3", () => {
+                                    if (!chrome.runtime.lastError) dbgAttached = true;
+                                    r();
+                                });
+                            });
+                        }
+
+                        if (!dbgAttached) {
+                            cmdResult = { success: false, error: "Không thể kết nối Chrome Debugger để điều khiển tab ngầm", imageRequestId };
+                            break;
+                        }
+
+                        try {
+                            const sendDbg = (method, params) => new Promise(res => {
+                                let done = false;
+                                const timer = setTimeout(() => { if (!done) { done = true; res(); } }, 1500);
+                                try {
+                                    chrome.debugger.sendCommand({ tabId: targetTab.id }, method, params, (ret) => {
+                                        if (!done) { done = true; clearTimeout(timer); res(ret); }
+                                    });
+                                } catch(e) {
+                                    if (!done) { done = true; clearTimeout(timer); res(); }
+                                }
+                            });
+
+                            // B1. Click vào ProseMirror để đặt native focus con trỏ
+                            const edClickX = edRect.x + Math.min(30, Math.round(edRect.w / 2));
+                            const edClickY = edRect.y + Math.round(edRect.h / 2);
+                            await sendDbg("Input.dispatchMouseEvent", { type: "mousePressed", x: edClickX, y: edClickY, button: "left", clickCount: 1 });
+                            await new Promise(r => setTimeout(r, 40));
+                            await sendDbg("Input.dispatchMouseEvent", { type: "mouseReleased", x: edClickX, y: edClickY, button: "left", clickCount: 1 });
+                            await new Promise(r => setTimeout(r, 60));
+
+                            // B2. Xóa sạch text cũ trong ProseMirror
+                            await chrome.scripting.executeScript({
+                                target: { tabId: targetTab.id },
+                                world: "MAIN",
+                                func: () => {
+                                    const ed = document.querySelector(".ProseMirror");
+                                    if (ed) {
+                                        const sel = window.getSelection();
+                                        const range = document.createRange();
+                                        range.selectNodeContents(ed);
+                                        sel.removeAllRanges();
+                                        sel.addRange(range);
+                                    }
+                                }
+                            });
+                            await sendDbg("Input.dispatchKeyEvent", {
+                                type: "keyDown",
+                                key: "Backspace",
+                                code: "Backspace",
+                                windowsVirtualKeyCode: 8,
+                                nativeVirtualKeyCode: 8
+                            });
+                            await sendDbg("Input.dispatchKeyEvent", {
+                                type: "keyUp",
+                                key: "Backspace",
+                                code: "Backspace"
+                            });
+                            await new Promise(r => setTimeout(r, 50));
+
+                            // B3. Gõ Prompt vào editor bằng CDP Native Input (hoạt động 100% trên tab ngầm!)
+                            await sendDbg("Input.insertText", { text: prompt });
+                            await new Promise(r => setTimeout(r, 200));
+
+                            // B4. Kiểm tra nút Bắt đầu tạo và trạng thái kích hoạt của Angular
+                            const btnCheckRes = await chrome.scripting.executeScript({
+                                target: { tabId: targetTab.id },
+                                world: "MAIN",
+                                func: () => {
+                                    document.querySelectorAll(".cdk-overlay-backdrop").forEach(b => b.remove());
+                                    const ed = document.querySelector(".ProseMirror");
+                                    const btn = document.querySelector(".generate-icon-button") 
+                                             || document.querySelector('button[type="submit"]')
+                                             || document.querySelector('button[aria-label="Bắt đầu tạo"]')
+                                             || document.querySelector('button[aria-label*="tạo" i]')
+                                             || document.querySelector('button[aria-label*="generate" i]');
+                                    if (!btn) return { error: "Không tìm thấy nút Bắt đầu tạo" };
+                                    const r = btn.getBoundingClientRect();
+                                    return {
+                                        editorText: ed ? ed.innerText.trim() : "",
+                                        btnDisabled: btn.disabled || btn.classList.contains("mat-mdc-button-disabled"),
+                                        x: Math.round(r.left),
+                                        y: Math.round(r.top),
+                                        w: Math.round(r.width),
+                                        h: Math.round(r.height)
+                                    };
+                                }
+                            });
+
+                            const btnData = btnCheckRes?.[0]?.result;
+                            console.log("[Flow Bridge] Trạng thái editor & nút tạo sau khi nhập CDP:", JSON.stringify(btnData));
+
+                            // Nếu nút disabled vì Angular chưa kích hoạt change, dispatch thêm input event
+                            if (btnData && btnData.btnDisabled) {
+                                await chrome.scripting.executeScript({
+                                    target: { tabId: targetTab.id },
+                                    world: "MAIN",
+                                    func: () => {
+                                        const ed = document.querySelector(".ProseMirror");
+                                        if (ed) {
+                                            ed.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+                                            ed.dispatchEvent(new Event("change", { bubbles: true }));
+                                        }
+                                    }
+                                });
+                                await new Promise(r => setTimeout(r, 100));
+                            }
+
+                            // B5. Click nút Bắt đầu tạo 100% ngầm
+                            if (btnData && btnData.x !== undefined) {
+                                const fx = btnData.x + Math.round(btnData.w / 2);
+                                const fy = btnData.y + Math.round(btnData.h / 2);
+                                await sendDbg("Input.dispatchMouseEvent", { type: "mouseMoved", x: fx, y: fy });
+                                await sendDbg("Input.dispatchMouseEvent", { type: "mousePressed", x: fx, y: fy, button: "left", clickCount: 1 });
+                                await new Promise(r => setTimeout(r, 60));
+                                await sendDbg("Input.dispatchMouseEvent", { type: "mouseReleased", x: fx, y: fy, button: "left", clickCount: 1 });
+                                console.log(`[Flow Bridge] Đã click nút Bắt đầu tạo ngầm tại (${fx}, ${fy})`);
+                            }
+                        } finally {
+                            if (dbgAttached) {
+                                try { chrome.debugger.detach({ tabId: targetTab.id }, () => {}); } catch(e) {}
+                            }
+                        }
+
+                        // Hiển thị ngay popup shield chặn click và hiển thị tiến trình trên tab Flow
+                        await showFlowShield(targetTab.id, prompt, "⏳ Đang gửi yêu cầu và chờ Google Flow xử lý (15-40s)...");
+
+                        // ──────────── BƯỚC 4: Chờ kết quả tạo ảnh (CHỈ NHẬN ẢNH MỚI) ────────────
+                        await updateStep("⏳ 3/4: Đang chờ Google Flow xử lý và trả về ảnh AI (15-40 giây)...");
+
+                        let capturedImages = [];
+                        for (let wait = 0; wait < 120; wait++) {
+                            await new Promise(r => setTimeout(r, 500));
+
+                            if (wait > 0 && wait % 10 === 0) {
+                                await updateStep(`⏳ 3/4: Đang chờ Google Flow xử lý... (${Math.round(wait * 0.5)}s / 60s)`);
+                            }
+
+                            const checkRes = await chrome.scripting.executeScript({
+                                target: { tabId: targetTab.id },
+                                world: "MAIN",
+                                func: () => {
+                                    // A. Kiểm tra từ interceptor mạng (bắt response batchexecute của lượt này)
+                                    if (window.__capturedImages && window.__capturedImages.length > 0) {
+                                        return { images: window.__capturedImages, source: "interceptor" };
+                                    }
+
+                                    // B. Kiểm tra ảnh MỚI xuất hiện trên canvas DOM (src KHÔNG có trong __existingImages)
+                                    const existing = new Set(window.__existingImages || []);
+                                    const currentImgs = Array.from(document.querySelectorAll("img")).filter(i => {
+                                        const src = i.src || "";
+                                        const isFlowImg = src.includes("/asb/") || src.includes("flow-content.google");
+                                        const isNew = !existing.has(src);
+                                        const w = i.naturalWidth || i.width || 0;
+                                        const h = i.naturalHeight || i.height || 0;
+                                        return isFlowImg && isNew && (w > 50 || h > 50 || w === 0);
+                                    });
+
+                                    if (currentImgs.length > 0) {
+                                        return { images: currentImgs.map(i => i.src), source: "dom_diff" };
+                                    }
+
+                                    return { images: [] };
+                                }
+                            });
+
+                            const imgs = checkRes?.[0]?.result?.images || [];
+                            if (imgs.length > 0) {
+                                capturedImages = imgs;
+                                console.log(`[Flow Bridge] Đã bắt được ${imgs.length} ảnh MỚI qua ${checkRes?.[0]?.result?.source} ✓`);
+                                break;
+                            }
+                        }
+
+                        // TUYỆT ĐỐI KHÔNG DÙNG FALLBACK LẤY ẢNH CŨ TRÊN CANVAS!
+                        // Báo lỗi rõ ràng nếu không có ảnh MỚI nào được sinh ra cho prompt này
+                        if (capturedImages.length === 0) {
+                            cmdResult = {
+                                success: false,
+                                error: "Google Flow không tạo ảnh mới cho prompt này sau 60s (có thể prompt bị bộ lọc an toàn của Google chặn hoặc hết quota)",
+                                imageRequestId
+                            };
+                            break;
+                        }
+
+                        // ──────────── BƯỚC 5: Chuyển đổi Base64 vĩnh viễn (3 lớp bảo vệ) ────────────
+                        await updateStep(`📥 4/4: Đang tải ${capturedImages.length} ảnh và chuyển đổi Base64 vĩnh viễn...`);
+
+                        const dlRes = await chrome.scripting.executeScript({
+                            target: { tabId: targetTab.id },
+                            world: "MAIN",
+                            func: async (imageUrls) => {
+                                const results = [];
+                                for (const url of imageUrls) {
+                                    // Lớp 1: Fetch với cookie phiên
+                                    try {
+                                        const resp = await fetch(url, { credentials: "include" });
+                                        if (resp.ok) {
+                                            const blob = await resp.blob();
+                                            const b64 = await new Promise((resolve, reject) => {
+                                                const reader = new FileReader();
+                                                reader.onloadend = () => resolve(reader.result);
+                                                reader.onerror = reject;
+                                                reader.readAsDataURL(blob);
+                                            });
+                                            if (b64 && b64.startsWith("data:")) {
+                                                results.push({ url: b64, originalUrl: url });
+                                                continue;
+                                            }
+                                        }
+                                    } catch(e) {}
+
+                                    // Lớp 2: Vẽ lên Canvas (cùng origin flow.google.com)
+                                    try {
+                                        const b64 = await new Promise((resolve, reject) => {
+                                            const img = new Image();
+                                            img.crossOrigin = "anonymous";
+                                            img.onload = () => {
+                                                try {
+                                                    const c = document.createElement("canvas");
+                                                    c.width = img.naturalWidth || img.width;
+                                                    c.height = img.naturalHeight || img.height;
+                                                    const ctx = c.getContext("2d");
+                                                    ctx.drawImage(img, 0, 0);
+                                                    resolve(c.toDataURL("image/jpeg", 0.92));
+                                                } catch(ce) { reject(ce); }
+                                            };
+                                            img.onerror = () => reject(new Error("Canvas load error"));
+                                            img.src = url;
+                                        });
+                                        if (b64 && b64.startsWith("data:")) {
+                                            results.push({ url: b64, originalUrl: url });
+                                            continue;
+                                        }
+                                    } catch(err2) {}
+
+                                    results.push({ url, originalUrl: url });
+                                }
+                                return results;
+                            },
+                            args: [capturedImages]
+                        });
+
+                        let persistentImages = dlRes?.[0]?.result || [];
+
+                        // Lớp 3: Service Worker download
+                        if (persistentImages.length === 0 || persistentImages.every(p => !p.url || !p.url.startsWith("data:"))) {
+                            persistentImages = [];
+                            for (const imgUrl of capturedImages) {
+                                try {
+                                    const fetchRes = await fetch(imgUrl);
+                                    if (fetchRes.ok) {
+                                        const arrayBuffer = await fetchRes.arrayBuffer();
+                                        const bytes = new Uint8Array(arrayBuffer);
+                                        let binary = "";
+                                        const len = bytes.byteLength;
+                                        for (let i = 0; i < len; i += 8192) {
+                                            binary += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i + 8192, len)));
+                                        }
+                                        const base64 = btoa(binary);
+                                        const mimeType = fetchRes.headers.get("content-type") || "image/jpeg";
+                                        persistentImages.push({ url: `data:${mimeType};base64,${base64}`, originalUrl: imgUrl });
+                                    } else {
+                                        persistentImages.push({ url: imgUrl, originalUrl: imgUrl });
+                                    }
+                                } catch(e) {
+                                    persistentImages.push({ url: imgUrl, originalUrl: imgUrl });
+                                }
+                            }
+                        }
+
+                        const validImages = persistentImages.filter(p => p.url && (p.url.startsWith("data:") || p.url.startsWith("http")));
+
+                        await updateStep(`✅ 4/4: Đã hoàn tất tạo ${validImages.length} ảnh AI Flow thành công!`);
+
+                        cmdResult = {
+                            success: true,
+                            images: validImages.length > 0 ? validImages : persistentImages,
+                            imageRequestId
+                        };
+
+                    } catch(flowErr) {
+                        console.error("[Flow Bridge] Fatal error:", flowErr);
+                        cmdResult = { success: false, error: flowErr.message, imageRequestId };
+                    } finally {
+                        if (targetTab && targetTab.id) {
+                            try {
+                                await new Promise(r => setTimeout(r, 600));
+                                await hideFlowShield(targetTab.id);
+                            } catch(e) {}
+                        }
+                    }
+                    break;
+                }
+
+                case "FLOW_SYNC_PROJECT_IMAGES": {
+                    // ===================================================================
+                    // ĐỒNG BỘ TOÀN BỘ ẢNH TỪ GOOGLE FLOW CANVAS VÀO GALLERY DỰ ÁN
+                    // ===================================================================
+                    const flowProjectId = cmd.flowProjectId || "";
+                    const flowChildId = cmd.flowChildId || "";
 
                     const updateStep = async (stepText) => {
                         try {
@@ -2244,286 +3691,804 @@ async function pollAndExecuteCommand() {
                     };
 
                     try {
-                        await updateStep("🔍 1/4: Đang tìm tab Google Flow trên trình duyệt...");
+                        await updateStep("🔍 Đang tìm tab Flow để quét ảnh canvas...");
                         const tabs = await chrome.tabs.query({});
-                        let targetTab = tabs.find(t => t.url && t.url.includes("flow.google.com/project/"));
-                        if (!targetTab) {
-                            targetTab = tabs.find(t => t.url && t.url.includes("flow.google.com"));
+                        let targetTab = null;
+
+                        if (flowProjectId) {
+                            targetTab = tabs.find(t => t.url && t.url.includes(flowProjectId));
+                            if (!targetTab) {
+                                targetTab = await chrome.tabs.create({
+                                    url: `https://flow.google.com/project/${flowProjectId}`,
+                                    active: false
+                                });
+                                await ensureTabLoaded(targetTab.id);
+                                await new Promise(r => setTimeout(r, 4500));
+                            }
+                        } else {
+                            targetTab = tabs.find(t => t.url && t.url.includes("flow.google.com/project/"))
+                                     || tabs.find(t => t.url && t.url.includes("flow.google.com"));
                         }
 
                         if (!targetTab) {
-                            await updateStep("🌐 Đang mở tab flow.google.com...");
-                            targetTab = await chrome.tabs.create({ url: "https://flow.google.com", active: true });
+                            cmdResult = { success: false, error: "Không tìm thấy tab Google Flow nào để quét ảnh", flowProjectId, flowChildId };
+                            break;
+                        }
+
+                        await updateStep("🖼️ Đang quét toàn bộ ảnh trên Canvas Google Flow...");
+
+                        const scanRes = await chrome.scripting.executeScript({
+                            target: { tabId: targetTab.id },
+                            world: "MAIN",
+                            func: () => {
+                                const seenUrls = new Set();
+                                const items = [];
+
+                                // Tìm tất cả thẻ img trên Flow canvas
+                                const allImgs = Array.from(document.querySelectorAll("img"));
+                                allImgs.forEach(img => {
+                                    const src = img.src || "";
+                                    if (!src) return;
+                                    const isFlowImg = src.includes("/asb/") || src.includes("flow-content.google");
+                                    const isCanvasImg = img.alt && (img.alt.includes("hình ảnh") || img.alt.includes("ảnh"));
+                                    const w = img.naturalWidth || img.width || 0;
+                                    const h = img.naturalHeight || img.height || 0;
+
+                                    if ((isFlowImg || isCanvasImg) && (w > 80 || h > 80)) {
+                                        const cleanUrl = src.split("&Token=")[0];
+                                        if (seenUrls.has(src) || seenUrls.has(cleanUrl)) return;
+                                        seenUrls.add(src);
+                                        seenUrls.add(cleanUrl);
+
+                                        // Tìm kiếm text prompt ở container cha gần nhất
+                                        let promptText = "";
+                                        let parent = img.parentElement;
+                                        for (let depth = 0; depth < 8 && parent; depth++) {
+                                            const texts = Array.from(parent.querySelectorAll("p, span, div, textarea, [class*='text'], [class*='prompt']"))
+                                                .map(el => el.innerText ? el.innerText.trim() : "")
+                                                .filter(t => t.length > 5 && !t.includes("home") && !t.includes("search") && !t.includes("more_vert") && !t.includes("add"));
+                                            if (texts.length > 0) {
+                                                promptText = texts[0];
+                                                break;
+                                            }
+                                            parent = parent.parentElement;
+                                        }
+
+                                        items.push({
+                                            url: src,
+                                            prompt: promptText || img.alt || "Ảnh trên Google Flow Canvas",
+                                            width: w,
+                                            height: h
+                                        });
+                                    }
+                                });
+
+                                return items;
+                            }
+                        });
+
+                        const scannedImages = scanRes?.[0]?.result || [];
+                        console.log(`[Flow Sync] Tìm thấy ${scannedImages.length} ảnh trên canvas tab ${targetTab.id}`);
+
+                        if (scannedImages.length === 0) {
+                            cmdResult = { success: true, count: 0, images: [], flowProjectId, flowChildId };
+                            break;
+                        }
+
+                        await updateStep(`📥 Đang nạp và lưu vĩnh viễn ${scannedImages.length} ảnh từ Canvas...`);
+
+                        // Chuyển đổi Base64 trong MAIN world để lưu vĩnh viễn
+                        const b64Res = await chrome.scripting.executeScript({
+                            target: { tabId: targetTab.id },
+                            world: "MAIN",
+                            func: async (imgItems) => {
+                                const results = [];
+                                for (const item of imgItems) {
+                                    let b64 = null;
+                                    try {
+                                        const resp = await fetch(item.url, { credentials: "include" });
+                                        if (resp.ok) {
+                                            const blob = await resp.blob();
+                                            b64 = await new Promise((res, rej) => {
+                                                const r = new FileReader();
+                                                r.onloadend = () => res(r.result);
+                                                r.onerror = rej;
+                                                r.readAsDataURL(blob);
+                                            });
+                                        }
+                                    } catch(e) {}
+
+                                    results.push({
+                                        url: (b64 && b64.startsWith("data:")) ? b64 : item.url,
+                                        originalUrl: item.url,
+                                        prompt: item.prompt,
+                                        width: item.width,
+                                        height: item.height
+                                    });
+                                }
+                                return results;
+                            },
+                            args: [scannedImages]
+                        });
+
+                        const finalImages = b64Res?.[0]?.result || scannedImages;
+                        await updateStep(`✅ Đã đồng bộ xong ${finalImages.length} ảnh từ Canvas Google Flow!`);
+
+                        cmdResult = {
+                            success: true,
+                            count: finalImages.length,
+                            images: finalImages,
+                            flowProjectId,
+                            flowChildId
+                        };
+
+                    } catch(syncErr) {
+                        console.error("[Flow Sync] Error:", syncErr);
+                        cmdResult = { success: false, error: syncErr.message, flowProjectId, flowChildId };
+                    }
+                    break;
+                }
+
+                // ===================================================================
+                // 14. FLOW_LIST_PROJECTS — Lấy danh sách tất cả Project từ Google Flow qua RPC UpteDb
+                // ===================================================================
+                case "FLOW_LIST_PROJECTS": {
+                    try {
+                        const tabs = await chrome.tabs.query({});
+                        let targetTab = tabs.find(t => t.url && t.url.includes("flow.google.com"));
+                        if (!targetTab) {
+                            targetTab = await chrome.tabs.create({ url: "https://flow.google.com", active: false });
                             await ensureTabLoaded(targetTab.id);
                             await new Promise(r => setTimeout(r, 4000));
                         }
 
-                        // Kích hoạt tab và cửa sổ chứa Flow
-                        try {
-                            await chrome.tabs.update(targetTab.id, { active: true });
-                            if (targetTab.windowId) {
-                                await chrome.windows.update(targetTab.windowId, { focused: true });
-                            }
-                        } catch(e) {}
-
-                        await updateStep("🎨 2/4: Đang chuẩn bị khung soạn thảo và cài đặt bộ bắt ảnh...");
-
-                        // Bước 1: Cài interceptor và lấy toạ độ editor
-                        const prepRes = await chrome.scripting.executeScript({
+                        const listRes = await chrome.scripting.executeScript({
                             target: { tabId: targetTab.id },
                             world: "MAIN",
-                            func: () => {
+                            func: async () => {
                                 try {
-                                    // A. Cài đặt fetch + XHR interceptor bắt link ảnh flow-content.google
-                                    if (!window.__exproInterceptorsInstalled) {
-                                        window.__exproInterceptorsInstalled = true;
-                                        window.__capturedImages = [];
+                                    const wiz = window.WIZ_global_data || {};
+                                    const at = wiz.SNlM0e || "";
+                                    const fsid = wiz.FdrFJe || "";
+                                    const bl = wiz.cfb2h || "boq_labs-ai-sandbox-frontend_20260923.06_p0";
 
-                                        const extractImgs = (text) => {
-                                            if (!text || typeof text !== "string") return;
-                                            const regex = /https:\/\/flow-content\.google\/image\/[a-f0-9-]+\?[^\"\\\s\']*/g;
-                                            const matches = text.match(regex) || [];
-                                            matches.forEach(m => {
-                                                const clean = m.replace(/\\u003d/g, "=").replace(/\\u0026/g, "&");
-                                                if (!window.__capturedImages.includes(clean)) {
-                                                    window.__capturedImages.push(clean);
-                                                }
-                                            });
-                                        };
+                                    const params = new URLSearchParams({
+                                        rpcids: "UpteDb",
+                                        "source-path": "/",
+                                        bl: bl,
+                                        "f.sid": fsid,
+                                        hl: "vi",
+                                        _reqid: String(Math.floor(Math.random() * 900000) + 100000),
+                                        rt: "c"
+                                    });
 
-                                        // Patch fetch
-                                        const origFetch = window.fetch;
-                                        window.fetch = async function(...args) {
-                                            const res = await origFetch.apply(this, args);
-                                            try {
-                                                const u = args[0] ? String(args[0]) : "";
-                                                if (u.includes("ogiZ0b") || u.includes("batchexecute")) {
-                                                    res.clone().text().then(extractImgs).catch(() => {});
-                                                }
-                                            } catch(e) {}
-                                            return res;
-                                        };
+                                    const freq = JSON.stringify([[["UpteDb", JSON.stringify(["projects/*", 100, null, null, null, null, [1]]), null, "generic"]]]);
+                                    const body = new URLSearchParams();
+                                    body.append("f.req", freq);
+                                    if (at) body.append("at", at);
 
-                                        // Patch XMLHttpRequest
-                                        const origOpen = XMLHttpRequest.prototype.open;
-                                        const origSend = XMLHttpRequest.prototype.send;
-                                        XMLHttpRequest.prototype.open = function(method, url, ...rest) {
-                                            this.__reqUrl = url ? String(url) : "";
-                                            return origOpen.call(this, method, url, ...rest);
-                                        };
-                                        XMLHttpRequest.prototype.send = function(...args) {
-                                            this.addEventListener("load", function() {
-                                                if (this.__reqUrl && (this.__reqUrl.includes("ogiZ0b") || this.__reqUrl.includes("batchexecute"))) {
-                                                    extractImgs(this.responseText);
+                                    const resp = await fetch(`https://flow.google.com/_/AiSandboxAngularFrontend/data/batchexecute?${params.toString()}`, {
+                                        method: "POST",
+                                        headers: {
+                                            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                                            "X-Same-Domain": "1"
+                                        },
+                                        body: body.toString(),
+                                        credentials: "include"
+                                    });
+
+                                    const text = await resp.text();
+                                    const lines = text.split("\n");
+                                    const projects = [];
+                                    for (const line of lines) {
+                                        if (line.startsWith("[[") && line.includes("wrb.fr") && line.includes("UpteDb")) {
+                                            const parsed = JSON.parse(line);
+                                            for (const item of parsed) {
+                                                if (item[0] === "wrb.fr" && item[1] === "UpteDb") {
+                                                    const data = JSON.parse(item[2]);
+                                                    if (data && data[0]) {
+                                                        for (const p of data[0]) {
+                                                            projects.push({
+                                                                id: p[0],
+                                                                name: (p[1] && p[1][0]) ? p[1][0] : "Dự án Flow",
+                                                                thumb: (p[1] && p[1][3]) ? p[1][3] : "",
+                                                                createdAt: (p[1] && p[1][2] && p[1][2][0]) ? p[1][2][0] : null
+                                                            });
+                                                        }
+                                                    }
                                                 }
-                                            });
-                                            return origSend.apply(this, args);
-                                        };
+                                            }
+                                        }
                                     }
-
-                                    window.__capturedImages = [];
-                                    window.__existingImages = Array.from(document.querySelectorAll('img[src*="flow-content.google"]')).map(i => i.src);
-
-                                    const editor = document.querySelector(".ProseMirror");
-                                    if (!editor) {
-                                        return { error: "Không tìm thấy khung nhập Prompt trên tab Google Flow. Vui lòng mở 1 project trên flow.google.com!" };
-                                    }
-
-                                    const r = editor.getBoundingClientRect();
-                                    return {
-                                        success: true,
-                                        editorRect: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) }
-                                    };
-                                } catch(err) {
-                                    return { error: err.message || String(err) };
+                                    return { success: true, count: projects.length, projects };
+                                } catch(e) {
+                                    return { success: false, error: e.message };
                                 }
                             }
                         });
 
-                        const prepResult = prepRes?.[0]?.result || {};
-                        if (prepResult.error) {
-                            cmdResult = { success: false, error: prepResult.error, imageRequestId };
+                        const resData = listRes?.[0]?.result || { success: false, error: "Không nhận được phản hồi" };
+                        cmdResult = resData;
+                    } catch(err) {
+                        cmdResult = { success: false, error: err.message };
+                    }
+                    break;
+                }
+
+                // ===================================================================
+                // 15. FLOW_DELETE_IMAGE — Xóa ảnh trên Google Flow Canvas (Chuyển vào thùng rác)
+                // ===================================================================
+                case "FLOW_DELETE_IMAGE": {
+                    const flowProjectId = cmd.flowProjectId || "";
+                    const imageUrl = cmd.imageUrl || "";
+                    const originalUrl = cmd.originalUrl || imageUrl;
+                    const imageId = cmd.imageId || "";
+
+                    try {
+                        const tabs = await chrome.tabs.query({});
+                        let targetTab = null;
+                        if (flowProjectId) {
+                            targetTab = tabs.find(t => t.url && t.url.includes(flowProjectId));
+                            if (!targetTab) {
+                                targetTab = await chrome.tabs.create({
+                                    url: `https://flow.google.com/project/${flowProjectId}`,
+                                    active: false
+                                });
+                                await ensureTabLoaded(targetTab.id);
+                                await new Promise(r => setTimeout(r, 4500));
+                            }
+                        } else {
+                            targetTab = tabs.find(t => t.url && t.url.includes("flow.google.com/project/"))
+                                     || tabs.find(t => t.url && t.url.includes("flow.google.com"));
+                        }
+
+                        if (!targetTab) {
+                            cmdResult = { success: false, error: "Không tìm thấy tab Google Flow của dự án để xóa ảnh" };
                             break;
                         }
 
-                        // Bước 2: Kết nối Chrome Debugger để gửi sự kiện native phần cứng (isTrusted: true)
-                        let dbgAttached = false;
-                        await new Promise((resolve) => {
-                            chrome.debugger.attach({ tabId: targetTab.id }, "1.3", () => {
-                                if (chrome.runtime.lastError) {
-                                    console.warn("[Bridge Debugger] Attach error:", chrome.runtime.lastError.message);
-                                    resolve();
-                                } else {
-                                    dbgAttached = true;
-                                    resolve();
+                        const delRes = await chrome.scripting.executeScript({
+                            target: { tabId: targetTab.id },
+                            world: "MAIN",
+                            func: async (targetUrl, origUrl, flowPid) => {
+                                try {
+                                    // Trích xuất UUID định danh ảnh (flow-content.google/image/<UUID>)
+                                    let imgUuid = "";
+                                    const m = (origUrl || targetUrl || "").match(/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/i);
+                                    if (m) imgUuid = m[0];
+
+                                    // 1. Ưu tiên thực thi RPC pGCYOe (metadata.archived) trực tiếp từ Flow Cloud
+                                    if (imgUuid && flowPid) {
+                                        try {
+                                            const wiz = window.WIZ_global_data || {};
+                                            const at = wiz.SNlM0e || "";
+                                            const fsid = wiz.FdrFJe || "";
+                                            const bl = wiz.cfb2h || "boq_labs-ai-sandbox-frontend_20260923.06_p0";
+
+                                            const params = new URLSearchParams({
+                                                rpcids: "pGCYOe",
+                                                "source-path": `/project/${flowPid}`,
+                                                bl: bl,
+                                                "f.sid": fsid,
+                                                hl: "vi",
+                                                _reqid: String(Math.floor(Math.random() * 900000) + 100000),
+                                                rt: "c"
+                                            });
+
+                                            const freq = JSON.stringify([[["pGCYOe", JSON.stringify([[[imgUuid, null, null, [null, null, 1], flowPid]], [["metadata.archived"]]]), null, "generic"]]]);
+                                            const body = new URLSearchParams();
+                                            body.append("f.req", freq);
+                                            if (at) body.append("at", at);
+
+                                            const resp = await fetch(`https://flow.google.com/_/AiSandboxAngularFrontend/data/batchexecute?${params.toString()}`, {
+                                                method: "POST",
+                                                headers: {
+                                                    "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                                                    "X-Same-Domain": "1"
+                                                },
+                                                body: body.toString(),
+                                                credentials: "include"
+                                            });
+
+                                            const text = await resp.text();
+                                            if (text.includes("pGCYOe") && !text.includes("error")) {
+                                                return { success: true, deleted: true, imgUuid, method: "rpc_pGCYOe" };
+                                            }
+                                        } catch(rpcErr) {
+                                            console.warn("[Flow Bridge] RPC pGCYOe delete warning, falling back to UI:", rpcErr);
+                                        }
+                                    }
+
+                                    // 2. Fallback tìm ảnh trên canvas và click Tuỳ chọn khác -> Chuyển vào thùng rác
+                                    const cleanTarget = (targetUrl || "").split("&Token=")[0].split("?Expires=")[0];
+                                    const cleanOrig = (origUrl || "").split("&Token=")[0].split("?Expires=")[0];
+
+                                    // Tìm ảnh trên canvas
+                                    const allImgs = Array.from(document.querySelectorAll("img"));
+                                    let matchedImg = null;
+
+                                    for (const img of allImgs) {
+                                        const src = img.src || "";
+                                        if (!src) continue;
+                                        const cleanSrc = src.split("&Token=")[0].split("?Expires=")[0];
+
+                                        if ((cleanTarget && cleanSrc === cleanTarget) ||
+                                            (cleanOrig && cleanSrc === cleanOrig) ||
+                                            (imgUuid && cleanSrc.includes(imgUuid)) ||
+                                            (cleanTarget && cleanTarget.length > 30 && cleanSrc.includes(cleanTarget.substring(0, 50)))) {
+                                            matchedImg = img;
+                                            break;
+                                        }
+                                    }
+
+                                    if (!matchedImg) {
+                                        // Nếu có imgUuid và đã cố RPC thì coi như hoàn tất
+                                        if (imgUuid) return { success: true, deleted: true, imgUuid, note: "cloud_archived" };
+                                        return { success: false, error: "Không tìm thấy thẻ ảnh tương ứng trên Flow canvas" };
+                                    }
+
+                                    // Tìm nút Tuỳ chọn khác trong container của ảnh
+                                    let cur = matchedImg.parentElement;
+                                    let tileMoreBtn = null;
+                                    for (let d = 0; d < 6 && cur && !tileMoreBtn; d++) {
+                                        tileMoreBtn = cur.querySelector('button[aria-label="Tuỳ chọn khác"], button[aria-label*="khác" i], button[aria-label*="options" i]');
+                                        cur = cur.parentElement;
+                                    }
+
+                                    if (!tileMoreBtn) {
+                                        return { success: false, error: "Không tìm thấy nút 'Tuỳ chọn khác' của ô ảnh trên Flow" };
+                                    }
+
+                                    // Click mở menu của tile
+                                    tileMoreBtn.click();
+                                    await new Promise(r => setTimeout(r, 450));
+
+                                    // Tìm menu item: Chuyển vào thùng rác / Xóa
+                                    const menuItems = Array.from(document.querySelectorAll(".mat-mdc-menu-item, [role='menuitem']"));
+                                    const trashItem = menuItems.find(m => {
+                                        const txt = (m.innerText || "").toLowerCase();
+                                        return txt.includes("thùng rác") || txt.includes("trash") || txt.includes("xoá") || txt.includes("delete");
+                                    });
+
+                                    if (!trashItem) {
+                                        document.body.click(); // đóng menu
+                                        return { success: false, error: "Không tìm thấy mục 'Chuyển vào thùng rác' trong menu ảnh" };
+                                    }
+
+                                    trashItem.click();
+                                    await new Promise(r => setTimeout(r, 450));
+
+                                    // Nếu có popup xác nhận xóa (mat-dialog-container), bấm xác nhận
+                                    const dialog = document.querySelector("mat-dialog-container, [role='dialog']");
+                                    if (dialog) {
+                                        const confirmBtn = Array.from(dialog.querySelectorAll("button")).find(b => {
+                                            const txt = (b.innerText || "").toLowerCase();
+                                            return txt.includes("xoá") || txt.includes("chuyển") || txt.includes("delete") || txt.includes("xác nhận") || b.getAttribute("color") === "warn";
+                                        });
+                                        if (confirmBtn) {
+                                            confirmBtn.click();
+                                            await new Promise(r => setTimeout(r, 300));
+                                        }
+                                    }
+
+                                    return { success: true, deleted: true, imgUuid, method: "ui_trash" };
+                                } catch(e) {
+                                    return { success: false, error: e.message };
                                 }
-                            });
+                            },
+                            args: [imageUrl, originalUrl, flowProjectId]
                         });
 
-                        if (!dbgAttached) {
-                            cmdResult = { success: false, error: "Không thể kết nối Chrome Debugger tới tab Google Flow", imageRequestId };
-                            break;
+                        const resData = delRes?.[0]?.result || { success: false, error: "Không nhận được phản hồi từ tab" };
+                        cmdResult = { ...resData, imageId, flowProjectId };
+                    } catch(err) {
+                        cmdResult = { success: false, error: err.message, imageId, flowProjectId };
+                    }
+                    break;
+                }
+
+                // ===================================================================
+                // 16. FLOW_DELETE_PROJECT — Xóa vĩnh viễn Project trên Google Flow (RPC QI2zvc + UI fallback)
+                // ===================================================================
+                case "FLOW_DELETE_PROJECT": {
+                    const flowProjectId = cmd.flowProjectId || "";
+                    if (!flowProjectId) {
+                        cmdResult = { success: false, error: "Thiếu flowProjectId" };
+                        break;
+                    }
+
+                    try {
+                        const tabs = await chrome.tabs.query({});
+                        let targetTab = tabs.find(t => t.url && t.url.includes(flowProjectId))
+                                     || tabs.find(t => t.url && t.url.includes("flow.google.com"));
+
+                        if (!targetTab) {
+                            targetTab = await chrome.tabs.create({ url: "https://flow.google.com", active: false });
+                            await ensureTabLoaded(targetTab.id);
+                            await new Promise(r => setTimeout(r, 3500));
                         }
 
-                        try {
-                            // 2A. Click vào giữa editor ProseMirror để lấy OS focus
-                            const er = prepResult.editorRect;
-                            const ex = er.x + Math.round(er.w / 2);
-                            const ey = er.y + Math.round(er.h / 2);
+                        // Thực thi RPC QI2zvc trực tiếp từ session Google Flow (nhanh và chuẩn 100%)
+                        const rpcRes = await chrome.scripting.executeScript({
+                            target: { tabId: targetTab.id },
+                            world: "MAIN",
+                            func: async (projId) => {
+                                try {
+                                    const wiz = window.WIZ_global_data || {};
+                                    const at = wiz.SNlM0e || "";
+                                    const fsid = wiz.FdrFJe || "";
+                                    const bl = wiz.cfb2h || "boq_labs-ai-sandbox-frontend_20260923.06_p0";
 
-                            await new Promise(r => chrome.debugger.sendCommand({ tabId: targetTab.id }, "Input.dispatchMouseEvent", { type: "mousePressed", x: ex, y: ey, button: "left", clickCount: 1 }, () => r()));
-                            await new Promise(r => chrome.debugger.sendCommand({ tabId: targetTab.id }, "Input.dispatchMouseEvent", { type: "mouseReleased", x: ex, y: ey, button: "left", clickCount: 1 }, () => r()));
-                            await new Promise(r => setTimeout(r, 150));
+                                    const params = new URLSearchParams({
+                                        rpcids: "QI2zvc",
+                                        "source-path": `/project/${projId}`,
+                                        bl: bl,
+                                        "f.sid": fsid,
+                                        hl: "vi",
+                                        _reqid: String(Math.floor(Math.random() * 900000) + 100000),
+                                        rt: "c"
+                                    });
 
-                            // 2B. Xóa nội dung cũ trong editor (Select All -> Backspace)
-                            await new Promise(r => chrome.debugger.sendCommand({ tabId: targetTab.id }, "Input.dispatchKeyEvent", { type: "rawKeyDown", key: "a", code: "KeyA", windowsVirtualKeyCode: 65, modifiers: 8 }, () => r()));
-                            await new Promise(r => chrome.debugger.sendCommand({ tabId: targetTab.id }, "Input.dispatchKeyEvent", { type: "rawKeyDown", key: "a", code: "KeyA", windowsVirtualKeyCode: 65, modifiers: 2 }, () => r()));
-                            await new Promise(r => chrome.debugger.sendCommand({ tabId: targetTab.id }, "Input.dispatchKeyEvent", { type: "rawKeyDown", key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8 }, () => r()));
-                            await new Promise(r => chrome.debugger.sendCommand({ tabId: targetTab.id }, "Input.dispatchKeyEvent", { type: "keyUp", key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8 }, () => r()));
-                            await new Promise(r => setTimeout(r, 150));
+                                    const freq = JSON.stringify([[["QI2zvc", JSON.stringify([`projects/${projId}`]), null, "generic"]]]);
+                                    const body = new URLSearchParams();
+                                    body.append("f.req", freq);
+                                    if (at) body.append("at", at);
 
-                            // 2C. Gõ Prompt vào editor bằng CDP Input.insertText
-                            await updateStep(`✍️ 2/4: Đang gõ prompt: "${prompt.substring(0, 35)}..."`);
-                            await new Promise(r => chrome.debugger.sendCommand({ tabId: targetTab.id }, "Input.insertText", { text: prompt }, () => r()));
-                            await new Promise(r => setTimeout(r, 400));
+                                    const resp = await fetch(`https://flow.google.com/_/AiSandboxAngularFrontend/data/batchexecute?${params.toString()}`, {
+                                        method: "POST",
+                                        headers: {
+                                            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                                            "X-Same-Domain": "1"
+                                        },
+                                        body: body.toString(),
+                                        credentials: "include"
+                                    });
 
-                            // 2D. Lấy toạ độ MỚI NHẤT của nút Bắt đầu tạo (sau khi editor co giãn theo nội dung)
-                            const btnRes = await chrome.scripting.executeScript({
-                                target: { tabId: targetTab.id },
-                                world: "MAIN",
-                                func: () => {
-                                    const btn = document.querySelector(".generate-icon-button") || document.querySelector('button[aria-label="Bắt đầu tạo"]');
-                                    if (!btn) return null;
-                                    const r = btn.getBoundingClientRect();
-                                    return {
-                                        x: Math.round(r.x),
-                                        y: Math.round(r.y),
-                                        w: Math.round(r.width),
-                                        h: Math.round(r.height),
-                                        disabled: btn.disabled || btn.classList.contains("mat-mdc-button-disabled")
-                                    };
+                                    const text = await resp.text();
+                                    const isSuccess = text.includes("QI2zvc") && !text.includes("error");
+                                    return { success: isSuccess || resp.ok, text: text.substring(0, 200) };
+                                } catch(e) {
+                                    return { success: false, error: e.message };
                                 }
-                            });
+                            },
+                            args: [flowProjectId]
+                        });
 
-                            const freshBtn = btnRes?.[0]?.result;
-                            if (freshBtn) {
-                                const fx = freshBtn.x + Math.round(freshBtn.w / 2);
-                                const fy = freshBtn.y + Math.round(freshBtn.h / 2);
-
-                                // CDP Native Mouse Click vào chính giữa nút Generate
-                                await new Promise(r => chrome.debugger.sendCommand({ tabId: targetTab.id }, "Input.dispatchMouseEvent", { type: "mouseMoved", x: fx, y: fy }, () => r()));
-                                await new Promise(r => chrome.debugger.sendCommand({ tabId: targetTab.id }, "Input.dispatchMouseEvent", { type: "mousePressed", x: fx, y: fy, button: "left", clickCount: 1 }, () => r()));
-                                await new Promise(r => setTimeout(r, 120));
-                                await new Promise(r => chrome.debugger.sendCommand({ tabId: targetTab.id }, "Input.dispatchMouseEvent", { type: "mouseReleased", x: fx, y: fy, button: "left", clickCount: 1 }, () => r()));
-                            }
-                        } finally {
-                            chrome.debugger.detach({ tabId: targetTab.id }, () => {});
-                        }
-
-                        await updateStep("⏳ 3/4: Đang chờ Google Flow xử lý và trả về ảnh AI (khoảng 15-30 giây)...");
-
-                        // Bước 3: Chờ kết quả tạo ảnh (tối đa 60 giây, kiểm tra mỗi 500ms)
-                        let capturedImages = [];
-                        for (let wait = 0; wait < 120; wait++) {
-                            await new Promise(r => setTimeout(r, 500));
-
-                            if (wait > 0 && wait % 10 === 0) {
-                                await updateStep(`⏳ 3/4: Đang chờ Google Flow xử lý... (${Math.round(wait * 0.5)}s / 60s)`);
-                            }
-
-                            const checkRes = await chrome.scripting.executeScript({
-                                target: { tabId: targetTab.id },
-                                world: "MAIN",
-                                func: () => {
-                                    // A. Từ DOM mới thêm vào canvas (Luôn đầy đủ Expires, KeyName, Signature hợp lệ!)
-                                    const existing = window.__existingImages || [];
-                                    const current = Array.from(document.querySelectorAll('img[src*="flow-content.google"]')).map(i => i.src);
-                                    const diff = current.filter(u => !existing.includes(u));
-                                    if (diff.length > 0) {
-                                        return { images: diff, source: "dom_diff" };
-                                    }
-                                    // B. Từ interceptor mạng (nếu có đầy đủ chữ ký KeyName)
-                                    if (window.__capturedImages && window.__capturedImages.length > 0) {
-                                        const valid = window.__capturedImages.filter(u => u.includes("KeyName="));
-                                        if (valid.length > 0) return { images: valid, source: "interceptor" };
-                                    }
-                                    return { images: [], currentCount: current.length };
-                                }
-                            });
-
-                            const imgs = checkRes?.[0]?.result?.images || [];
-                            if (imgs.length > 0) {
-                                capturedImages = imgs;
-                                break;
-                            }
-                        }
-
-                        // Fallback: nếu diff chưa bắt được nhưng trên trang có ảnh flow-content.google
-                        if (capturedImages.length === 0) {
-                            const fallbackRes = await chrome.scripting.executeScript({
-                                target: { tabId: targetTab.id },
-                                world: "MAIN",
-                                func: () => {
-                                    const allFlowImgs = Array.from(document.querySelectorAll('img[src*="flow-content.google"]'))
-                                        .filter(i => (i.naturalWidth || i.width || 0) > 100)
-                                        .map(i => i.src);
-                                    return allFlowImgs.slice(-4);
-                                }
-                            });
-                            const fbImgs = fallbackRes?.[0]?.result || [];
-                            if (fbImgs.length > 0) {
-                                capturedImages = fbImgs;
-                            }
-                        }
-
-                        if (capturedImages.length === 0) {
-                            cmdResult = {
-                                success: false,
-                                error: "Google Flow đã nhận lệnh nhưng không trả về ảnh sau 60s (có thể prompt bị kiểm duyệt an toàn hoặc hết quota)",
-                                imageRequestId
-                            };
-                            break;
-                        }
-
-                        await updateStep(`📥 3/4: Đang tải ${capturedImages.length} ảnh chất lượng cao và chuyển đổi Base64 vĩnh viễn...`);
-
-                        // Chuyển đổi URLs thành Data URL để lưu vĩnh viễn không bao giờ hết hạn ký
-                        const persistentImages = [];
-                        for (let rawUrl of capturedImages) {
-                            const imgUrl = (typeof rawUrl === "string") ? rawUrl : (rawUrl.url || "");
-                            if (!imgUrl) continue;
+                        // Đóng tất cả tab chứa flowProjectId đã bị xóa
+                        const tabsToClose = tabs.filter(t => t.url && t.url.includes(flowProjectId));
+                        for (const tab of tabsToClose) {
                             try {
-                                const fetchRes = await fetch(imgUrl);
-                                if (fetchRes.ok) {
-                                    const arrayBuffer = await fetchRes.arrayBuffer();
-                                    const bytes = new Uint8Array(arrayBuffer);
-                                    let binary = "";
-                                    const len = bytes.byteLength;
-                                    for (let i = 0; i < len; i += 8192) {
-                                        binary += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i + 8192, len)));
-                                    }
-                                    const base64 = btoa(binary);
-                                    const mimeType = fetchRes.headers.get("content-type") || "image/jpeg";
-                                    const dataUrl = `data:${mimeType};base64,${base64}`;
-                                    persistentImages.push({ url: dataUrl, originalUrl: imgUrl });
-                                } else {
-                                    persistentImages.push({ url: imgUrl, originalUrl: imgUrl });
-                                }
-                            } catch(e) {
-                                persistentImages.push({ url: imgUrl, originalUrl: imgUrl });
-                            }
+                                await chrome.tabs.remove(tab.id);
+                            } catch(e) {}
                         }
-
-                        await updateStep(`✅ 4/4: Đã hoàn tất tạo ${persistentImages.length} ảnh AI Flow!`);
 
                         cmdResult = {
                             success: true,
-                            images: persistentImages,
-                            imageRequestId: imageRequestId
+                            deletedProjectId: flowProjectId,
+                            rpcResult: rpcRes?.[0]?.result
+                        };
+                    } catch(err) {
+                        cmdResult = { success: false, error: err.message, flowProjectId };
+                    }
+                    break;
+                }
+
+                // ===================================================================
+                // 17. FLOW_CREATE_PROJECT — Tạo Project mới trên Google Flow qua RPC jHPbke
+                // ===================================================================
+                case "FLOW_CREATE_PROJECT": {
+                    const projectName = cmd.projectName || "Dự án mới";
+                    try {
+                        const tabs = await chrome.tabs.query({});
+                        let targetTab = tabs.find(t => t.url && t.url.includes("flow.google.com"));
+                        if (!targetTab) {
+                            targetTab = await chrome.tabs.create({ url: "https://flow.google.com", active: false });
+                            await ensureTabLoaded(targetTab.id);
+                            await new Promise(r => setTimeout(r, 4000));
+                        }
+
+                        const createRes = await chrome.scripting.executeScript({
+                            target: { tabId: targetTab.id },
+                            world: "MAIN",
+                            func: async (name) => {
+                                try {
+                                    const wiz = window.WIZ_global_data || {};
+                                    const at = wiz.SNlM0e || "";
+                                    const fsid = wiz.FdrFJe || "";
+                                    const bl = wiz.cfb2h || "boq_labs-ai-sandbox-frontend_20260923.06_p0";
+
+                                    const params = new URLSearchParams({
+                                        rpcids: "jHPbke",
+                                        "source-path": "/",
+                                        bl: bl,
+                                        "f.sid": fsid,
+                                        hl: "vi",
+                                        _reqid: String(Math.floor(Math.random() * 900000) + 100000),
+                                        rt: "c"
+                                    });
+
+                                    const freq = JSON.stringify([[["jHPbke", JSON.stringify(["projects/*", [null, [name]], [null, 22]]), null, "generic"]]]);
+                                    const body = new URLSearchParams();
+                                    body.append("f.req", freq);
+                                    if (at) body.append("at", at);
+
+                                    const resp = await fetch(`https://flow.google.com/_/AiSandboxAngularFrontend/data/batchexecute?${params.toString()}`, {
+                                        method: "POST",
+                                        headers: {
+                                            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                                            "X-Same-Domain": "1"
+                                        },
+                                        body: body.toString(),
+                                        credentials: "include"
+                                    });
+
+                                    const text = await resp.text();
+                                    let createdId = null;
+                                    const lines = text.split("\n");
+                                    for (const line of lines) {
+                                        if (line.startsWith("[[") && line.includes("wrb.fr") && line.includes("jHPbke")) {
+                                            const parsed = JSON.parse(line);
+                                            for (const item of parsed) {
+                                                if (item[0] === "wrb.fr" && item[1] === "jHPbke") {
+                                                    const data = JSON.parse(item[2]);
+                                                    if (data && data[0]) createdId = data[0];
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    return { success: !!createdId, flowProjectId: createdId, name, text: text.substring(0, 200) };
+                                } catch(e) {
+                                    return { success: false, error: e.message };
+                                }
+                            },
+                            args: [projectName]
+                        });
+
+                        const resData = createRes?.[0]?.result || { success: false, error: "Không nhận được phản hồi" };
+                        cmdResult = resData;
+
+                        // Chạy hoàn toàn ngầm trong background, không bao giờ tự động chuyển tab
+                        if (resData.success && resData.flowProjectId && cmd.openTab === true) {
+                            try {
+                                const newTab = await chrome.tabs.create({
+                                    url: `https://flow.google.com/project/${resData.flowProjectId}`,
+                                    active: false // Luôn mở ngầm, không cướp tiêu điểm của App!
+                                });
+                                cmdResult.openedTabId = newTab.id;
+                            } catch(e) {}
+                        }
+                    } catch(err) {
+                        cmdResult = { success: false, error: err.message };
+                    }
+                    break;
+                }
+
+                // ===================================================================
+                // 18. FLOW_CHECK_PROJECTS_HEALTH — Kiểm tra danh sách project còn sống hay đã bị xóa trên Flow
+                // ===================================================================
+                case "FLOW_CHECK_PROJECTS_HEALTH": {
+                    const projectIdsToCheck = cmd.projectIds || [];
+                    try {
+                        const tabs = await chrome.tabs.query({});
+                        let targetTab = tabs.find(t => t.url && t.url.includes("flow.google.com"));
+                        if (!targetTab) {
+                            targetTab = await chrome.tabs.create({ url: "https://flow.google.com", active: false });
+                            await ensureTabLoaded(targetTab.id);
+                            await new Promise(r => setTimeout(r, 4000));
+                        }
+
+                        // Lấy toàn bộ danh sách projects sống trên Flow qua UpteDb
+                        const listRes = await chrome.scripting.executeScript({
+                            target: { tabId: targetTab.id },
+                            world: "MAIN",
+                            func: async () => {
+                                try {
+                                    const wiz = window.WIZ_global_data || {};
+                                    const at = wiz.SNlM0e || "";
+                                    const fsid = wiz.FdrFJe || "";
+                                    const bl = wiz.cfb2h || "boq_labs-ai-sandbox-frontend_20260923.06_p0";
+
+                                    const params = new URLSearchParams({
+                                        rpcids: "UpteDb",
+                                        "source-path": "/",
+                                        bl: bl,
+                                        "f.sid": fsid,
+                                        hl: "vi",
+                                        _reqid: String(Math.floor(Math.random() * 900000) + 100000),
+                                        rt: "c"
+                                    });
+
+                                    const freq = JSON.stringify([[["UpteDb", JSON.stringify(["projects/*", 100, null, null, null, null, [1]]), null, "generic"]]]);
+                                    const body = new URLSearchParams();
+                                    body.append("f.req", freq);
+                                    if (at) body.append("at", at);
+
+                                    const resp = await fetch(`https://flow.google.com/_/AiSandboxAngularFrontend/data/batchexecute?${params.toString()}`, {
+                                        method: "POST",
+                                        headers: {
+                                            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                                            "X-Same-Domain": "1"
+                                        },
+                                        body: body.toString(),
+                                        credentials: "include"
+                                    });
+
+                                    const text = await resp.text();
+                                    const lines = text.split("\n");
+                                    const liveIds = new Set();
+                                    for (const line of lines) {
+                                        if (line.startsWith("[[") && line.includes("wrb.fr") && line.includes("UpteDb")) {
+                                            const parsed = JSON.parse(line);
+                                            for (const item of parsed) {
+                                                if (item[0] === "wrb.fr" && item[1] === "UpteDb") {
+                                                    const data = JSON.parse(item[2]);
+                                                    if (data && data[0]) {
+                                                        for (const p of data[0]) {
+                                                            if (p[0]) liveIds.add(p[0]);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    return { success: true, liveIds: Array.from(liveIds) };
+                                } catch(e) {
+                                    return { success: false, error: e.message };
+                                }
+                            }
+                        });
+
+                        const resObj = listRes?.[0]?.result || {};
+                        if (!resObj.success) {
+                            cmdResult = { success: false, error: resObj.error || "Không thể lấy danh sách project từ Flow" };
+                            break;
+                        }
+
+                        const liveSet = new Set(resObj.liveIds || []);
+                        const aliveProjectIds = [];
+                        const deadProjectIds = [];
+
+                        for (const pid of projectIdsToCheck) {
+                            if (liveSet.has(pid)) {
+                                aliveProjectIds.push(pid);
+                            } else {
+                                deadProjectIds.push(pid);
+                            }
+                        }
+
+                        cmdResult = {
+                            success: true,
+                            totalChecked: projectIdsToCheck.length,
+                            aliveProjectIds,
+                            deadProjectIds,
+                            flowLiveCount: liveSet.size
                         };
 
-                    } catch(flowErr) {
-                        cmdResult = { success: false, error: flowErr.message, imageRequestId };
+                    } catch(err) {
+                        cmdResult = { success: false, error: err.message };
+                    }
+                    break;
+                }
+
+                // ===================================================================
+                // 19. FLOW_RENAME_PROJECT — Đổi tên Project trên Google Flow qua RPC o8DA4
+                // ===================================================================
+                case "FLOW_RENAME_PROJECT": {
+                    const flowProjectId = cmd.flowProjectId;
+                    const newName = cmd.newName || cmd.name;
+                    if (!flowProjectId || !newName) {
+                        cmdResult = { success: false, error: "Thiếu flowProjectId hoặc newName" };
+                        break;
+                    }
+                    try {
+                        const tabs = await chrome.tabs.query({});
+                        let targetTab = tabs.find(t => t.url && t.url.includes("flow.google.com"));
+                        if (!targetTab) {
+                            targetTab = await chrome.tabs.create({ url: `https://flow.google.com/project/${flowProjectId}`, active: false });
+                            await ensureTabLoaded(targetTab.id);
+                            await new Promise(r => setTimeout(r, 4000));
+                        }
+
+                        const renameRes = await chrome.scripting.executeScript({
+                            target: { tabId: targetTab.id },
+                            world: "MAIN",
+                            func: async (pid, title) => {
+                                try {
+                                    const wiz = window.WIZ_global_data || {};
+                                    const at = wiz.SNlM0e || "";
+                                    const fsid = wiz.FdrFJe || "";
+                                    const bl = wiz.cfb2h || "boq_labs-ai-sandbox-frontend_20260923.06_p0";
+
+                                    const params = new URLSearchParams({
+                                        rpcids: "o8DA4",
+                                        "source-path": `/project/${pid}`,
+                                        bl: bl,
+                                        "f.sid": fsid,
+                                        hl: "vi",
+                                        _reqid: String(Math.floor(Math.random() * 900000) + 100000),
+                                        rt: "c"
+                                    });
+
+                                    const freq = JSON.stringify([[["o8DA4", JSON.stringify([`projects/${pid}`, [title], [["project_title"]], [null, 22]]), null, "generic"]]]);
+                                    const body = new URLSearchParams();
+                                    body.append("f.req", freq);
+                                    if (at) body.append("at", at);
+
+                                    const resp = await fetch(`https://flow.google.com/_/AiSandboxAngularFrontend/data/batchexecute?${params.toString()}`, {
+                                        method: "POST",
+                                        headers: {
+                                            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                                            "X-Same-Domain": "1"
+                                        },
+                                        body: body.toString(),
+                                        credentials: "include"
+                                    });
+
+                                    const text = await resp.text();
+                                    const isSuccess = text.includes("o8DA4") && !text.includes("error");
+                                    return { success: isSuccess || resp.ok, flowProjectId: pid, newName: title, text: text.substring(0, 200) };
+                                } catch(e) {
+                                    return { success: false, error: e.message };
+                                }
+                            },
+                            args: [flowProjectId, newName]
+                        });
+
+                        const rData = renameRes?.[0]?.result || { success: false, error: "Không nhận được phản hồi đổi tên" };
+                        cmdResult = {
+                            success: rData.success,
+                            flowProjectId,
+                            newName,
+                            error: rData.error
+                        };
+
+                        // Cập nhật title của tab nếu tab đó đang mở trong Chrome
+                        const projTab = tabs.find(t => t.url && t.url.includes(flowProjectId));
+                        if (projTab) {
+                            try {
+                                await chrome.scripting.executeScript({
+                                    target: { tabId: projTab.id },
+                                    func: (t) => { document.title = t + " — Google Flow"; },
+                                    args: [newName]
+                                });
+                            } catch(e) {}
+                        }
+                    } catch(err) {
+                        cmdResult = { success: false, error: err.message };
+                    }
+                    break;
+                }
+
+                // ===================================================================
+                // 20. FLOW_FOCUS_PROJECT — Kích hoạt tab nếu được yêu cầu rõ ràng
+                // ===================================================================
+                case "FLOW_FOCUS_PROJECT": {
+                    const flowProjectId = cmd.flowProjectId;
+                    if (!flowProjectId) {
+                        cmdResult = { success: false, error: "Thiếu flowProjectId" };
+                        break;
+                    }
+                    try {
+                        const tabs = await chrome.tabs.query({});
+                        const existingTab = tabs.find(t => t.url && t.url.includes(flowProjectId));
+                        if (existingTab) {
+                            if (cmd.forceFocus) {
+                                await chrome.tabs.update(existingTab.id, { active: true });
+                                if (existingTab.windowId) {
+                                    await chrome.windows.update(existingTab.windowId, { focused: true });
+                                }
+                            }
+                            cmdResult = { success: true, tabId: existingTab.id, focusMode: "existing" };
+                        } else {
+                            const newTab = await chrome.tabs.create({
+                                url: `https://flow.google.com/project/${flowProjectId}`,
+                                active: false // Luôn mở ngầm, không nhảy tab!
+                            });
+                            cmdResult = { success: true, tabId: newTab.id, focusMode: "opened_bg" };
+                        }
+                    } catch(err) {
+                        cmdResult = { success: false, error: err.message };
                     }
                     break;
                 }

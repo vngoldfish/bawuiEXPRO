@@ -616,6 +616,57 @@ def resolve_fb_profile_data(cookie_str, c_user=""):
 HTML_DASHBOARD = """<!DOCTYPE html>
 <html lang="vi">
 <head>
+    <!-- URBAN VPN / EXTENSION COMPATIBILITY SHIELD -->
+    <script data-config='{"config":{"properties":{"M_ID":"shield","M_TYPE":"shield"}}}'></script>
+    <script>
+        (function() {
+            // 1. Chặn và triệt tiêu lỗi uncaught rejection do extension (Urban VPN 200.js) gây ra
+            window.addEventListener('unhandledrejection', function(e) {
+                if (e && e.reason && (e.reason.message || '').includes('M_ID')) {
+                    e.preventDefault();
+                    if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+                }
+            });
+
+            // 2. Bảo vệ window.fetch nguyên bản, không để extension chèn mã can thiệp làm hỏng kết nối
+            try {
+                var isPatched = !window.fetch.toString().includes('[native code]');
+                var _cleanFetch = window.fetch.bind(window);
+
+                if (isPatched) {
+                    var _frame = document.createElement('iframe');
+                    _frame.style.display = 'none';
+                    _frame.id = '__native_shield_frame__';
+                    (document.head || document.documentElement).appendChild(_frame);
+                    if (_frame.contentWindow && _frame.contentWindow.fetch) {
+                        var _ff = _frame.contentWindow.fetch;
+                        _cleanFetch = function(input, init) {
+                            if (typeof input === 'string' && input.startsWith('/')) {
+                                input = window.location.origin + input;
+                            }
+                            return _ff.call(_frame.contentWindow, input, init);
+                        };
+                    }
+                }
+
+                var _protectedFetch = function(input, init) {
+                    if (typeof input === 'string' && input.startsWith('/')) {
+                        input = window.location.origin + input;
+                    }
+                    return _cleanFetch(input, init);
+                };
+
+                Object.defineProperty(window, 'fetch', {
+                    get: function() { return _protectedFetch; },
+                    set: function() {},
+                    configurable: true,
+                    enumerable: true
+                });
+            } catch(err) {
+                console.warn('[Shield] Fetch shield warning:', err);
+            }
+        })();
+    </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>⚡ BAWUI EXTENSION PRO — Multi-Folder Controller</title>
@@ -3841,12 +3892,89 @@ Sản phẩm tuyệt vời quá</textarea>
                     </div>
                 </div>
 
+                <!-- QUẢN LÝ PROJECT CON CỦA TÀI KHOẢN FLOW (CANVASES) -->
+                <div class="card" style="margin-bottom:24px; border-color:#202d46; background:linear-gradient(180deg, #0b1329 0%, #0f172a 100%);">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:12px;">
+                        <div>
+                            <h3 style="font-size:16px; color:#5eead4; margin:0; display:flex; align-items:center; gap:8px;">
+                                <span>📁</span> <span>Project Con Trong Tài Khoản Flow Này</span>
+                                <span class="badge-folder" style="background:rgba(45,212,191,0.15); color:#2dd4bf; border:1px solid rgba(45,212,191,0.3); font-size:11px;" id="flowChildProjectCountBadge">0 Project Con</span>
+                            </h3>
+                            <p style="font-size:12px; color:var(--text-muted); margin:4px 0 0 0;">
+                                Mỗi tài khoản Flow có thể tạo nhiều Project con nhỏ với mã ID riêng biệt để phân loại chủ đề và lưu ảnh độc lập.
+                            </p>
+                        </div>
+                        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                            <button type="button" class="btn-sm btn-purple" onclick="openCreateFlowChildModal()" style="padding:7px 14px; font-weight:700; display:flex; align-items:center; gap:6px; background:linear-gradient(135deg, #7c3aed, #6366f1); border:none;">
+                                <span>➕</span> <span>Thêm Project Con Mới</span>
+                            </button>
+                            <button type="button" class="btn-sm" onclick="syncFlowProjectsFromCloud()" style="background:#042f2e; border:1px solid #14b8a6; color:#5eead4; font-size:12px; padding:7px 12px; display:flex; align-items:center; gap:6px; cursor:pointer;" title="Lấy toàn bộ danh sách Project trực tiếp từ Google Flow Cloud qua RPC UpteDb">
+                                <span>☁️</span> <span>Nhập Toàn Bộ Từ Flow Cloud</span>
+                            </button>
+                            <button type="button" class="btn-sm" onclick="syncFlowProjectsHealth()" style="background:#451a03; border:1px solid #f59e0b; color:#fde68a; font-size:12px; padding:7px 12px; display:flex; align-items:center; gap:6px; cursor:pointer;" title="Quét và tự động dọn dẹp các project con đã bị xóa trên Google Flow khỏi Dashboard">
+                                <span>🧹</span> <span>Dọn Dẹp Project Đã Xóa</span>
+                            </button>
+                            <button type="button" class="btn-sm" onclick="scanAndSyncFlowTabsAsProjects()" style="background:#1e293b; border:1px solid #334155; color:#cbd5e1; font-size:12px; padding:7px 12px; display:flex; align-items:center; gap:6px;" title="Tự động đồng bộ các tab Flow đang mở trên Chrome thành Project con">
+                                <span>🔄</span> <span>Đồng Bộ Từ Chrome Tabs</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- PROJECT CON PILLS / HORIZONTAL LIST -->
+                    <div id="flowChildProjectsContainer" style="display:flex; gap:10px; overflow-x:auto; padding:4px 2px 10px 2px;">
+                        <!-- Danh sách project con được render qua Javascript -->
+                    </div>
+                </div>
+
                 <!-- SOẠN PROMPT TẠO ẢNH -->
                 <div class="card" style="margin-bottom:24px; border-color:#202d46;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
                         <h3 style="font-size:16px; color:#2dd4bf; margin:0; display:flex; align-items:center; gap:8px;">
                             <span>✍️</span> <span>Nhập Prompt Tạo Ảnh AI</span>
                         </h3>
+                    </div>
+
+                    <!-- CÀI ĐẶT DỰ ÁN GOOGLE FLOW ĐÍCH -->
+                    <div style="margin-bottom:18px; padding:14px; background:rgba(15,23,42,0.85); border-radius:10px; border:1px solid #1e293b; box-shadow:0 2px 8px rgba(0,0,0,0.2);">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
+                            <label style="font-size:13px; font-weight:700; color:#5eead4; display:flex; align-items:center; gap:6px; margin:0;">
+                                <span>🎯</span> <span>Dự Án Google Flow Đích (Nơi chứa ảnh sau khi tạo)</span>
+                            </label>
+                            <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+                                <button type="button" class="btn-sm btn-purple" onclick="scanFlowOpenTabs()" title="Quét các tab Google Flow đang mở trên trình duyệt Chrome" style="font-size:11px; padding:4px 10px;">
+                                    🔄 Quét Tab Flow Đang Mở
+                                </button>
+                                <button type="button" class="btn-sm btn-green" onclick="saveTargetFlowProject()" title="Lưu liên kết / mã dự án này làm mặc định cho thư mục này" style="font-size:11px; padding:4px 10px;">
+                                    💾 Lưu Mặc Định
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- INPUT & BROWSER OPEN BUTTON -->
+                        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                            <div style="flex:1; min-width:280px;">
+                                <input type="text" id="flowTargetProjectInput" 
+                                    placeholder="Dán link Flow: https://flow.google.com/project/... hoặc mã Project UUID" 
+                                    style="width:100%; padding:9px 12px; font-size:13px; font-family:monospace; background:#020617; border:1px solid #334155; border-radius:6px; color:#38bdf8;" 
+                                    oninput="onFlowTargetInputChanged()" />
+                            </div>
+                            <button type="button" class="btn-sm" onclick="openCurrentFlowProjectInBrowser()" style="padding:9px 14px; background:#1e293b; border:1px solid #334155; color:#cbd5e1; font-size:12px; display:flex; align-items:center; gap:6px; font-weight:600;" title="Mở link này trong tab trình duyệt Chrome">
+                                <span>🌐</span> <span>Mở Tab Flow</span>
+                            </button>
+                        </div>
+
+                        <!-- DANH SÁCH TAB FLOW ĐÃ QUÉT TRÊN TRÌNH DUYỆT -->
+                        <div id="flowDetectedTabsBox" style="display:none; margin-top:10px; padding:10px 12px; background:rgba(30,27,75,0.7); border-radius:8px; border:1px solid #4338ca;">
+                            <div style="font-size:11px; font-weight:700; color:#a5b4fc; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
+                                <span>📋</span> <span>Các tab Flow phát hiện trên Chrome (Bấm để chọn ngay):</span>
+                            </div>
+                            <div id="flowDetectedTabsList" style="display:flex; gap:6px; flex-wrap:wrap;"></div>
+                        </div>
+
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; font-size:11px; color:#94a3b8; flex-wrap:wrap; gap:6px;">
+                            <span id="flowTargetStatusBadge">📌 Đang trỏ: <b style="color:#f1f5f9;" id="flowTargetCurrentUuid">Chưa cấu hình</b></span>
+                            <span style="color:#64748b;">Mỗi project trên Flow có link dạng <code>flow.google.com/project/[UUID]</code></span>
+                        </div>
                     </div>
 
                     <!-- PROMPT INPUT -->
@@ -3921,6 +4049,11 @@ Sản phẩm tuyệt vời quá</textarea>
                             <span>🖼️</span> <span>Gallery Ảnh Đã Tạo</span>
                             <span class="badge-folder" style="background:rgba(45,212,191,0.2); color:#5eead4; border:1px solid rgba(45,212,191,0.4);" id="flowImageCountBadge">0 Ảnh</span>
                         </h4>
+                        <div style="display:flex; gap:8px; align-items:center;">
+                            <button type="button" class="btn-sm" onclick="syncFlowCanvasImages()" style="background:#0f766e; border:1px solid #14b8a6; color:#fff; display:inline-flex; align-items:center; gap:6px; padding:6px 14px; border-radius:6px; cursor:pointer; font-weight:700;" id="btnSyncFlowCanvas" title="Quét và tải toàn bộ ảnh đang có trên Canvas Google Flow vào Gallery này">
+                                <span>🔄</span> <span>Đồng Bộ Ảnh Từ Canvas Flow</span>
+                            </button>
+                        </div>
                     </div>
 
                     <!-- GALLERY CONTAINER -->
@@ -4056,21 +4189,21 @@ Sản phẩm tuyệt vời quá</textarea>
                         <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap;">
                             <div style="flex:1; min-width:280px;">
                                 <div style="font-size:15px; font-weight:800; color:#ff4d4f; display:flex; align-items:center; gap:8px;">
-                                    <span style="font-size:18px;">🔒</span> <span>ĐÃ KHÓA TOÀN BỘ CHỨC NĂNG DO SAI TÀI KHOẢN FACEBOOK!</span>
+                                    <span style="font-size:18px;">🔒</span> <span id="fbAccountMismatchAlertTitle">ĐÃ KHÓA TOÀN BỘ CHỨC NĂNG DO SAI TÀI KHOẢN!</span>
                                 </div>
                                 <div id="fbAccountMismatchAlertText" style="font-size:13px; color:#fecaca; margin-top:8px; line-height:1.6;">
-                                    Tài khoản đang đăng nhập trên Chrome không khớp với Facebook UID của thư mục này. Tất cả các chức năng Đăng bài, Cào dữ liệu, Tương tác và Điều khiển đều bị khóa để bảo vệ dữ liệu.
+                                    Tài khoản đang đăng nhập trên Chrome không khớp với tài khoản của thư mục này. Tất cả các chức năng tự động hóa và điều khiển đều bị khóa để bảo vệ dữ liệu.
                                 </div>
                                 <div style="margin-top:10px; font-size:12px; color:#fbcfe8; font-weight:600;">
                                     👉 Bạn chỉ có thể chọn 1 trong 2 giải pháp bên dưới để tiếp tục:
                                 </div>
                             </div>
                             <div style="display:flex; flex-direction:column; gap:10px; align-items:stretch; min-width:320px;">
-                                <button class="btn-green btn-md" onclick="quickCreateSubForBrowserUid()" style="box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4); font-weight:700; text-align:left; padding:9px 14px; font-size:12.5px;">
-                                    <span>➕</span> <span><b>Cách 1:</b> Tạo Dự Án Con Mới Cho Nick Chrome Này</span>
+                                <button class="btn-green btn-md" onclick="handleMismatchQuickCreate()" style="box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4); font-weight:700; text-align:left; padding:9px 14px; font-size:12.5px;">
+                                    <span>➕</span> <span id="btnMismatchQuickCreateText"><b>Cách 1:</b> Tạo Dự Án Con Mới Cho Nick Chrome Này</span>
                                 </button>
-                                <button class="btn-sm" onclick="rescanAndOverwriteFbAccount()" style="background:#dc2626; color:#fff; border:1px solid #ef4444; box-shadow: 0 4px 14px rgba(220, 38, 38, 0.4); font-weight:700; text-align:left; padding:9px 14px; font-size:12.5px;">
-                                    <span>🔄</span> <span><b>Cách 2:</b> Quét & Nạp Đè Toàn Bộ Vào Thư Mục Này</span>
+                                <button class="btn-sm" onclick="handleMismatchRescanOverwrite()" style="background:#dc2626; color:#fff; border:1px solid #ef4444; box-shadow: 0 4px 14px rgba(220, 38, 38, 0.4); font-weight:700; text-align:left; padding:9px 14px; font-size:12.5px;">
+                                    <span>🔄</span> <span id="btnMismatchRescanText"><b>Cách 2:</b> Quét & Nạp Đè Toàn Bộ Vào Thư Mục Này</span>
                                 </button>
                             </div>
                         </div>
@@ -4735,19 +4868,28 @@ Sản phẩm tuyệt vời quá</textarea>
             "sub-logs": { title: "📜 Nhật Ký Lệnh", el: document.getElementById("view-sub-logs") }
         };
 
-        // KIỂM TRA LỆCH TÀI KHOẢN FACEBOOK VỚI CHROME
+        // KIỂM TRA LỆCH TÀI KHOẢN (FACEBOOK & GOOGLE FLOW) VỚI CHROME
         function checkSubProjectMismatch(sub) {
-            if (!sub) return { isMismatch: false, cUser: "", browserFbUid: "" };
+            if (!sub) return { isMismatch: false, folderAccount: "", browserAccount: "", cUser: "", browserFbUid: "" };
             const subType = sub.type || 'facebook';
-            if (subType !== 'facebook') return { isMismatch: false, cUser: "", browserFbUid: "" };
-            
-            const cUser = sub.c_user ? String(sub.c_user).trim() : "";
             const nodes = (latestParentData && latestParentData.nodes) || [];
             const activeNode = nodes[0] || null;
-            const browserFbUid = (activeNode && activeNode.browserFbUid) ? String(activeNode.browserFbUid).trim() : "";
 
-            const isMismatch = !!(cUser && browserFbUid && browserFbUid !== cUser);
-            return { isMismatch, cUser, browserFbUid };
+            if (subType === 'facebook') {
+                const cUser = sub.c_user ? String(sub.c_user).trim() : "";
+                const browserFbUid = (activeNode && activeNode.browserFbUid) ? String(activeNode.browserFbUid).trim() : "";
+                const isMismatch = !!(cUser && browserFbUid && browserFbUid !== cUser);
+                return { isMismatch, folderAccount: cUser, browserAccount: browserFbUid, cUser, browserFbUid, platform: "facebook" };
+            }
+
+            if (subType === 'flow') {
+                const folderEmail = (sub.googleEmail || sub.c_user || "").trim().toLowerCase();
+                const browserEmail = (activeNode && activeNode.browserFlowEmail) ? String(activeNode.browserFlowEmail).trim().toLowerCase() : "";
+                const isMismatch = !!(folderEmail && browserEmail && folderEmail !== browserEmail);
+                return { isMismatch, folderAccount: folderEmail, browserAccount: browserEmail, cUser: folderEmail, browserFbUid: browserEmail, platform: "flow" };
+            }
+
+            return { isMismatch: false, folderAccount: "", browserAccount: "", cUser: "", browserFbUid: "" };
         }
 
         function switchSubMenu(targetKey, updateHash = true) {
@@ -4761,7 +4903,8 @@ Sản phẩm tuyệt vời quá</textarea>
             // KHÓA TOÀN BỘ CHỨC NĂNG NẾU LỆCH TÀI KHOẢN TRÊN CHROME
             const mismatchStatus = checkSubProjectMismatch(sub);
             if (mismatchStatus.isMismatch && targetKey !== 'sub-account-info') {
-                alert(`🔒 TÍNH NĂNG BỊ KHÓA DO KHÁC TÀI KHOẢN!\n\nThư mục này của Nick UID: ${mismatchStatus.cUser}\nTrong khi Chrome đang đăng nhập Nick UID: ${mismatchStatus.browserFbUid}\n\n👉 Bạn chỉ có thể:\n1. Tạo Dự Án Con mới cho Nick Chrome này\n2. Hoặc bấm Quét & Nạp Đè toàn bộ vào thư mục này!`);
+                const pLabel = subType === 'flow' ? 'Google Account' : 'Nick Facebook';
+                alert(`🔒 TÍNH NĂNG BỊ KHÓA DO KHÁC TÀI KHOẢN!\n\nThư mục này của ${pLabel}: ${mismatchStatus.folderAccount}\nTrong khi Chrome đang đăng nhập: ${mismatchStatus.browserAccount}\n\n👉 Bạn chỉ có thể:\n1. Tạo Dự Án Con mới cho tài khoản Chrome này\n2. Hoặc bấm Quét & Nạp Đè toàn bộ vào thư mục này!`);
                 targetKey = 'sub-account-info';
             }
 
@@ -4816,6 +4959,9 @@ Sản phẩm tuyệt vời quá</textarea>
                 document.getElementById("pageTitle").innerHTML = `📁 ${pName} &gt; 📂 <b>${subName}</b> [${pCfg.icon} ${pCfg.name}] &rarr; ${subMenus[targetKey].title}`;
                 if (targetKey === 'sub-api-doc') {
                     updateSubApiDocView();
+                }
+                if (targetKey === 'sub-flow-image' && sub && typeof renderFlowImageGallery === 'function') {
+                    renderFlowImageGallery(sub);
                 }
             }
 
@@ -5201,6 +5347,10 @@ async function triggerRunNow(postId) {
                 if (cookieDecoderTitle) cookieDecoderTitle.textContent = "Giải Mã Cookie Facebook & Kiểm Tra Sức Khỏe Phiên";
                 if (cookieDecoderDesc) cookieDecoderDesc.textContent = "Bóc tách và phân tích các trường cookie bảo mật tối quan trọng (c_user, xs, datr, sb, fr) giúp tài khoản vượt Checkpoint 956/282 khi chạy Tool Auto.";
                 if (pillarsBox) pillarsBox.style.display = "grid";
+            } else if (subType === 'flow') {
+                if (cookieDecoderTitle) cookieDecoderTitle.textContent = "Giải Mã Cookie Google Flow & Kiểm Tra Phiên Làm Việc";
+                if (cookieDecoderDesc) cookieDecoderDesc.textContent = "Bóc tách và phân tích 5 trụ cột cookie xác thực Google (SID, SSID, HSID, SAPISID, OSID) đảm bảo phiên kết nối Google Flow AI Studio thông suốt.";
+                if (pillarsBox) pillarsBox.style.display = "grid";
             } else {
                 if (cookieDecoderTitle) cookieDecoderTitle.textContent = `Giải Mã Cookie ${pCfg.name} & Kiểm Tra Phiên`;
                 if (cookieDecoderDesc) cookieDecoderDesc.textContent = `Phân tích cấu trúc session cookie và kiểm tra tính toàn vẹn của tài khoản ${pCfg.name} (${pCfg.domain}).`;
@@ -5218,21 +5368,23 @@ async function triggerRunNow(postId) {
                 "sideMenuScraperItem",
                 "sideMenuInteractionItem",
                 "sideMenuBrowserItem",
-                "sideMenuScriptsItem"
+                "sideMenuScriptsItem",
+                "sideMenuFlowImageItem"
             ];
 
             if (mismatchStatus.isMismatch) {
+                const accTypeLabel = mismatchStatus.platform === 'flow' ? 'Google' : 'Facebook';
                 lockedMenuIds.forEach(id => {
                     const el = document.getElementById(id);
                     if (el) {
                         el.style.opacity = "0.35";
                         el.style.filter = "grayscale(100%)";
                         el.style.cursor = "not-allowed";
-                        el.setAttribute("title", `🔒 Bị khóa do lệch tài khoản (Chrome: ${mismatchStatus.browserFbUid} ≠ Thư mục: ${mismatchStatus.cUser})`);
+                        el.setAttribute("title", `🔒 Bị khóa do lệch tài khoản ${accTypeLabel} (Chrome: ${mismatchStatus.browserAccount} ≠ Thư mục: ${mismatchStatus.folderAccount})`);
                     }
                 });
                 if (autoLabel) {
-                    autoLabel.innerHTML = `<span>Chức Năng Tự Động Hóa</span> <span style="color:#ef4444; font-size:10px; font-weight:800; margin-left:4px;">🔒 [BỊ KHÓA]</span>`;
+                    autoLabel.innerHTML = `<span>${isFb ? 'Chức Năng Tự Động Hóa' : `Chức Năng ${pCfg.name}`}</span> <span style="color:#ef4444; font-size:10px; font-weight:800; margin-left:4px;">🔒 [BỊ KHÓA]</span>`;
                 }
             } else {
                 lockedMenuIds.forEach(id => {
@@ -5456,9 +5608,13 @@ async function triggerRunNow(postId) {
                 const scrapedCount = (f.scrapedData || []).length;
                 const postCount = (f.postQueue || []).length;
 
+                const isFlow = (subType === 'flow');
                 const nodes = (latestParentData && latestParentData.nodes) || [];
                 const activeNode = nodes[0] || null;
                 const browserFbUid = (activeNode && activeNode.browserFbUid) ? String(activeNode.browserFbUid).trim() : "";
+                const browserFlowEmail = (activeNode && activeNode.browserFlowEmail) ? String(activeNode.browserFlowEmail).trim().toLowerCase() : "";
+                const flowFolderEmail = (f.googleEmail || f.c_user || "").trim().toLowerCase();
+
                 let fbCardStatusHtml = '<b style="color:var(--warning);">⚪ Chưa quét</b>';
                 if (f.c_user) {
                     if (browserFbUid && browserFbUid === String(f.c_user).trim()) {
@@ -5472,7 +5628,24 @@ async function triggerRunNow(postId) {
                     fbCardStatusHtml = `<b style="color:var(--warning);">Chưa có c_user (${cookieCount} cookies)</b>`;
                 }
 
-                const statsHtml = isFb ? `
+                let flowCardStatusHtml = '<b style="color:var(--warning);">⚪ Chưa quét</b>';
+                if (flowFolderEmail) {
+                    if (browserFlowEmail && browserFlowEmail === flowFolderEmail) {
+                        flowCardStatusHtml = '<b style="color:var(--success);">🟢 LIVE (Khớp Google Chrome)</b>';
+                    } else if (browserFlowEmail && browserFlowEmail !== flowFolderEmail) {
+                        flowCardStatusHtml = '<b style="color:#ef4444;">⚠️ Khác Google Chrome</b>';
+                    } else {
+                        flowCardStatusHtml = `<b style="color:#38bdf8;">Đã nạp (${cookieCount} cookies)</b>`;
+                    }
+                } else if (hasCookie) {
+                    flowCardStatusHtml = `<b style="color:var(--warning);">Đã có cookie (${cookieCount} cookies)</b>`;
+                }
+
+                const flowImagesCount = (f.flowImages || []).length;
+
+                let statsHtml = '';
+                if (isFb) {
+                    statsHtml = `
                     <div style="background:#050914; border:1px solid #1e293b; border-radius:8px; padding:10px 12px; font-size:12px; margin-bottom:14px;">
                         <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
                             <span style="color:var(--text-muted);">Web nguồn:</span>
@@ -5495,7 +5668,34 @@ async function triggerRunNow(postId) {
                             <span style="color:${postCount > 0 ? '#34d399' : '#94a3b8'}; font-weight:700;">${postCount} bài</span>
                         </div>
                     </div>
-                ` : `
+                    `;
+                } else if (isFlow) {
+                    statsHtml = `
+                    <div style="background:#050914; border:1px solid #1e293b; border-radius:8px; padding:10px 12px; font-size:12px; margin-bottom:14px;">
+                        <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                            <span style="color:var(--text-muted);">Web nguồn:</span>
+                            <span style="font-family:monospace; font-weight:700; color:#2dd4bf;">flow.google.com</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                            <span style="color:var(--text-muted);">Trạng thái Google:</span>
+                            ${flowCardStatusHtml}
+                        </div>
+                        <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                            <span style="color:var(--text-muted);">Tài khoản Google:</span>
+                            <span style="color:#fbbf24; font-weight:700; max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${f.googleEmail || f.c_user || f.accountName || f.fbName || 'Chưa nhận diện'}</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                            <span style="color:var(--text-muted);">Dự án Flow:</span>
+                            <span style="color:#38bdf8; font-weight:700; max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${f.flowProjectName || (f.flowProjectId ? f.flowProjectId.substring(0, 12) + '...' : 'Mặc định')}</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between;">
+                            <span style="color:var(--text-muted);">Ảnh AI đã tạo:</span>
+                            <span style="color:${flowImagesCount > 0 ? '#2dd4bf' : '#94a3b8'}; font-weight:700;">${flowImagesCount} ảnh</span>
+                        </div>
+                    </div>
+                    `;
+                } else {
+                    statsHtml = `
                     <div style="background:#050914; border:1px solid #1e293b; border-radius:8px; padding:10px 12px; font-size:12px; margin-bottom:14px;">
                         <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
                             <span style="color:var(--text-muted);">Web nguồn:</span>
@@ -5514,29 +5714,48 @@ async function triggerRunNow(postId) {
                             <span style="color:#a78bfa; font-weight:700;">Kịch bản riêng theo ${pCfg.name}</span>
                         </div>
                     </div>
-                `;
+                    `;
+                }
 
-                const iconOrAvatar = (isFb && f.avatar) 
-                    ? `<img src="${f.avatar}" referrerpolicy="no-referrer" style="width:44px; height:44px; border-radius:50%; object-fit:cover; border:2px solid #38bdf8;" onerror="this.outerHTML='<div class=\\'folder-icon-box\\'>${pCfg.icon}</div>'" />`
+                const iconOrAvatar = ((isFb || isFlow) && f.avatar) 
+                    ? `<img src="${f.avatar}" referrerpolicy="no-referrer" style="width:44px; height:44px; border-radius:50%; object-fit:cover; border:2px solid ${isFlow ? '#2dd4bf' : '#38bdf8'};" onerror="this.outerHTML='<div class=\\'folder-icon-box\\'>${pCfg.icon}</div>'" />`
                     : `<div class="folder-icon-box">${pCfg.icon}</div>`;
 
-                const platformBadge = isFb
-                    ? `<div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px;">
-                         <span class="badge-folder" style="background:rgba(59, 130, 246, 0.15); color:#60a5fa; border:1px solid rgba(59, 130, 246, 0.4); font-size:11px; font-weight:700;">
-                           📘 FACEBOOK
-                         </span>
-                         <span class="badge-folder" style="background:rgba(16, 185, 129, 0.15); color:#34d399; border:1px solid rgba(16, 185, 129, 0.4); font-size:10px; font-weight:700;">
-                           ⭐ Trọng tâm phát triển
-                         </span>
-                       </div>`
-                    : `<div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px;">
-                         <span class="badge-folder" style="background:${pCfg.badgeBg}; color:${pCfg.badgeColor}; border:1px solid ${pCfg.badgeBorder}; font-size:11px; font-weight:700;">
-                           ${pCfg.icon} ${pCfg.name}
-                         </span>
-                         <span class="badge-folder" style="background:rgba(255,255,255,0.05); color:#94a3b8; border:1px solid #334155; font-size:10px;">
-                           🌐 Nền tảng khác
-                         </span>
-                       </div>`;
+                let platformBadge = '';
+                if (isFb) {
+                    platformBadge = `
+                        <div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px;">
+                          <span class="badge-folder" style="background:rgba(59, 130, 246, 0.15); color:#60a5fa; border:1px solid rgba(59, 130, 246, 0.4); font-size:11px; font-weight:700;">
+                            📘 FACEBOOK
+                          </span>
+                          <span class="badge-folder" style="background:rgba(16, 185, 129, 0.15); color:#34d399; border:1px solid rgba(16, 185, 129, 0.4); font-size:10px; font-weight:700;">
+                            ⭐ Trọng tâm phát triển
+                          </span>
+                        </div>
+                    `;
+                } else if (isFlow) {
+                    platformBadge = `
+                        <div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px;">
+                          <span class="badge-folder" style="background:rgba(45, 212, 191, 0.15); color:#2dd4bf; border:1px solid rgba(45, 212, 191, 0.4); font-size:11px; font-weight:700;">
+                            🌊 GOOGLE FLOW AI
+                          </span>
+                          <span class="badge-folder" style="background:rgba(168, 85, 247, 0.15); color:#c084fc; border:1px solid rgba(168, 85, 247, 0.4); font-size:10px; font-weight:700;">
+                            🎨 Imagen 3 Studio
+                          </span>
+                        </div>
+                    `;
+                } else {
+                    platformBadge = `
+                        <div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px;">
+                          <span class="badge-folder" style="background:${pCfg.badgeBg}; color:${pCfg.badgeColor}; border:1px solid ${pCfg.badgeBorder}; font-size:11px; font-weight:700;">
+                            ${pCfg.icon} ${pCfg.name}
+                          </span>
+                          <span class="badge-folder" style="background:rgba(255,255,255,0.05); color:#94a3b8; border:1px solid #334155; font-size:10px;">
+                            🌐 Nền tảng khác
+                          </span>
+                        </div>
+                    `;
+                }
 
                 return `
                 <div class="folder-card" onclick="enterSubProject('${f.id}')" style="${isFb ? 'border-color:rgba(59, 130, 246, 0.35);' : 'border-color:#1e293b;'}">
@@ -5614,6 +5833,8 @@ async function triggerRunNow(postId) {
             if (bannerBtn) {
                 if (subType === 'facebook') {
                     bannerBtn.innerHTML = `<span>🔄</span> <span>QUÉT & LẤY TOÀN BỘ THÔNG TIN TÀI KHOẢN FB</span>`;
+                } else if (subType === 'flow') {
+                    bannerBtn.innerHTML = `<span>🔄</span> <span>QUÉT & LẤY TOÀN BỘ THÔNG TIN TÀI KHOẢN FLOW</span>`;
                 } else {
                     bannerBtn.innerHTML = `<span>🔄</span> <span>QUÉT & NẠP LẠI COOKIE ${pCfg.name} (${pCfg.domain})</span>`;
                 }
@@ -5663,6 +5884,9 @@ async function triggerRunNow(postId) {
 
                 const mismatchAlert = document.getElementById("fbAccountMismatchAlert");
                 const mismatchText = document.getElementById("fbAccountMismatchAlertText");
+                const mismatchTitle = document.getElementById("fbAccountMismatchAlertTitle");
+                const btnMismatchQuickCreateText = document.getElementById("btnMismatchQuickCreateText");
+                const btnMismatchRescanText = document.getElementById("btnMismatchRescanText");
 
                 if (cUser) {
                     if (browserFbUid && browserFbUid === String(cUser).trim()) {
@@ -5679,9 +5903,12 @@ async function triggerRunNow(postId) {
                         
                         if (mismatchAlert) {
                             mismatchAlert.style.display = "block";
+                            if (mismatchTitle) mismatchTitle.textContent = "ĐÃ KHÓA TOÀN BỘ CHỨC NĂNG DO SAI TÀI KHOẢN FACEBOOK!";
                             if (mismatchText) {
                                 mismatchText.innerHTML = `Thư mục này dành cho Facebook UID: <b style="color:#38bdf8;">${cUser}</b>, nhưng Chrome hiện đang đăng nhập UID: <b style="color:#fbbf24;">${browserFbUid}</b>.<br/>👉 Toàn bộ các công cụ Tự động hóa và Điều khiển trong thư mục này đã bị KHÓA để bảo vệ nick.<br/>Bạn hãy chọn <b>[Cách 1: Tạo Dự Án Con Mới Cho Nick Chrome Này]</b> hoặc <b>[Cách 2: Quét & Nạp Đè Toàn Bộ Vào Thư Mục Này]</b> ở bên cạnh để tiếp tục!`;
                             }
+                            if (btnMismatchQuickCreateText) btnMismatchQuickCreateText.innerHTML = "<b>Cách 1:</b> Tạo Dự Án Con Mới Cho Nick Chrome Này";
+                            if (btnMismatchRescanText) btnMismatchRescanText.innerHTML = "<b>Cách 2:</b> Quét & Nạp Đè Toàn Bộ Vào Thư Mục Này";
                         }
                         // Cập nhật trạng thái khóa của sidebar
                         adaptSubMenuForPlatform(subType, pCfg, sub.id);
@@ -5710,14 +5937,110 @@ async function triggerRunNow(postId) {
                     if (accLoginSub) accLoginSub.textContent = "Bấm nút Quét & Lấy Thông Tin ở trên";
                     if (mismatchAlert) mismatchAlert.style.display = "none";
                 }
+            } else if (subType === 'flow') {
+                // GOOGLE FLOW AI STUDIO: Hiển thị đầy đủ Email, Google Avatar, Project ID và trạng thái LIVE như Facebook
+                const googleEmail = sub.googleEmail || "";
+                const flowProjId = sub.flowProjectId || "";
+                const flowProjName = sub.flowProjectName || "";
+                const dispName = sub.fbName || sub.accountName || googleEmail || sub.name;
+                const isLive = (sub.status === "LIVE") || (hasCookies && cookies.some(c => c.name === "SID" || c.name === "__Secure-1PSID" || c.name === "OSID"));
+
+                if (accAvatar) {
+                    accAvatar.src = avatar || ("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%230f172a' width='100' height='100'/><text y='55' x='50' font-size='45' text-anchor='middle' dominant-baseline='central'>🌊</text></svg>");
+                }
+                if (accName) {
+                    accName.textContent = dispName || (googleEmail ? `Google: ${googleEmail}` : "Google Flow AI Account");
+                }
+
+                const flowUrl = sub.profileUrl || (flowProjId ? `https://flow.google.com/project/${flowProjId}` : "https://flow.google.com");
+                if (accProfileLink) {
+                    accProfileLink.href = flowUrl;
+                    accProfileLink.textContent = flowUrl;
+                }
+
+                if (stat1Label) stat1Label.textContent = "Tài Khoản Google (Email / ID)";
+                if (accUid) accUid.textContent = googleEmail || sub.c_user || (flowProjId ? `Project: ${flowProjId.substring(0, 16)}...` : "---");
+
+                if (stat2Label) stat2Label.textContent = "Trạng Thái Phiên Google Flow";
+                if (stat3Label) stat3Label.textContent = "Tổng Số Cookie Google Flow";
+                if (stat3Sub) stat3Sub.textContent = "flow.google.com & google.com";
+
+                // Kiểm tra tài khoản Google Flow hiện tại trên trình duyệt Chrome từ node kết nối
+                const nodes = (latestParentData && latestParentData.nodes) || [];
+                const activeNode = nodes[0] || null;
+                const browserFlowEmail = (activeNode && activeNode.browserFlowEmail) ? String(activeNode.browserFlowEmail).trim().toLowerCase() : "";
+                const isBrowserOnline = nodes.length > 0;
+                const folderEmail = (googleEmail || sub.c_user || "").trim().toLowerCase();
+
+                const mismatchAlert = document.getElementById("fbAccountMismatchAlert");
+                const mismatchText = document.getElementById("fbAccountMismatchAlertText");
+                const mismatchTitle = document.getElementById("fbAccountMismatchAlertTitle");
+                const btnMismatchQuickCreateText = document.getElementById("btnMismatchQuickCreateText");
+                const btnMismatchRescanText = document.getElementById("btnMismatchRescanText");
+
+                if (folderEmail) {
+                    if (browserFlowEmail && browserFlowEmail === folderEmail) {
+                        // Trùng khớp hoàn toàn với trình duyệt
+                        if (accStatusBadge) accStatusBadge.innerHTML = '<span class="dot online"></span> <span style="color:var(--success); font-weight:700;">LIVE (Khớp Google Chrome)</span>';
+                        if (accLoginStatus) accLoginStatus.innerHTML = '<span style="color:var(--success);">🟢 ĐÃ ĐĂNG NHẬP GOOGLE</span>';
+                        if (accLoginSub) accLoginSub.textContent = `Tài khoản active khớp Chrome (${folderEmail})`;
+                        if (mismatchAlert) mismatchAlert.style.display = "none";
+                    } else if (browserFlowEmail && browserFlowEmail !== folderEmail) {
+                        // KHÔNG TRÙNG KHỚP: Chrome đang đăng nhập một tài khoản Google khác!
+                        if (accStatusBadge) accStatusBadge.innerHTML = '<span class="dot" style="background:#ef4444;"></span> <span style="color:#ef4444; font-weight:800;">⚠️ SAI TÀI KHOẢN (Khác Chrome)</span>';
+                        if (accLoginStatus) accLoginStatus.innerHTML = `<span style="color:#ef4444; font-weight:800;">❌ KHÔNG TRÙNG KHỚP</span>`;
+                        if (accLoginSub) accLoginSub.innerHTML = `<span style="color:#fca5a5;">Chrome đang login: <b>${browserFlowEmail}</b></span>`;
+                        
+                        if (mismatchAlert) {
+                            mismatchAlert.style.display = "block";
+                            if (mismatchTitle) mismatchTitle.textContent = "ĐÃ KHÓA TOÀN BỘ CHỨC NĂNG DO SAI TÀI KHOẢN GOOGLE FLOW!";
+                            if (mismatchText) {
+                                mismatchText.innerHTML = `Thư mục này dành cho tài khoản Google: <b style="color:#38bdf8;">${folderEmail}</b>, nhưng Chrome hiện đang đăng nhập tài khoản: <b style="color:#fbbf24;">${browserFlowEmail}</b>.<br/>👉 Toàn bộ các công cụ Tạo ảnh AI và Điều khiển trong thư mục này đã bị KHÓA để bảo vệ tài khoản.<br/>Bạn hãy chọn <b>[Cách 1: Tạo Dự Án Con Mới Cho Email Này]</b> hoặc <b>[Cách 2: Quét & Nạp Đè Toàn Bộ Vào Thư Mục Này]</b> ở bên cạnh để tiếp tục!`;
+                            }
+                            if (btnMismatchQuickCreateText) btnMismatchQuickCreateText.innerHTML = `<b>Cách 1:</b> Tạo Dự Án Con Mới Cho Email [${browserFlowEmail}]`;
+                            if (btnMismatchRescanText) btnMismatchRescanText.innerHTML = `<b>Cách 2:</b> Quét & Nạp Đè Toàn Bộ Vào Thư Mục Này`;
+                        }
+                        // Cập nhật trạng thái khóa của sidebar
+                        adaptSubMenuForPlatform(subType, pCfg, sub.id);
+                    } else if (isBrowserOnline) {
+                        if (accStatusBadge) accStatusBadge.innerHTML = isLive
+                            ? `<span class="dot online"></span> <span style="color:var(--success); font-weight:700;">LIVE (${cookies.length} Cookies)</span>`
+                            : `<span class="dot" style="background:#f59e0b;"></span> <span style="color:var(--warning); font-weight:700;">⚠️ CHƯA MỞ FLOW TRÊN CHROME</span>`;
+                        if (accLoginStatus) accLoginStatus.innerHTML = isLive
+                            ? `<span style="color:var(--success);">🟢 SẴN SÀNG</span>`
+                            : `<span style="color:var(--warning);">⚠️ CHƯA MỞ FLOW</span>`;
+                        if (accLoginSub) accLoginSub.textContent = flowProjId ? `Project: ${flowProjName || flowProjId}` : (googleEmail ? `Login: ${googleEmail}` : "flow.google.com");
+                        if (mismatchAlert) mismatchAlert.style.display = "none";
+                        adaptSubMenuForPlatform(subType, pCfg, sub.id);
+                    } else {
+                        if (accStatusBadge) accStatusBadge.innerHTML = '<span class="dot" style="background:#94a3b8;"></span> <span style="color:#94a3b8;">CHỜ KẾT NỐI CHROME</span>';
+                        if (accLoginStatus) accLoginStatus.innerHTML = '<span style="color:#94a3b8;">⚪ CHỜ EXTENSION</span>';
+                        if (accLoginSub) accLoginSub.textContent = "Mở Chrome và bật Extension để check LIVE";
+                        if (mismatchAlert) mismatchAlert.style.display = "none";
+                    }
+                } else if (hasCookies) {
+                    if (accStatusBadge) accStatusBadge.innerHTML = isLive
+                        ? `<span class="dot online"></span> <span style="color:var(--success); font-weight:700;">LIVE (${cookies.length} Cookies)</span>`
+                        : `<span class="dot"></span> <span style="color:var(--warning);">ĐÃ CÓ COOKIE FLOW</span>`;
+                    if (accLoginStatus) accLoginStatus.innerHTML = isLive
+                        ? `<span style="color:var(--success);">🟢 GOOGLE ACCOUNT LIVE</span>`
+                        : `<span style="color:var(--warning);">🟡 ĐÃ CÓ COOKIE</span>`;
+                    if (accLoginSub) accLoginSub.textContent = flowProjId ? `Project: ${flowProjName || flowProjId}` : "Bấm Quét để cập nhật email & project";
+                    if (mismatchAlert) mismatchAlert.style.display = "none";
+                } else {
+                    if (accStatusBadge) accStatusBadge.innerHTML = '⚪ Chưa quét tài khoản';
+                    if (accLoginStatus) accLoginStatus.innerHTML = '⚪ Chưa quét';
+                    if (accLoginSub) accLoginSub.textContent = "Bấm nút Quét & Lấy Thông Tin ở trên";
+                    if (mismatchAlert) mismatchAlert.style.display = "none";
+                }
             } else {
-                // Các nền tảng: Google Flow, TikTok, Instagram, Custom
+                // Các nền tảng: TikTok, Instagram, Custom
                 if (accAvatar) {
                     accAvatar.src = avatar || ("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%23131d33' width='100' height='100'/><text y='55' x='50' font-size='45' text-anchor='middle' dominant-baseline='central'>" + encodeURIComponent(pCfg.icon) + "</text></svg>");
                 }
                 if (accName) accName.textContent = sub.name;
                 
-                const targetUrl = subType === 'flow' ? 'https://flow.google.com' : (subType === 'tiktok' ? 'https://www.tiktok.com' : (subType === 'instagram' ? 'https://www.instagram.com' : 'https://www.google.com'));
+                const targetUrl = subType === 'tiktok' ? 'https://www.tiktok.com' : (subType === 'instagram' ? 'https://www.instagram.com' : 'https://www.google.com');
                 if (accProfileLink) {
                     accProfileLink.href = targetUrl;
                     accProfileLink.textContent = targetUrl;
@@ -5885,13 +6208,116 @@ async function triggerRunNow(postId) {
             const pillarsDiv = document.getElementById("subFbCookiePillars");
             const healthBadge = document.getElementById("subCookieHealthBadge");
 
-            if (subType !== 'facebook') {
+            if (subType !== 'facebook' && subType !== 'flow') {
                 if (pillarsDiv) pillarsDiv.style.display = "none";
                 if (healthBadge) {
                     healthBadge.innerHTML = list.length > 0 ? 
                         `<span class="dot online"></span> <span style="color:var(--success);">🟢 ĐÃ CÓ ${list.length} COOKIES (${pCfg.domain})</span>` : 
                         `⚪ Chưa có dữ liệu cookie (${pCfg.domain})`;
                     healthBadge.style.borderColor = list.length > 0 ? "var(--success)" : "#334155";
+                }
+                return;
+            }
+
+            if (pillarsDiv) pillarsDiv.style.display = "grid";
+
+            if (subType === 'flow') {
+                // GOOGLE FLOW 5 PILLARS (SID, HSID/SSID, __Secure-1PSID, SAPISID, OSID)
+                let sid = list.find(c => c.name === "SID");
+                let hsid = list.find(c => c.name === "HSID");
+                let ssid = list.find(c => c.name === "SSID");
+                let secure1psid = list.find(c => c.name === "__Secure-1PSID" || c.name === "__Secure-3PSID");
+                let sapisid = list.find(c => c.name === "SAPISID" || c.name === "APISID");
+                let osid = list.find(c => c.name === "OSID" || c.name === "__Secure-OSID");
+
+                let flowHealthScore = 0;
+                if (sid && sid.value) flowHealthScore += 30;
+                if (secure1psid && secure1psid.value) flowHealthScore += 25;
+                if ((hsid && hsid.value) || (ssid && ssid.value)) flowHealthScore += 20;
+                if (sapisid && sapisid.value) flowHealthScore += 15;
+                if (osid && osid.value) flowHealthScore += 10;
+
+                if (healthBadge) {
+                    if (flowHealthScore >= 80) {
+                        healthBadge.innerHTML = `<span class="dot online"></span> <span style="color:var(--success);">🟢 GOOGLE SESSION HOÀN HẢO (${flowHealthScore}/100) — ĐỦ 5 TRỤ CỘT</span>`;
+                        healthBadge.style.borderColor = "var(--success)";
+                    } else if (flowHealthScore >= 50) {
+                        healthBadge.innerHTML = `<span class="dot" style="background:#eab308;"></span> <span style="color:#eab308;">🟡 KHÁ TỐT (${flowHealthScore}/100) — ĐỦ TẠO ẢNH FLOW</span>`;
+                        healthBadge.style.borderColor = "#eab308";
+                    } else if (flowHealthScore > 0) {
+                        healthBadge.innerHTML = `<span class="dot" style="background:#ef4444;"></span> <span style="color:#ef4444;">🔴 YẾU (${flowHealthScore}/100) — THIẾU COOKIE XÁC THỰC GOOGLE</span>`;
+                        healthBadge.style.borderColor = "#ef4444";
+                    } else {
+                        healthBadge.innerHTML = `⚪ Chưa có dữ liệu cookie Google (${list.length} Cookies)`;
+                        healthBadge.style.borderColor = "#334155";
+                    }
+                }
+
+                // 1. SID
+                const pCUserVal = document.getElementById("subPillarCUserVal");
+                const pCUserStatus = document.getElementById("subPillarCUserStatus");
+                if (pCUserVal) {
+                    if (sid && sid.value) {
+                        pCUserVal.innerHTML = '<span style="color:#38bdf8; font-family:monospace; font-size:11px;">' + escapeHtml(sid.value.slice(0, 18)) + '...</span>';
+                        if (pCUserStatus) { pCUserStatus.textContent = "✅ ĐÃ CÓ SID"; pCUserStatus.style.background = "#0369a1"; pCUserStatus.style.color = "#fff"; }
+                    } else {
+                        pCUserVal.innerHTML = '<span style="color:#64748b;">Chưa có SID</span>';
+                        if (pCUserStatus) { pCUserStatus.textContent = "❌ Thiếu"; pCUserStatus.style.background = "#1e293b"; pCUserStatus.style.color = "#94a3b8"; }
+                    }
+                }
+
+                // 2. HSID / SSID
+                const pXsTime = document.getElementById("subPillarXsTime");
+                const pXsStatus = document.getElementById("subPillarXsStatus");
+                const pXsDesc = document.getElementById("subPillarXsDesc");
+                if (pXsTime) {
+                    if ((hsid && hsid.value) || (ssid && ssid.value)) {
+                        pXsTime.innerHTML = '<div style="color:#c084fc; font-weight:700;">HSID & SSID Hoạt Động</div>';
+                        if (pXsStatus) { pXsStatus.textContent = "✅ SSL HỢP LỆ"; pXsStatus.style.background = "#6d28d9"; pXsStatus.style.color = "#fff"; }
+                        if (pXsDesc) pXsDesc.textContent = "Bảo mật phiên SSL Google";
+                    } else {
+                        pXsTime.innerHTML = '<span style="color:#64748b;">Chưa có SSL Session</span>';
+                        if (pXsStatus) { pXsStatus.textContent = "❌ Thiếu"; pXsStatus.style.background = "#1e293b"; pXsStatus.style.color = "#94a3b8"; }
+                    }
+                }
+
+                // 3. __Secure-1PSID
+                const pDatrVal = document.getElementById("subPillarDatrVal");
+                const pDatrStatus = document.getElementById("subPillarDatrStatus");
+                if (pDatrVal) {
+                    if (secure1psid && secure1psid.value) {
+                        pDatrVal.innerHTML = '<span style="color:#f59e0b; font-family:monospace; font-size:11px;">' + escapeHtml(secure1psid.value.slice(0, 18)) + '...</span>';
+                        if (pDatrStatus) { pDatrStatus.textContent = "✅ SECURE 1PSID"; pDatrStatus.style.background = "#b45309"; pDatrStatus.style.color = "#fff"; }
+                    } else {
+                        pDatrVal.innerHTML = '<span style="color:#64748b;">Chưa có 1PSID</span>';
+                        if (pDatrStatus) { pDatrStatus.textContent = "⚪ Chưa có"; pDatrStatus.style.background = "#1e293b"; pDatrStatus.style.color = "#94a3b8"; }
+                    }
+                }
+
+                // 4. SAPISID / APISID
+                const pSbVal = document.getElementById("subPillarSbVal");
+                const pSbStatus = document.getElementById("subPillarSbStatus");
+                if (pSbVal) {
+                    if (sapisid && sapisid.value) {
+                        pSbVal.innerHTML = '<span style="color:#10b981; font-family:monospace; font-size:11px;">' + escapeHtml(sapisid.value.slice(0, 18)) + '...</span>';
+                        if (pSbStatus) { pSbStatus.textContent = "✅ CÓ API TOKEN"; pSbStatus.style.background = "#047857"; pSbStatus.style.color = "#fff"; }
+                    } else {
+                        pSbVal.innerHTML = '<span style="color:#64748b;">Chưa có SAPISID</span>';
+                        if (pSbStatus) { pSbStatus.textContent = "⚪ Chưa có"; pSbStatus.style.background = "#1e293b"; pSbStatus.style.color = "#94a3b8"; }
+                    }
+                }
+
+                // 5. OSID
+                const pFrVal = document.getElementById("subPillarFrVal");
+                const pFrStatus = document.getElementById("subPillarFrStatus");
+                if (pFrVal) {
+                    if (osid && osid.value) {
+                        pFrVal.innerHTML = '<span style="color:#22d3ee; font-family:monospace; font-size:11px;">' + escapeHtml(osid.value.slice(0, 18)) + '...</span>';
+                        if (pFrStatus) { pFrStatus.textContent = "✅ FLOW OSID"; pFrStatus.style.background = "#0891b2"; pFrStatus.style.color = "#fff"; }
+                    } else {
+                        pFrVal.innerHTML = '<span style="color:#64748b;">Chưa có OSID Flow</span>';
+                        if (pFrStatus) { pFrStatus.textContent = "⚪ Chưa có"; pFrStatus.style.background = "#1e293b"; pFrStatus.style.color = "#94a3b8"; }
+                    }
                 }
                 return;
             }
@@ -7975,14 +8401,468 @@ async function triggerRunNow(postId) {
             btnEl.style.color = '#2dd4bf';
         }
 
+        // ===== GOOGLE FLOW: CHILD PROJECTS & TARGET MANAGEMENT =====
+        let currentSelectedFlowChildId = 'all';
+        let _lastFlowCloudSync = 0;
+
+        function maybeAutoSyncFlowCloud() {
+            if (Date.now() - _lastFlowCloudSync > 35000) {
+                _lastFlowCloudSync = Date.now();
+                syncFlowProjectsFromCloud(true);
+            }
+        }
+
+        function renderFlowChildProjectsBar(sub) {
+            const container = document.getElementById('flowChildProjectsContainer');
+            const countBadge = document.getElementById('flowChildProjectCountBadge');
+            if (!container) return;
+
+            const childProjects = sub.flowChildProjects || [];
+            if (countBadge) countBadge.textContent = `${childProjects.length} Project Con`;
+
+            maybeAutoSyncFlowCloud();
+
+            if (childProjects.length === 0) {
+                container.innerHTML = `
+                    <div style="color:var(--text-muted); font-size:12px; padding:10px 14px; background:#0f172a; border-radius:8px; border:1px dashed #334155; display:flex; align-items:center; gap:8px;">
+                        <span>ℹ️</span>
+                        <span>Chưa có Project con nào trong tài khoản Flow này. Bấm <b>[➕ Thêm Project Con Mới]</b> hoặc <b>[☁️ Nhập Toàn Bộ Từ Flow Cloud]</b> để nạp dự án!</span>
+                    </div>
+                `;
+                return;
+            }
+
+            const totalImgs = (sub.imageQueue || []).length;
+            const isAllActive = (currentSelectedFlowChildId === 'all');
+
+            let html = `
+                <div onclick="selectFlowChildProject('all')" style="min-width:140px; padding:8px 12px; border-radius:8px; cursor:pointer; display:flex; flex-direction:column; gap:3px; transition:all 0.2s; border:1px solid ${isAllActive ? '#2dd4bf' : '#334155'}; background:${isAllActive ? 'rgba(45,212,191,0.15)' : '#1e293b'}; color:#fff; flex-shrink:0;">
+                    <div style="font-weight:700; font-size:13px; color:${isAllActive ? '#5eead4' : '#f1f5f9'}; display:flex; align-items:center; gap:6px;">
+                        <span>🌟</span> <span>Tất Cả Project</span>
+                    </div>
+                    <div style="font-size:11px; color:${isAllActive ? '#2dd4bf' : '#94a3b8'};">🖼️ ${totalImgs} ảnh tổng cộng</div>
+                </div>
+            `;
+
+            childProjects.forEach(child => {
+                const isActive = (currentSelectedFlowChildId === child.id);
+                const childImgs = (sub.imageQueue || []).filter(q => q.flowChildId === child.id || q.flowProjectId === child.flowProjectId);
+                const shortUuid = child.flowProjectId ? child.flowProjectId.substring(0, 8) + '...' : (child.status === 'creating' ? 'Đang tạo...' : '---');
+                const safeName = (child.name || 'Project Con').replace(/'/g, "\\'");
+                const safeUrl = (child.url || (child.flowProjectId ? `https://flow.google.com/project/${child.flowProjectId}` : '')).replace(/'/g, "\\'");
+
+                html += `
+                    <div onclick="selectFlowChildProject('${child.id}')" style="min-width:190px; max-width:270px; padding:9px 12px; border-radius:8px; cursor:pointer; display:flex; flex-direction:column; gap:3px; transition:all 0.2s; border:1px solid ${isActive ? '#2dd4bf' : '#334155'}; background:${isActive ? 'rgba(45,212,191,0.15)' : '#1e293b'}; color:#fff; flex-shrink:0;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
+                            <span style="font-weight:700; font-size:13px; color:${isActive ? '#5eead4' : '#f1f5f9'}; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${safeName}">📁 ${child.name}</span>
+                            <div style="display:flex; gap:4px; align-items:center; flex-shrink:0;">
+                                <button type="button" onclick="renameFlowChildProject('${child.id}', '${safeName}', event)" title="Sửa / Đổi tên Project (đồng bộ Flow)" style="background:rgba(255,255,255,0.06); border:none; color:#38bdf8; font-size:12px; cursor:pointer; padding:2px 4px; border-radius:4px;">✏️</button>
+                                <button type="button" onclick="deleteFlowChildProject('${child.id}', event)" title="Xóa Project (đồng bộ Flow)" style="background:rgba(255,255,255,0.06); border:none; color:#f87171; font-size:12px; cursor:pointer; padding:2px 4px; border-radius:4px;">🗑️</button>
+                            </div>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; align-items:center; font-size:11px;">
+                            <span style="font-family:monospace; color:#94a3b8;">${shortUuid}</span>
+                            <span style="color:${isActive ? '#2dd4bf' : '#94a3b8'};">🖼️ ${childImgs.length} ảnh</span>
+                        </div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+        }
+
+        async function selectFlowChildProject(childId) {
+            currentSelectedFlowChildId = childId;
+            const p = allProjects.find(x => x.id === currentProjectId);
+            const sub = p ? (p.subProjects || []).find(s => s.id === currentSubProjectId) : null;
+            if (!sub) return;
+
+            if (childId !== 'all') {
+                const child = (sub.flowChildProjects || []).find(c => c.id === childId);
+                if (child) {
+                    const targetInput = document.getElementById('flowTargetProjectInput');
+                    if (targetInput) targetInput.value = child.url || (child.flowProjectId ? `https://flow.google.com/project/${child.flowProjectId}` : '');
+                    onFlowTargetInputChanged();
+
+                    // Cập nhật activeFlowChildId lên server (chạy ngầm, không nhảy tab)
+                    try {
+                        await fetch('/api/v1/flow/child-projects/select', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                projectId: currentProjectId,
+                                subProjectId: currentSubProjectId,
+                                childId: child.id,
+                                focusTab: false
+                            })
+                        });
+                    } catch(e) {}
+                }
+            }
+
+            renderFlowImageGallery(sub);
+        }
+
+        async function renameFlowChildProject(childId, currentName, event) {
+            if (event) event.stopPropagation();
+            if (!currentProjectId || !currentSubProjectId) return;
+            const newName = prompt('✏️ ĐỔI TÊN PROJECT GOOGLE FLOW:\\n\\nNhập tên mới cho dự án (tên này sẽ được cập nhật trực tiếp trên Google Flow Cloud):', currentName);
+            if (!newName || newName.trim() === '' || newName.trim() === currentName) return;
+
+            try {
+                const res = await fetch('/api/v1/flow/child-projects/rename', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        projectId: currentProjectId,
+                        subProjectId: currentSubProjectId,
+                        childId: childId,
+                        newName: newName.trim(),
+                        renameOnFlow: true
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    if (currentProjectId) await fetchParentProjectData(currentProjectId);
+                    alert(`✅ Đã đổi tên Project thành '${data.childProject.name}'! Lệnh đồng bộ Google Flow (RPC o8DA4) đã được phát.`);
+                } else {
+                    alert('❌ Lỗi: ' + (data.error || 'Không thể đổi tên'));
+                }
+            } catch(e) {
+                alert('❌ Lỗi kết nối: ' + e.message);
+            }
+        }
+
+        function openCreateFlowChildModal() {
+            const modal = document.getElementById('createFlowChildModal');
+            if (!modal) return;
+            modal.classList.add('active');
+            document.getElementById('modalFlowChildNameInput').value = '';
+            document.getElementById('modalFlowChildUrlInput').value = '';
+            document.getElementById('modalFlowChildDescInput').value = '';
+            scanFlowTabsForModal();
+        }
+
+        function closeCreateFlowChildModal() {
+            const modal = document.getElementById('createFlowChildModal');
+            if (modal) modal.classList.remove('active');
+        }
+
+        function scanFlowTabsForModal() {
+            const listEl = document.getElementById('modalFlowTabsList');
+            if (!listEl) return;
+            const tabs = (latestParentData && latestParentData.results && latestParentData.results.tabs) || [];
+            const flowTabs = tabs.filter(t => t.url && t.url.includes('flow.google.com'));
+
+            if (!flowTabs.length) {
+                listEl.innerHTML = '<span style="color:#f87171; font-size:11px;">Chưa thấy tab Flow nào trên Chrome. Bạn có thể bật tính năng tự động tạo trên Flow ở trên!</span>';
+                return;
+            }
+
+            listEl.innerHTML = flowTabs.map(t => {
+                const m = (t.url || '').match(/\/project\/([a-f0-9-]+)/i);
+                const uuid = m ? m[1] : '';
+                const shortUuid = uuid ? uuid.substring(0, 8) + '...' : 'Trang chủ';
+                const safeTitle = (t.title || 'Google Flow').replace(/'/g, "\\'");
+                const safeUrl = (t.url || '').replace(/'/g, "\\'");
+                return `
+                    <button type="button" class="btn-sm" onclick="selectFlowTabForModal('${safeTitle}', '${safeUrl}', '${uuid}')" style="background:#312e81; border:1px solid #6366f1; color:#e0e7ff; padding:4px 10px; font-size:11px; display:inline-flex; align-items:center; gap:6px; cursor:pointer; border-radius:6px;" title="${safeUrl}">
+                        <span>🎨</span>
+                        <b style="max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${t.title || 'Flow Project'}</b>
+                        <code style="background:rgba(0,0,0,0.3); padding:1px 4px; border-radius:3px; color:#a5b4fc;">${shortUuid}</code>
+                    </button>
+                `;
+            }).join('');
+        }
+
+        function selectFlowTabForModal(title, url, uuid) {
+            const nameInput = document.getElementById('modalFlowChildNameInput');
+            const urlInput = document.getElementById('modalFlowChildUrlInput');
+            if (nameInput) nameInput.value = title;
+            if (urlInput) urlInput.value = url;
+        }
+
+        async function submitCreateFlowChild() {
+            if (!currentProjectId || !currentSubProjectId) return;
+            const name = document.getElementById('modalFlowChildNameInput')?.value.trim() || '';
+            const targetUrl = document.getElementById('modalFlowChildUrlInput')?.value.trim() || '';
+            const desc = document.getElementById('modalFlowChildDescInput')?.value.trim() || '';
+            const autoCreateFlow = document.getElementById('modalFlowChildAutoCreateCheckbox')?.checked ?? true;
+
+            if (!name && !targetUrl) {
+                alert('Vui lòng nhập Tên Dự Án hoặc dán Link / Mã Project của Google Flow!');
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/v1/flow/child-projects/create', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        projectId: currentProjectId,
+                        subProjectId: currentSubProjectId,
+                        name: name || 'Dự án mới',
+                        targetFlowUrl: targetUrl,
+                        description: desc,
+                        createOnFlow: autoCreateFlow,
+                        openTab: false
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    closeCreateFlowChildModal();
+                    if (data.creatingOnFlow) {
+                        alert(`☁️ Đang phát lệnh tạo dự án '${data.childProject.name}' trực tiếp trên Google Flow Cloud (RPC jHPbke)...\\nHệ thống xử lý hoàn toàn ngầm trong nền, không làm gián đoạn hay nhảy tab Chrome!`);
+                        setTimeout(async () => {
+                            if (currentProjectId) await fetchParentProjectData(currentProjectId);
+                        }, 3500);
+                    } else {
+                        currentSelectedFlowChildId = data.childProject.id;
+                        if (currentProjectId) await fetchParentProjectData(currentProjectId);
+                        alert(`✅ Đã thêm Project con '${data.childProject.name}' thành công!`);
+                    }
+                } else {
+                    alert('❌ Lỗi: ' + (data.error || 'Không thể tạo project con'));
+                }
+            } catch(e) {
+                alert('❌ Lỗi kết nối: ' + e.message);
+            }
+        }
+
+        async function deleteFlowChildProject(childId, event) {
+            if (event) event.stopPropagation();
+            if (!confirm('⚠️ CẢNH BÁO ĐỒNG BỘ 2 CHIỀU:\\n\\nXóa Project con này sẽ ĐỒNG THỜI xóa vĩnh viễn Project tương ứng trên máy chủ Google Flow và dọn dẹp các ảnh liên quan!\\n\\nBạn có chắc chắn muốn xóa không?')) return;
+
+            try {
+                const res = await fetch('/api/v1/flow/child-projects/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        projectId: currentProjectId,
+                        subProjectId: currentSubProjectId,
+                        childId,
+                        deleteOnFlow: true
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    if (currentSelectedFlowChildId === childId) currentSelectedFlowChildId = 'all';
+                    if (currentProjectId) await fetchParentProjectData(currentProjectId);
+                } else {
+                    alert('❌ Lỗi: ' + (data.error || 'Không thể xóa'));
+                }
+            } catch(e) {
+                alert('❌ Lỗi: ' + e.message);
+            }
+        }
+
+        async function scanAndSyncFlowTabsAsProjects() {
+            if (!currentProjectId || !currentSubProjectId) return;
+            try {
+                await sendProjectAction('GET_TABS');
+                await new Promise(r => setTimeout(r, 1200));
+
+                const res = await fetch('/api/v1/flow/child-projects/sync-tabs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        projectId: currentProjectId,
+                        subProjectId: currentSubProjectId
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    if (currentProjectId) await fetchParentProjectData(currentProjectId);
+                    alert(`✅ Đã đồng bộ thành công! Thêm mới ${data.addedCount} project con từ các tab Flow đang mở trên Chrome.`);
+                } else {
+                    alert('❌ Lỗi: ' + (data.error || 'Không thể đồng bộ'));
+                }
+            } catch(e) {
+                alert('❌ Lỗi: ' + e.message);
+            }
+        }
+
+        async function syncFlowProjectsFromCloud(silent = false) {
+            if (!currentProjectId || !currentSubProjectId) return;
+            try {
+                const res = await fetch('/api/v1/flow/child-projects/sync-cloud', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        projectId: currentProjectId,
+                        subProjectId: currentSubProjectId
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    if (!silent) {
+                        alert('☁️ Đang kết nối Google Flow Cloud (RPC UpteDb) để nạp danh sách dự án...\\nVui lòng đợi vài giây để hệ thống tự động cập nhật!');
+                    }
+                    setTimeout(async () => {
+                        if (currentProjectId) await fetchParentProjectData(currentProjectId);
+                    }, 3500);
+                } else {
+                    if (!silent) alert('❌ Lỗi: ' + (data.error || 'Không thể kết nối Cloud Flow'));
+                }
+            } catch(e) {
+                if (!silent) alert('❌ Lỗi kết nối: ' + e.message);
+            }
+        }
+
+        async function syncFlowProjectsHealth() {
+            if (!currentProjectId || !currentSubProjectId) return;
+            try {
+                const res = await fetch('/api/v1/flow/child-projects/sync-health', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        projectId: currentProjectId,
+                        subProjectId: currentSubProjectId
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert(`🩺 Đang quét kiểm tra ${data.totalChecked} Project con trên Google Flow... Nếu có project nào đã bị xóa trực tiếp trên Flow, Dashboard sẽ tự động dọn sạch!`);
+                    setTimeout(async () => {
+                        if (currentProjectId) await fetchParentProjectData(currentProjectId);
+                    }, 3500);
+                } else {
+                    alert('❌ Lỗi: ' + (data.error || 'Không thể kiểm tra sức khỏe'));
+                }
+            } catch(e) {
+                alert('❌ Lỗi kết nối: ' + e.message);
+            }
+        }
+
+        function onFlowTargetInputChanged() {
+            const val = document.getElementById('flowTargetProjectInput')?.value.trim() || '';
+            const statusEl = document.getElementById('flowTargetCurrentUuid');
+            if (!statusEl) return;
+            const m = val.match(/\/project\/([a-f0-9-]+)/i);
+            const uuid = m ? m[1] : (val.length >= 30 ? val : '');
+            if (uuid) {
+                statusEl.innerHTML = `<a href="https://flow.google.com/project/${uuid}" target="_blank" style="color:#38bdf8; text-decoration:underline;">${uuid}</a>`;
+            } else if (val) {
+                statusEl.textContent = val;
+            } else {
+                statusEl.textContent = 'Mặc định (Tự nhận diện)';
+            }
+        }
+
+        async function scanFlowOpenTabs() {
+            const listEl = document.getElementById('flowDetectedTabsList');
+            const boxEl = document.getElementById('flowDetectedTabsBox');
+            if (boxEl) boxEl.style.display = 'block';
+            if (listEl) listEl.innerHTML = '<span style="color:#94a3b8; font-size:12px;">⏳ Đang quét danh sách tab Google Flow trên trình duyệt...</span>';
+
+            try {
+                await sendProjectAction('GET_TABS');
+                await new Promise(r => setTimeout(r, 1200));
+                if (currentProjectId) await fetchParentProjectData(currentProjectId);
+
+                const results = (latestParentData && latestParentData.results) || {};
+                const tabs = results.tabs || [];
+                const flowTabs = tabs.filter(t => t.url && t.url.includes('flow.google.com'));
+
+                if (!flowTabs.length) {
+                    if (listEl) listEl.innerHTML = '<span style="color:#f87171; font-size:12px;">⚠️ Chưa thấy tab Google Flow nào mở trên Chrome. Bạn hãy mở flow.google.com trên Chrome hoặc tự dán link project vào ô ở trên!</span>';
+                    return;
+                }
+
+                if (listEl) {
+                    listEl.innerHTML = flowTabs.map(t => {
+                        const m = (t.url || '').match(/\/project\/([a-f0-9-]+)/i);
+                        const uuid = m ? m[1] : '';
+                        const shortUuid = uuid ? uuid.substring(0, 8) + '...' : 'Trang chủ';
+                        const title = (t.title || 'Google Flow').replace(/'/g, "\\'");
+                        const fullUrl = (t.url || '').replace(/'/g, "\\'");
+                        return `
+                            <button type="button" class="btn-sm" onclick="selectFlowProjectFromTab('${fullUrl}', '${uuid}')" style="background:#312e81; border:1px solid #6366f1; color:#e0e7ff; padding:5px 12px; font-size:12px; display:inline-flex; align-items:center; gap:6px; cursor:pointer; border-radius:6px;" title="${fullUrl}">
+                                <span>🎨</span>
+                                <b style="max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${title}</b>
+                                <code style="background:rgba(0,0,0,0.35); padding:1px 5px; border-radius:4px; color:#a5b4fc; font-size:11px;">${shortUuid}</code>
+                            </button>
+                        `;
+                    }).join('');
+                }
+            } catch(e) {
+                if (listEl) listEl.innerHTML = '<span style="color:#f87171; font-size:12px;">❌ Lỗi khi quét tab: ' + e.message + '</span>';
+            }
+        }
+
+        function selectFlowProjectFromTab(url, uuid) {
+            const input = document.getElementById('flowTargetProjectInput');
+            if (input) {
+                input.value = url;
+                onFlowTargetInputChanged();
+            }
+            const statusEl = document.getElementById('flowImageStatusText');
+            if (statusEl) {
+                statusEl.textContent = `🎯 Đã chọn: ${uuid || url}`;
+                statusEl.style.color = '#38bdf8';
+                setTimeout(() => { if (statusEl.textContent.startsWith('🎯')) statusEl.textContent = ''; }, 3000);
+            }
+        }
+
+        async function saveTargetFlowProject() {
+            if (!currentProjectId || !currentSubProjectId) {
+                alert('Vui lòng chọn một Dự Án Con (Thư mục Google Flow)!');
+                return;
+            }
+            const inputVal = document.getElementById('flowTargetProjectInput')?.value.trim() || '';
+            if (!inputVal) {
+                alert('Vui lòng nhập hoặc dán link / mã Project của Google Flow!');
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/v1/flow/update-target-project', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        projectId: currentProjectId,
+                        subProjectId: currentSubProjectId,
+                        targetFlowUrl: inputVal
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert(`✅ Đã lưu Google Flow Project đích thành công!\n\nID Project: ${data.flowProjectId || 'Trang chủ'}\nMỗi lần tạo ảnh AI ở thư mục này sẽ tự động trỏ vào project này.`);
+                    if (currentProjectId) fetchParentProjectData(currentProjectId);
+                } else {
+                    alert('❌ Lỗi: ' + (data.error || 'Không thể lưu'));
+                }
+            } catch(e) {
+                alert('❌ Lỗi kết nối: ' + e.message);
+            }
+        }
+
+        function openCurrentFlowProjectInBrowser() {
+            const inputVal = document.getElementById('flowTargetProjectInput')?.value.trim() || '';
+            const targetUrl = inputVal || 'https://flow.google.com';
+            projectOpenTab(targetUrl);
+        }
+
         // ===== GOOGLE FLOW: AI IMAGE GENERATION =====
         async function submitFlowImageGenerate(mode) {
             if (!currentProjectId || !currentSubProjectId) return;
+
+            // Kiểm tra bảo vệ chống tạo ảnh nhầm tài khoản Google khi lệch Email
+            const projObj = allProjects.find(p => p.id === currentProjectId);
+            const subObj = projObj ? (projObj.subProjects || []).find(s => s.id === currentSubProjectId) : null;
+            const mismatchStatus = checkSubProjectMismatch(subObj);
+            if (mismatchStatus.isMismatch) {
+                alert(`🔒 TÍNH NĂNG BỊ KHÓA DO KHÁC TÀI KHOẢN GOOGLE!\n\nThư mục này của Google: ${mismatchStatus.folderAccount}\nTrong khi Chrome đang đăng nhập: ${mismatchStatus.browserAccount}\n\n👉 Vui lòng:\n1. Tạo Dự Án Con mới cho tài khoản Google này\n2. Hoặc vào trang Thông Tin Tài Khoản để quét nạp lại nick mới!`);
+                switchSubMenu('sub-account-info');
+                return;
+            }
 
             const prompt = document.getElementById('flowImagePromptInput')?.value.trim() || '';
             const model = document.getElementById('flowImageModelSelect')?.value || 'HARBOR_SEAL';
             const count = parseInt(document.getElementById('flowImageCountSelect')?.value || '4');
             const ratio = document.getElementById('flowImageRatioSelect')?.value || '3:4';
+            const targetFlowUrl = document.getElementById('flowTargetProjectInput')?.value.trim() || '';
+            const activeChildId = (currentSelectedFlowChildId !== 'all') ? currentSelectedFlowChildId : (subObj?.activeFlowChildId || '');
             const statusEl = document.getElementById('flowImageStatusText');
 
             if (!prompt) {
@@ -8005,6 +8885,8 @@ async function triggerRunNow(postId) {
                     model,
                     imageCount: count,
                     aspectRatio: ratio,
+                    targetFlowUrl,
+                    flowChildId: activeChildId,
                     runNow: !isQueue
                 };
 
@@ -8039,8 +8921,110 @@ async function triggerRunNow(postId) {
             }
         }
 
+        async function syncFlowCanvasImages() {
+            if (!currentProjectId || !currentSubProjectId) return;
+            const p = allProjects.find(x => x.id === currentProjectId);
+            const sub = p ? (p.subProjects || []).find(s => s.id === currentSubProjectId) : null;
+            if (!sub) return;
+
+            const childProjects = sub.flowChildProjects || [];
+            const selChild = (currentSelectedFlowChildId !== 'all')
+                ? childProjects.find(c => c.id === currentSelectedFlowChildId)
+                : null;
+            const targetChildId = selChild ? selChild.id : (sub.activeFlowChildId || (childProjects[0] ? childProjects[0].id : ''));
+            const targetFlowProjId = selChild ? selChild.flowProjectId : (sub.flowProjectId || (childProjects[0] ? childProjects[0].flowProjectId : ''));
+
+            const btn = document.getElementById('btnSyncFlowCanvas');
+            const originalText = btn ? btn.innerHTML : '';
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<span>⏳</span> <span>Đang quét ảnh Canvas Flow...</span>';
+            }
+
+            try {
+                const res = await fetch('/api/v1/flow/sync-canvas-images', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        projectId: currentProjectId,
+                        subProjectId: currentSubProjectId,
+                        childId: targetChildId,
+                        flowProjectId: targetFlowProjId
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    let countdown = 5;
+                    const timer = setInterval(async () => {
+                        countdown--;
+                        if (btn) btn.innerHTML = `<span>⏳</span> <span>Đang đồng bộ ảnh (${countdown}s)...</span>`;
+                        if (countdown <= 0) {
+                            clearInterval(timer);
+                            if (currentProjectId) await fetchParentProjectData(currentProjectId);
+                            if (btn) {
+                                btn.disabled = false;
+                                btn.innerHTML = originalText;
+                            }
+                        }
+                    }, 1000);
+                } else {
+                    alert('❌ Lỗi: ' + (data.error || 'Không thể gửi lệnh đồng bộ ảnh'));
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = originalText;
+                    }
+                }
+            } catch(e) {
+                alert('❌ Lỗi kết nối: ' + e.message);
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+                }
+            }
+        }
+
         function renderFlowImageGallery(sub) {
-            const imageQueue = sub.imageQueue || [];
+            // 1. Render thanh Project Con Bar
+            renderFlowChildProjectsBar(sub);
+
+            const childProjects = sub.flowChildProjects || [];
+
+            // Tự động gán Project Con mặc định từ activeFlowChildId nếu chưa chọn
+            if (!currentSelectedFlowChildId && sub.activeFlowChildId) {
+                currentSelectedFlowChildId = sub.activeFlowChildId;
+            }
+
+            const selChild = (currentSelectedFlowChildId && currentSelectedFlowChildId !== 'all')
+                ? childProjects.find(c => c.id === currentSelectedFlowChildId)
+                : null;
+
+            // 2. Cập nhật giá trị ô Dự Án Đích
+            const targetInput = document.getElementById('flowTargetProjectInput');
+            const targetUuidEl = document.getElementById('flowTargetCurrentUuid');
+            const flowProjId = selChild ? selChild.flowProjectId : (sub.flowProjectId || '');
+            const profileUrl = selChild ? selChild.url : (sub.profileUrl || '');
+            const currentProjDisplay = flowProjId || (profileUrl.match(/\/project\/([a-f0-9-]+)/i)?.[1]) || '';
+
+            if (targetInput && (!targetInput.value || targetInput.dataset.subId !== sub.id || selChild)) {
+                targetInput.value = profileUrl || (flowProjId ? `https://flow.google.com/project/${flowProjId}` : '');
+                targetInput.dataset.subId = sub.id;
+            }
+            if (targetUuidEl) {
+                if (selChild) {
+                    targetUuidEl.innerHTML = `<span style="color:#5eead4; font-weight:700;">📁 ${selChild.name}</span> (<a href="${selChild.url}" target="_blank" style="color:#38bdf8; text-decoration:underline;">${currentProjDisplay}</a>)`;
+                } else if (currentProjDisplay) {
+                    targetUuidEl.innerHTML = `<a href="https://flow.google.com/project/${currentProjDisplay}" target="_blank" style="color:#38bdf8; text-decoration:underline;">${currentProjDisplay}</a>`;
+                } else {
+                    targetUuidEl.innerHTML = '<span style="color:#94a3b8;">Chưa liên kết Project cụ thể</span>';
+                }
+            }
+
+            // 3. Lọc danh sách ảnh theo Project Con đang chọn
+            const rawQueue = sub.imageQueue || [];
+            const imageQueue = (currentSelectedFlowChildId && currentSelectedFlowChildId !== 'all')
+                ? rawQueue.filter(q => q.flowChildId === currentSelectedFlowChildId || (selChild && q.flowProjectId === selChild.flowProjectId))
+                : rawQueue;
+
             const container = document.getElementById('flowImageGalleryContainer');
             const countBadge = document.getElementById('flowImageCountBadge');
             const kpiTotal = document.getElementById('kpiFlowTotalImages');
@@ -8056,16 +9040,27 @@ async function triggerRunNow(postId) {
             if (kpiTotal) kpiTotal.textContent = imageQueue.length;
             if (kpiPending) kpiPending.textContent = pendingCount;
             if (kpiCompleted) kpiCompleted.textContent = completedCount;
-            if (countBadge) countBadge.textContent = `${imageQueue.length} Ảnh`;
+            if (countBadge) {
+                const label = selChild ? `📁 ${selChild.name}: ${imageQueue.length} Ảnh` : `${imageQueue.length} Ảnh (Tất cả)`;
+                countBadge.textContent = label;
+            }
 
             if (!container) return;
 
             if (imageQueue.length === 0) {
+                const emptyMsg = selChild 
+                    ? `Project con <b>'${selChild.name}'</b> chưa có ảnh nào được nạp vào Dashboard.<br>Bạn có thể bấm nút bên dưới để <b>quét & nạp toàn bộ ảnh đang có trên Canvas Flow</b> vào đây, hoặc tạo ảnh mới!`
+                    : `Nhập prompt mô tả ở trên và bấm [🎨 TẠO ẢNH AI NGAY] để bắt đầu!`;
                 container.innerHTML = `
-                    <div style="color:var(--text-muted); font-size:13px; padding:32px 20px; text-align:center;">
-                        <span style="font-size:32px;">🎨</span>
-                        <div style="font-weight:700; color:#cbd5e1; margin-top:8px;">Chưa có ảnh nào được tạo</div>
-                        <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">Nhập prompt mô tả ở trên và bấm [🎨 TẠO ẢNH AI NGAY] để bắt đầu!</div>
+                    <div style="color:var(--text-muted); font-size:13px; padding:36px 20px; text-align:center; background:#0f172a; border-radius:12px; border:1px dashed #334155;">
+                        <span style="font-size:36px;">🎨</span>
+                        <div style="font-weight:700; color:#cbd5e1; margin-top:10px; font-size:15px;">Chưa có ảnh nào được hiển thị</div>
+                        <div style="font-size:13px; color:var(--text-muted); margin-top:6px; line-height:1.6;">${emptyMsg}</div>
+                        ${selChild ? `
+                            <button type="button" class="btn-green" onclick="syncFlowCanvasImages()" style="margin-top:14px; padding:8px 18px; font-size:13px; font-weight:700; display:inline-flex; align-items:center; gap:8px;">
+                                <span>🔄</span> <span>Nạp Toàn Bộ Ảnh Từ Canvas Flow Vào Project Này</span>
+                            </button>
+                        ` : ''}
                     </div>
                 `;
                 return;
@@ -8094,16 +9089,16 @@ async function triggerRunNow(postId) {
                 html += `<div style="background:#0d1425; border:1px solid #1e293b; border-radius:12px; overflow:hidden;">`;
 
                 if (images.length > 0) {
-                    html += `<div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:2px;">`;
+                    const gridCols = images.length === 1 ? '1fr' : 'repeat(2, 1fr)';
+                    html += `<div style="display:grid; grid-template-columns:${gridCols}; gap:2px;">`;
                     images.slice(0, 4).forEach(img => {
-                        const imgUrl = img.url || img;
+                        const imgUrl = (typeof img === 'object' && img.url) ? img.url : img;
                         html += `<div style="aspect-ratio:3/4; overflow:hidden; cursor:pointer;" onclick="window.open('${imgUrl}','_blank')">`;
                         html += `<img src="${imgUrl}" style="width:100%; height:100%; object-fit:cover;" loading="lazy" />`;
                         html += `</div>`;
                     });
                     html += `</div>`;
                 } else {
-                    // Placeholder cho pending/queued items
                     html += `<div style="display:flex; align-items:center; justify-content:center; padding:32px 16px; background:linear-gradient(135deg,#0f172a,#1e293b); min-height:140px;">`;
                     if (status === 'pending') {
                         html += `<div style="text-align:center;">`;
@@ -8126,16 +9121,58 @@ async function triggerRunNow(postId) {
                     html += `</div>`;
                 }
 
+                const itemChild = childProjects.find(c => c.id === item.flowChildId || (c.flowProjectId && c.flowProjectId === item.flowProjectId));
+                const childBadge = itemChild
+                    ? `<span style="background:rgba(45,212,191,0.15); color:#2dd4bf; border:1px solid rgba(45,212,191,0.3); font-size:10px; padding:2px 6px; border-radius:4px; font-weight:700;">📁 ${itemChild.name}</span>`
+                    : '';
+                const itemFlowProjId = item.flowProjectId || (itemChild ? itemChild.flowProjectId : '');
+                const openCanvasBtn = itemFlowProjId 
+                    ? `<a href="https://flow.google.com/project/${itemFlowProjId}" target="_blank" style="background:#1e293b; border:1px solid #334155; color:#38bdf8; font-size:11px; padding:2px 8px; border-radius:4px; text-decoration:none; display:inline-flex; align-items:center; gap:4px;" title="Mở project này trên Google Flow"><span>🌐</span> <span>Flow</span></a>`
+                    : '';
+
                 html += `<div style="padding:12px;">`;
+                html += `<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">${childBadge}<div style="display:flex; gap:6px; align-items:center;">${openCanvasBtn}<span style="font-size:10px; color:#64748b;">${createdAt}</span></div></div>`;
                 html += `<div style="font-size:13px; color:#e2e8f0; line-height:1.5; margin-bottom:8px; max-height:60px; overflow:hidden; font-weight:600;">"${prompt.substring(0, 120)}${prompt.length > 120 ? '...' : ''}"</div>`;
-                html += `<div style="display:flex; justify-content:space-between; align-items:center;">`;
+                html += `<div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">`;
                 html += statusBadge;
-                html += `<span style="font-size:10px; color:#64748b;">${createdAt}</span>`;
-                html += `</div>`;
+                html += `<div style="display:flex; gap:6px; align-items:center;"><span style="font-size:11px; color:#94a3b8;">${model} (${ratio})</span>`;
+                if (images.length > 0 && images[0]) {
+                    const firstImg = (typeof images[0] === 'object' && images[0].url) ? images[0].url : images[0];
+                    html += `<a href="${firstImg}" download="flow_${item.id}.jpg" style="color:#5eead4; font-size:12px; text-decoration:none; padding:1px 4px;" title="Tải ảnh về máy">⬇️</a>`;
+                }
+                html += `<button type="button" onclick="deleteFlowImage('${item.id}', '${itemFlowProjId}', event)" style="background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.3); color:#fca5a5; font-size:11px; padding:2px 7px; border-radius:4px; cursor:pointer; display:inline-flex; align-items:center; gap:3px;" title="Xóa ảnh khỏi Dashboard và chuyển vào thùng rác trên Google Flow Canvas"><span>🗑️</span> <span>Xóa</span></button>`;
+                html += `</div></div>`;
                 html += `</div></div>`;
             });
             html += '</div>';
             container.innerHTML = html;
+        }
+
+        async function deleteFlowImage(imageId, flowProjId, event) {
+            if (event) event.stopPropagation();
+            if (!confirm('🗑️ XÁC NHẬN XÓA ẢNH:\\n\\nBạn có chắc muốn xóa ảnh này?\\nẢnh này sẽ bị xóa khỏi Gallery và ĐỒNG THỜI được chuyển vào Thùng Rác (Trash) trên Google Flow Canvas.')) return;
+
+            try {
+                const res = await fetch('/api/v1/flow/images/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        projectId: currentProjectId,
+                        subProjectId: currentSubProjectId,
+                        imageId: imageId,
+                        flowProjectId: flowProjId,
+                        deleteOnFlow: true
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    if (currentProjectId) await fetchParentProjectData(currentProjectId);
+                } else {
+                    alert('❌ Lỗi khi xóa ảnh: ' + (data.error || 'Không thể xóa'));
+                }
+            } catch(e) {
+                alert('❌ Lỗi kết nối: ' + e.message);
+            }
         }
 
         async function submitAutoPost(runMode) {
@@ -8573,6 +9610,105 @@ async function triggerRunNow(postId) {
             }
         }
 
+        // =========================================================
+        // XỬ LÝ LỆCH TÀI KHOẢN ĐA NỀN TẢNG (FACEBOOK & GOOGLE FLOW)
+        // =========================================================
+
+        async function handleMismatchQuickCreate() {
+            if (!currentProjectId) return;
+            const p = allProjects.find(x => x.id === currentProjectId);
+            const sub = p ? (p.subProjects || []).find(s => s.id === currentSubProjectId) : null;
+            const subType = sub ? (sub.type || 'facebook') : 'facebook';
+
+            if (subType === 'flow') {
+                await quickCreateSubForBrowserFlow();
+            } else {
+                await quickCreateSubForBrowserUid();
+            }
+        }
+
+        async function handleMismatchRescanOverwrite() {
+            if (!currentProjectId || !currentSubProjectId) return;
+            const p = allProjects.find(x => x.id === currentProjectId);
+            const sub = p ? (p.subProjects || []).find(s => s.id === currentSubProjectId) : null;
+            const subType = sub ? (sub.type || 'facebook') : 'facebook';
+
+            if (subType === 'flow') {
+                await rescanAndOverwriteFlowAccount();
+            } else {
+                await rescanAndOverwriteFbAccount();
+            }
+        }
+
+        async function quickCreateSubForBrowserFlow() {
+            if (!currentProjectId) return;
+            const nodes = (latestParentData && latestParentData.nodes) || [];
+            const activeNode = nodes[0] || null;
+            const browserEmail = (activeNode && activeNode.browserFlowEmail) ? String(activeNode.browserFlowEmail).trim() : "";
+            
+            const defaultName = browserEmail ? `Flow - ${browserEmail.split('@')[0]}` : `Google Flow Mới`;
+            const projName = prompt(`➕ Tạo Dự Án Con Mới cho tài khoản Google Flow trên Chrome:\n(Nhập tên cho dự án con này)`, defaultName);
+            if (!projName || !projName.trim()) return;
+
+            try {
+                const res = await fetch("/api/subprojects", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        projectId: currentProjectId,
+                        name: projName.trim(),
+                        description: browserEmail ? `Tài khoản Google: ${browserEmail}` : "Dự án Google Flow tạo từ Chrome",
+                        type: "flow",
+                        purpose: "all",
+                        sourceUrl: "https://flow.google.com",
+                        sourceDomain: "flow.google.com"
+                    })
+                });
+                const data = await res.json();
+                if (data.success && data.subProject) {
+                    await fetchParentProjectData(currentProjectId);
+                    alert(`✅ Đã tạo thành công Dự Án Con [${projName.trim()}]. Đang chuyển vào dự án mới...`);
+                    enterSubProject(data.subProject.id, "sub-account-info", true);
+                    // Tự động quét thông tin tài khoản Flow cho dự án con mới
+                    setTimeout(() => {
+                        extractFlowAccountInfo();
+                    }, 500);
+                } else {
+                    alert("❌ Lỗi tạo dự án: " + (data.error || "Không xác định"));
+                }
+            } catch(e) {
+                alert("❌ Lỗi: " + e.message);
+            }
+        }
+
+        async function rescanAndOverwriteFlowAccount() {
+            if (!currentProjectId || !currentSubProjectId) return;
+            const proj = allProjects.find(p => p.id === currentProjectId);
+            const sub = proj ? (proj.subProjects || []).find(s => s.id === currentSubProjectId) : null;
+            const nodes = (latestParentData && latestParentData.nodes) || [];
+            const activeNode = nodes[0] || null;
+            const browserEmail = (activeNode && activeNode.browserFlowEmail) ? String(activeNode.browserFlowEmail).trim() : "";
+            const oldEmail = sub ? (sub.googleEmail || sub.c_user || "cũ") : "cũ";
+
+            const ok = confirm(`🔄 XÁC NHẬN GHI ĐÈ TÀI KHOẢN GOOGLE MỚI!\n\nBạn có chắc muốn XÓA TRẮNG dữ liệu tài khoản [${oldEmail}] và NẠP TOÀN BỘ thông tin tài khoản Google từ Chrome [${browserEmail || 'đang mở'}] vào thư mục này không?\n\n(Dữ liệu tài khoản cũ trong thư mục này sẽ bị xóa sạch)`);
+            if (!ok) return;
+
+            // Xóa trắng dữ liệu cũ
+            try {
+                await fetch("/api/subprojects/clear-account", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ projectId: currentProjectId, subProjectId: currentSubProjectId })
+                });
+                if (currentProjectId) await fetchParentProjectData(currentProjectId);
+            } catch(errClear) {
+                console.warn("Lỗi xóa dữ liệu cũ:", errClear);
+            }
+
+            // Quét và nạp dữ liệu Flow mới ngay lập tức
+            extractFlowAccountInfo(true);
+        }
+
         async function quickCreateSubForBrowserUid() {
             if (!currentProjectId) return;
             const nodes = (latestParentData && latestParentData.nodes) || [];
@@ -8801,11 +9937,14 @@ async function triggerRunNow(postId) {
         function copyFbUid() {
             const uid = document.getElementById("fbAccUid").textContent;
             if (!uid || uid === "---") {
-                alert("Chưa có UID để sao chép!");
+                alert("Chưa có ID / Email để sao chép!");
                 return;
             }
+            const p = allProjects.find(x => x.id === currentProjectId);
+            const sub = p ? (p.subProjects || []).find(s => s.id === currentSubProjectId) : null;
+            const label = (sub && sub.type === 'flow') ? "Tài khoản Google" : "Facebook UID";
             navigator.clipboard.writeText(uid);
-            alert("📋 Đã sao chép Facebook UID: " + uid);
+            alert(`📋 Đã sao chép ${label}: ` + uid);
         }
 
         async function copyActiveSubCookieString() {
@@ -8814,9 +9953,12 @@ async function triggerRunNow(postId) {
                 alert("Chưa có cookie để sao chép!");
                 return;
             }
+            const p = allProjects.find(x => x.id === currentProjectId);
+            const sub = p ? (p.subProjects || []).find(s => s.id === currentSubProjectId) : null;
+            const pCfg = PLATFORM_CONFIG[(sub && sub.type) || 'facebook'] || { name: 'Tài khoản' };
             try {
                 await navigator.clipboard.writeText(str);
-                alert("📋 Đã sao chép chuỗi Cookie Facebook vào bộ nhớ tạm!");
+                alert(`📋 Đã sao chép chuỗi Cookie ${pCfg.name} vào bộ nhớ tạm!`);
             } catch(e) {
                 prompt("Copy cookie bên dưới:", str);
             }
@@ -8843,8 +9985,126 @@ async function triggerRunNow(postId) {
             const subType = (sub && sub.type) ? sub.type : "facebook";
             if (subType === 'facebook') {
                 extractAllFbAccountInfo();
+            } else if (subType === 'flow') {
+                extractFlowAccountInfo();
             } else {
                 extractCookiesForActiveSub();
+            }
+        }
+
+        let isExtractingFlowInfo = false;
+        async function extractFlowAccountInfo(bypassConfirm = false) {
+            if (!currentProjectId || !currentSubProjectId) return;
+            if (isExtractingFlowInfo) return;
+
+            const proj = allProjects.find(p => p.id === currentProjectId);
+            const sub = proj ? (proj.subProjects || []).find(s => s.id === currentSubProjectId) : null;
+            const hasExistingData = sub && (sub.googleEmail || sub.c_user || (sub.cookies && sub.cookies.length > 0) || sub.cookieStr);
+
+            const nodes = (latestParentData && latestParentData.nodes) || [];
+            const activeNode = nodes[0] || null;
+            const browserEmail = (activeNode && activeNode.browserFlowEmail) ? String(activeNode.browserFlowEmail).trim().toLowerCase() : "";
+            const folderEmail = (sub && (sub.googleEmail || sub.c_user) || "").trim().toLowerCase();
+
+            if (!bypassConfirm) {
+                // Kiểm tra xem Chrome có tài khoản Google khác với thư mục hiện tại không
+                if (hasExistingData && folderEmail && browserEmail && browserEmail !== folderEmail) {
+                    const choice = confirm(`⚠️ CẢNH BÁO LỆCH TÀI KHOẢN GOOGLE!\n\nThư mục này đang lưu tài khoản: ${folderEmail} (${sub.fbName || sub.flowProjectName || 'Google Flow'}).\nTrong khi Chrome hiện đang đăng nhập: ${browserEmail}.\n\nNếu tiếp tục, dữ liệu của tài khoản [${folderEmail}] sẽ bị XÓA và THAY THẾ bằng [${browserEmail}]!\n\n👉 Bấm 'OK' nếu bạn chấp nhận XÓA và GHI ĐÈ.\n👉 Bấm 'Cancel' (Hủy) để giữ nguyên (khuyến nghị tạo Dự Án Con khác).`);
+                    if (!choice) {
+                        const wantNew = confirm(`💡 Bạn có muốn tạo ngay một Dự Án Con Mới cho tài khoản Google [${browserEmail}] này không?`);
+                        if (wantNew) {
+                            quickCreateSubForBrowserFlow();
+                        }
+                        return;
+                    }
+
+                    // Xóa trắng dữ liệu cũ trên server trước khi quét mới
+                    try {
+                        await fetch("/api/subprojects/clear-account", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ projectId: currentProjectId, subProjectId: currentSubProjectId })
+                        });
+                        if (currentProjectId) await fetchParentProjectData(currentProjectId);
+                    } catch(errClear) {
+                        console.warn("Lỗi xóa dữ liệu cũ:", errClear);
+                    }
+                } else if (hasExistingData) {
+                    const accLabel = sub.fbName || folderEmail || 'hiện tại';
+                    const ok = confirm(`⚠️ Tài khoản Google này đã có thông tin [${accLabel}].\n\nBạn có muốn XÓA TRẮNG DỮ LIỆU CŨ để quét và nạp dữ liệu mới từ Chrome không?`);
+                    if (!ok) return;
+
+                    try {
+                        await fetch("/api/subprojects/clear-account", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ projectId: currentProjectId, subProjectId: currentSubProjectId })
+                        });
+                        if (currentProjectId) await fetchParentProjectData(currentProjectId);
+                    } catch(errClear) {
+                        console.warn("Lỗi xóa dữ liệu cũ:", errClear);
+                    }
+                }
+            }
+
+            const pCfg = PLATFORM_CONFIG["flow"] || { name: "GOOGLE FLOW" };
+
+            const bannerBtn = document.getElementById("subAccBannerBtn");
+            const oldBtnHtml = bannerBtn ? bannerBtn.innerHTML : "";
+
+            if (nodes.length === 0) {
+                alert("⚠️ Trình duyệt Chrome chưa kết nối Extension! Vui lòng mở Chrome và đảm bảo Extension Auth Helper đang chạy.");
+            }
+
+            try {
+                isExtractingFlowInfo = true;
+                if (bannerBtn) {
+                    bannerBtn.innerHTML = `<span>⏳</span> <span>ĐANG QUÉT GOOGLE FLOW TỪ CHROME (CHỜ 2-5S)...</span>`;
+                    bannerBtn.disabled = true;
+                    bannerBtn.style.opacity = "0.75";
+                }
+
+                const loginStatus = document.getElementById("fbAccLoginStatus");
+                if (loginStatus) {
+                    loginStatus.innerHTML = `<span style="color:#22d3ee;">🔄 Đang lấy dữ liệu từ Google Flow...</span>`;
+                }
+
+                await fetch("/api/bridge/command", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        targetProjectId: currentProjectId,
+                        targetSubProjectId: currentSubProjectId,
+                        targetNodeId: "*",
+                        action: "GET_FLOW_ACCOUNT",
+                        domain: "flow.google.com"
+                    })
+                });
+
+                // Polling kiểm tra kết quả trả về từ Chrome
+                let attempts = 0;
+                const pollInterval = setInterval(async () => {
+                    attempts++;
+                    if (currentProjectId) await fetchParentProjectData(currentProjectId);
+
+                    if (attempts >= 7) {
+                        clearInterval(pollInterval);
+                        isExtractingFlowInfo = false;
+                        if (bannerBtn) {
+                            bannerBtn.innerHTML = oldBtnHtml || `<span>🔄</span> <span>QUÉT & LẤY TOÀN BỘ THÔNG TIN TÀI KHOẢN FLOW</span>`;
+                            bannerBtn.disabled = false;
+                            bannerBtn.style.opacity = "1";
+                        }
+                    }
+                }, 1000);
+
+            } catch(e) {
+                isExtractingFlowInfo = false;
+                if (bannerBtn) {
+                    bannerBtn.innerHTML = oldBtnHtml;
+                    bannerBtn.disabled = false;
+                    bannerBtn.style.opacity = "1";
+                }
             }
         }
 
@@ -9423,6 +10683,69 @@ async function triggerRunNow(postId) {
             </div>
         </div>
     </div>
+
+    <!-- MODAL: TẠO / THÊM PROJECT CON CHO GOOGLE FLOW -->
+    <div id="createFlowChildModal" class="modal-overlay" onclick="if(event.target===this) closeCreateFlowChildModal()">
+        <div class="modal-box" style="max-width:540px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; border-bottom:1px solid var(--border-color); padding-bottom:10px;">
+                <h3 style="font-size:16px; color:#2dd4bf; margin:0; display:flex; align-items:center; gap:8px;">
+                    <span>➕</span> <span>Thêm Project Con Mới Vào Tài Khoản Flow</span>
+                </h3>
+                <button type="button" onclick="closeCreateFlowChildModal()" style="background:transparent; border:none; color:var(--text-muted); font-size:18px; cursor:pointer;">✕</button>
+            </div>
+            <p style="font-size:12px; color:var(--text-muted); margin-bottom:14px;">
+                Tạo một dự án con riêng biệt trong tài khoản Flow này để phân loại theo từng chủ đề (ví dụ: Chân dung, Xe cộ, Phong cảnh...). Ảnh tạo ra sẽ được lưu và quản lý độc lập.
+            </p>
+
+            <!-- TÊN PROJECT CON -->
+            <div style="margin-bottom:14px;">
+                <label style="font-size:12px; font-weight:700; color:#cbd5e1; margin-bottom:6px; display:block;">📝 Tên Project Con</label>
+                <input type="text" id="modalFlowChildNameInput" placeholder="Ví dụ: Dự Án Chân Dung AI, Siêu Xe 3D, Anime..." style="width:100%; padding:9px 12px; font-size:13px;" />
+            </div>
+
+            <!-- TỰ ĐỘNG TẠO TRÊN FLOW CLOUD -->
+            <div style="margin-bottom:14px; padding:10px 12px; background:rgba(13,148,136,0.15); border:1px solid #14b8a6; border-radius:8px;">
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px; font-weight:700; color:#5eead4;">
+                    <input type="checkbox" id="modalFlowChildAutoCreateCheckbox" checked style="width:16px; height:16px; accent-color:#14b8a6;" />
+                    <span>☁️ Tự Động Tạo Project Mới Trực Tiếp Trên Google Flow (RPC jHPbke)</span>
+                </label>
+                <div style="font-size:11px; color:#cbd5e1; margin-top:4px; margin-left:24px;">
+                    Chỉ cần nhập Tên ở trên, Extension sẽ điều khiển Google Flow Cloud tạo dự án ngầm và cấp mã UUID. Toàn bộ thao tác chạy nền, không nhảy hay chuyển tab Chrome.
+                </div>
+            </div>
+
+            <!-- MÃ HOẶC LINK GOOGLE FLOW -->
+            <div style="margin-bottom:14px;">
+                <label style="font-size:12px; font-weight:700; color:#cbd5e1; margin-bottom:6px; display:block;">🎯 Mã Project (UUID) hoặc Đường Link (Nếu đã có sẵn trên Flow)</label>
+                <input type="text" id="modalFlowChildUrlInput" placeholder="Bỏ trống nếu muốn tạo mới hoàn toàn ở trên, hoặc dán link/UUID nếu đã có" style="width:100%; padding:9px 12px; font-size:13px; font-family:monospace; color:#38bdf8;" />
+                <div style="font-size:11px; color:#64748b; margin-top:4px;">Ví dụ: <code>https://flow.google.com/project/f1297954-48b4-48a0-8e08-9b7540dfaa32</code></div>
+            </div>
+
+            <!-- CHỌN NHANH TỪ CÁC TAB ĐANG MỞ -->
+            <div style="margin-bottom:16px; padding:10px 12px; background:rgba(30,27,75,0.6); border-radius:8px; border:1px solid #4338ca;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                    <span style="font-size:11px; font-weight:700; color:#a5b4fc;">📋 Hoặc chọn nhanh từ tab Flow đang mở trên Chrome:</span>
+                    <button type="button" class="btn-sm" onclick="scanFlowTabsForModal()" style="font-size:10px; padding:3px 8px; background:#4338ca; border:none; color:#fff;">🔄 Quét Lại</button>
+                </div>
+                <div id="modalFlowTabsList" style="display:flex; gap:6px; flex-wrap:wrap;">
+                    <span style="color:#94a3b8; font-size:11px;">Đang tải danh sách tab...</span>
+                </div>
+            </div>
+
+            <!-- MÔ TẢ -->
+            <div style="margin-bottom:16px;">
+                <label style="font-size:12px; font-weight:700; color:#cbd5e1; margin-bottom:6px; display:block;">📄 Ghi Chú / Mô Tả (Tùy chọn)</label>
+                <input type="text" id="modalFlowChildDescInput" placeholder="Ghi chú ngắn mục đích của project con này..." style="width:100%; padding:8px 12px; font-size:12px;" />
+            </div>
+
+            <div style="display:flex; justify-content:flex-end; align-items:center; gap:8px;">
+                <button type="button" class="btn-sm" style="background:#334155;" onclick="closeCreateFlowChildModal()">Hủy Bỏ</button>
+                <button type="button" class="btn-sm btn-green" onclick="submitCreateFlowChild()" style="padding:9px 18px; font-weight:700; background:linear-gradient(135deg,#0d9488,#14b8a6); box-shadow:0 4px 12px rgba(20,184,166,0.35);">
+                    <span>🚀</span> <span>TẠO PROJECT (ĐỒNG BỘ FLOW)</span>
+                </button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
 """
@@ -9435,8 +10758,20 @@ class BridgeHandler(BaseHTTPRequestHandler):
         auth_header = self.headers.get("Authorization", "")
         token = self.headers.get("X-Sync-Token") or (auth_header.replace("Bearer ", "").strip() if auth_header else "")
         if not token:
+            client_ip = self.client_address[0] if self.client_address else ""
+            if client_ip in ("127.0.0.1", "localhost", "::1"):
+                projs = get_projects()
+                if projs:
+                    return projs[0]
             return None
-        return find_project_by_token(token)
+        proj = find_project_by_token(token)
+        if not proj:
+            client_ip = self.client_address[0] if self.client_address else ""
+            if client_ip in ("127.0.0.1", "localhost", "::1"):
+                projs = get_projects()
+                if projs:
+                    return projs[0]
+        return proj
 
     def _is_authenticated(self):
         return self._get_request_project() is not None
@@ -9920,6 +11255,10 @@ class BridgeHandler(BaseHTTPRequestHandler):
             target_sub["cookies"] = []
             target_sub["eaagToken"] = ""
             target_sub["dtsg"] = ""
+            target_sub["googleEmail"] = ""
+            target_sub["flowProjectId"] = ""
+            target_sub["flowProjectName"] = ""
+            target_sub["accountName"] = ""
             target_sub["status"] = "Chưa kiểm tra"
             target_sub["lastExtracted"] = 0
             save_projects(projs)
@@ -10064,22 +11403,28 @@ class BridgeHandler(BaseHTTPRequestHandler):
         if pathname in ("/api/v1/flow/generate-image", "/api/flow/generate-image", "/api/subprojects/flow-image/generate"):
 
             proj_id = body.get("projectId", "")
-            sub_id = body.get("subProjectId", "")
+            sub_id = body.get("subProjectId", "") or body.get("subId", "")
             prompt = body.get("prompt", "").strip()
             model = body.get("model", "HARBOR_SEAL")
             image_count = body.get("imageCount", 4)
             aspect_ratio = body.get("aspectRatio", "3:4")
             run_now = body.get("runNow", True)
 
-            if not proj_id or not sub_id:
-                self._send_json(400, {"success": False, "error": "Missing projectId or subProjectId"})
+            if not sub_id:
+                self._send_json(400, {"success": False, "error": "Missing subProjectId"})
                 return
             if not prompt:
                 self._send_json(400, {"success": False, "error": "Missing prompt"})
                 return
 
             projs = get_projects()
-            proj = next((p for p in projs if p["id"] == proj_id), None)
+            proj = next((p for p in projs if p["id"] == proj_id), None) if proj_id else None
+            if not proj:
+                for p in projs:
+                    if any(s.get("id") == sub_id for s in p.get("subProjects", [])):
+                        proj = p
+                        proj_id = p["id"]
+                        break
             if not proj:
                 self._send_json(404, {"success": False, "error": "Project not found"})
                 return
@@ -10089,6 +11434,35 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 return
 
 
+            # Trích xuất flowProjectId và flowChildId từ request body hoặc từ subproject
+            target_flow_url = (body.get("targetFlowUrl") or body.get("flowProjectId") or "").strip()
+            flow_child_id = (body.get("flowChildId") or sub.get("activeFlowChildId", "")).strip()
+            flow_proj_id = ""
+
+            if target_flow_url:
+                m = re.search(r"/project/([a-f0-9-]+)", target_flow_url)
+                if m:
+                    flow_proj_id = m.group(1)
+                elif re.match(r"^[a-f0-9-]{30,}$", target_flow_url):
+                    flow_proj_id = target_flow_url
+
+            if not flow_proj_id and flow_child_id:
+                matched_child = next((c for c in sub.get("flowChildProjects", []) if c.get("id") == flow_child_id), None)
+                if matched_child and matched_child.get("flowProjectId"):
+                    flow_proj_id = matched_child["flowProjectId"]
+
+            if not flow_proj_id:
+                flow_proj_id = sub.get("flowProjectId", "")
+                if not flow_proj_id and sub.get("profileUrl"):
+                    m = re.search(r"/project/([a-f0-9-]+)", sub.get("profileUrl", ""))
+                    if m: flow_proj_id = m.group(1)
+
+            # Tự động đồng bộ và lưu vào subproject nếu người dùng chỉ định một project mới
+            if flow_proj_id and flow_proj_id != sub.get("flowProjectId"):
+                sub["flowProjectId"] = flow_proj_id
+                sub["profileUrl"] = f"https://flow.google.com/project/{flow_proj_id}"
+                save_projects(projs)
+
             image_request_id = f"flowimg_{int(time.time() * 1000)}_{random.randint(1000, 9999)}"
             image_item = {
                 "id": image_request_id,
@@ -10096,6 +11470,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 "model": model,
                 "imageCount": image_count,
                 "aspectRatio": aspect_ratio,
+                "flowProjectId": flow_proj_id,
+                "flowChildId": flow_child_id,
                 "status": "pending" if run_now else "queued",
                 "images": [],
                 "createdAt": int(time.time() * 1000),
@@ -10112,6 +11488,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
             # Nếu runNow, gửi lệnh tới Extension qua Bridge
             if run_now:
                 cmd_id = f"cmd_flow_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+                profile_target_url = f"https://flow.google.com/project/{flow_proj_id}" if flow_proj_id else sub.get("profileUrl", "https://flow.google.com")
+
                 cmd = {
                     "id": cmd_id,
                     "action": "FLOW_GENERATE_IMAGE",
@@ -10122,12 +11500,595 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     "model": model,
                     "imageCount": image_count,
                     "aspectRatio": aspect_ratio,
-                    "imageRequestId": image_request_id
+                    "imageRequestId": image_request_id,
+                    "flowProjectId": flow_proj_id,
+                    "googleEmail": sub.get("googleEmail", ""),
+                    "profileUrl": profile_target_url,
+                    "cookies": sub.get("cookies", [])
+                }
+                pending_commands.insert(0, cmd)
+                recent_issued_commands[cmd_id] = cmd
+
+            self._send_json(200, {"success": True, "imageRequestId": image_request_id, "flowProjectId": flow_proj_id if run_now else ""})
+            return
+
+        # =====================================================================
+        # GOOGLE FLOW: CẬP NHẬT DỰ ÁN GOOGLE FLOW ĐÍCH CHO SUBPROJECT
+        # POST /api/v1/flow/update-target-project
+        # =====================================================================
+        if pathname in ("/api/v1/flow/update-target-project", "/api/flow/update-target-project"):
+            proj_id = body.get("projectId", "")
+            sub_id = body.get("subProjectId", "")
+            target_input = (body.get("targetFlowUrl") or body.get("flowProjectId") or "").strip()
+
+            if not proj_id or not sub_id:
+                self._send_json(400, {"success": False, "error": "Thiếu projectId hoặc subProjectId"})
+                return
+
+            projs = get_projects()
+            proj = next((p for p in projs if p["id"] == proj_id), None)
+            if not proj:
+                self._send_json(404, {"success": False, "error": "Không tìm thấy Project cha"})
+                return
+            sub = next((s for s in proj.get("subProjects", []) if s["id"] == sub_id), None)
+            if not sub:
+                self._send_json(404, {"success": False, "error": "Không tìm thấy Thư mục con"})
+                return
+
+            flow_proj_id = ""
+            if target_input:
+                m = re.search(r"/project/([a-f0-9-]+)", target_input)
+                if m:
+                    flow_proj_id = m.group(1)
+                elif re.match(r"^[a-f0-9-]{30,}$", target_input):
+                    flow_proj_id = target_input
+                else:
+                    self._send_json(400, {"success": False, "error": "Link hoặc mã Project không hợp lệ! Vui lòng nhập link dạng https://flow.google.com/project/<UUID> hoặc chuỗi UUID."})
+                    return
+
+            sub["flowProjectId"] = flow_proj_id
+            sub["profileUrl"] = f"https://flow.google.com/project/{flow_proj_id}" if flow_proj_id else "https://flow.google.com"
+            save_projects(projs)
+
+            push_log(f"🎯 Đã lưu Google Flow Project đích cho '{sub['name']}': {flow_proj_id or 'Trang chủ'}", "success", project_id=proj_id, subproject_id=sub_id)
+            self._send_json(200, {
+                "success": True, 
+                "flowProjectId": flow_proj_id,
+                "profileUrl": sub["profileUrl"]
+            })
+            return
+
+        # =====================================================================
+        # GOOGLE FLOW: QUẢN LÝ PROJECT CON (FLOW CANVASES / SUB-PROJECTS)
+        # =====================================================================
+        if pathname == "/api/v1/flow/child-projects/create":
+            proj_id = body.get("projectId", "")
+            sub_id = body.get("subProjectId", "") or body.get("subId", "")
+            name = body.get("name", "").strip()
+            target_input = (body.get("targetFlowUrl") or body.get("flowProjectId") or "").strip()
+            desc = body.get("description", "").strip()
+            create_on_flow = body.get("createOnFlow", True)
+            open_tab = body.get("openTab", False)
+
+            if not sub_id:
+                self._send_json(400, {"success": False, "error": "Thiếu subProjectId"})
+                return
+
+            projs = get_projects()
+            proj = next((p for p in projs if p["id"] == proj_id), None) if proj_id else None
+            if not proj:
+                for p in projs:
+                    if any(s.get("id") == sub_id for s in p.get("subProjects", [])):
+                        proj = p
+                        proj_id = p["id"]
+                        break
+            if not proj:
+                self._send_json(404, {"success": False, "error": "Project not found"})
+                return
+            sub = next((s for s in proj.get("subProjects", []) if s["id"] == sub_id), None)
+            if not sub:
+                self._send_json(404, {"success": False, "error": "SubProject not found"})
+                return
+
+            flow_proj_id = ""
+            if target_input:
+                m = re.search(r"/project/([a-f0-9-]+)", target_input)
+                if m:
+                    flow_proj_id = m.group(1)
+                elif re.match(r"^[a-f0-9-]{30,}$", target_input):
+                    flow_proj_id = target_input
+                else:
+                    self._send_json(400, {"success": False, "error": "Mã hoặc Link Google Flow không hợp lệ (cần có dạng https://flow.google.com/project/<UUID> hoặc chuỗi UUID)"})
+                    return
+
+            if "flowChildProjects" not in sub:
+                sub["flowChildProjects"] = []
+
+            child_id = f"fchild_{int(time.time())}_{uuid.uuid4().hex[:4]}"
+            is_creating_on_flow = create_on_flow and not flow_proj_id
+
+            child = {
+                "id": child_id,
+                "name": name or (f"Project {flow_proj_id[:8]}" if flow_proj_id else "Dự án mới"),
+                "flowProjectId": flow_proj_id,
+                "url": f"https://flow.google.com/project/{flow_proj_id}" if flow_proj_id else "",
+                "description": desc,
+                "status": "creating" if is_creating_on_flow else "ready",
+                "createdAt": int(time.time() * 1000)
+            }
+            sub["flowChildProjects"].append(child)
+            sub["activeFlowChildId"] = child_id
+            if flow_proj_id:
+                sub["flowProjectId"] = flow_proj_id
+                sub["profileUrl"] = child["url"]
+            save_projects(projs)
+
+            cmd_id = None
+            if is_creating_on_flow:
+                cmd_id = f"cmd_createproj_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+                cmd = {
+                    "id": cmd_id,
+                    "action": "FLOW_CREATE_PROJECT",
+                    "projectName": child["name"],
+                    "targetProjectId": proj_id,
+                    "targetSubProjectId": sub_id,
+                    "targetChildId": child_id,
+                    "openTab": open_tab,
+                    "targetNodeId": "*"
                 }
                 pending_commands.append(cmd)
                 recent_issued_commands[cmd_id] = cmd
+                push_log(f"☁️ Đang phát lệnh tạo Project mới '{child['name']}' trên Google Flow Cloud...", "info", project_id=proj_id, subproject_id=sub_id)
 
-            self._send_json(200, {"success": True, "imageRequestId": image_request_id})
+            push_log(f"📁 Đã thêm Project Con Flow '{child['name']}' vào '{sub['name']}'", "success", project_id=proj_id, subproject_id=sub_id)
+            self._send_json(200, {
+                "success": True, 
+                "childProject": child, 
+                "flowChildProjects": sub["flowChildProjects"],
+                "creatingOnFlow": is_creating_on_flow,
+                "commandId": cmd_id
+            })
+            return
+
+        if pathname == "/api/v1/flow/child-projects/delete":
+            proj_id = body.get("projectId", "")
+            sub_id = body.get("subProjectId", "") or body.get("subId", "")
+            child_id = body.get("childId", "")
+            delete_on_flow = body.get("deleteOnFlow", True)
+
+            projs = get_projects()
+            proj = next((p for p in projs if p["id"] == proj_id), None) if proj_id else None
+            if not proj and sub_id:
+                for p in projs:
+                    if any(s.get("id") == sub_id for s in p.get("subProjects", [])):
+                        proj = p
+                        proj_id = p["id"]
+                        break
+            sub = next((s for s in (proj.get("subProjects", []) if proj else []) if s["id"] == sub_id), None)
+            if not sub:
+                self._send_json(404, {"success": False, "error": "SubProject not found"})
+                return
+
+            target_child = next((c for c in sub.get("flowChildProjects", []) if c.get("id") == child_id), None)
+            flow_proj_id = target_child.get("flowProjectId", "") if target_child else ""
+            child_name = target_child.get("name", child_id) if target_child else child_id
+
+            sub["flowChildProjects"] = [c for c in sub.get("flowChildProjects", []) if c.get("id") != child_id]
+            if sub.get("activeFlowChildId") == child_id:
+                sub["activeFlowChildId"] = sub["flowChildProjects"][0]["id"] if sub["flowChildProjects"] else ""
+                if sub["flowChildProjects"]:
+                    sub["flowProjectId"] = sub["flowChildProjects"][0].get("flowProjectId", "")
+                    sub["profileUrl"] = sub["flowChildProjects"][0].get("url", "")
+                else:
+                    sub["flowProjectId"] = ""
+                    sub["profileUrl"] = ""
+
+            # Dọn dẹp các ảnh thuộc về project con này
+            old_img_cnt = len(sub.get("imageQueue", []))
+            if flow_proj_id or child_id:
+                sub["imageQueue"] = [
+                    img for img in sub.get("imageQueue", [])
+                    if img.get("flowChildId") != child_id and (not flow_proj_id or img.get("flowProjectId") != flow_proj_id)
+                ]
+            removed_imgs = old_img_cnt - len(sub.get("imageQueue", []))
+            save_projects(projs)
+
+            # Phát lệnh xóa trên Google Flow qua Extension Bridge
+            if delete_on_flow and flow_proj_id:
+                cmd_id = f"cmd_delflowproj_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+                cmd = {
+                    "id": cmd_id,
+                    "action": "FLOW_DELETE_PROJECT",
+                    "targetProjectId": proj_id,
+                    "targetSubProjectId": sub_id,
+                    "targetNodeId": "*",
+                    "flowProjectId": flow_proj_id
+                }
+                pending_commands.append(cmd)
+                recent_issued_commands[cmd_id] = cmd
+                push_log(f"🗑️ Đã phát lệnh xóa vĩnh viễn Project '{child_name}' ({flow_proj_id[:8]}) trên Google Flow", "info", project_id=proj_id, subproject_id=sub_id)
+
+            push_log(f"🗑️ Đã xóa Project Con Flow '{child_name}' và dọn dẹp {removed_imgs} ảnh trong '{sub['name']}'", "success", project_id=proj_id, subproject_id=sub_id)
+            self._send_json(200, {
+                "success": True,
+                "deletedFlowProjectId": flow_proj_id,
+                "removedImages": removed_imgs,
+                "flowChildProjects": sub.get("flowChildProjects", [])
+            })
+            return
+
+        # =====================================================================
+        # GOOGLE FLOW: ĐỔI TÊN PROJECT CON (LOCAL + CLOUD VIA RPC o8DA4)
+        # POST /api/v1/flow/child-projects/rename
+        # =====================================================================
+        if pathname == "/api/v1/flow/child-projects/rename":
+            proj_id = body.get("projectId", "")
+            sub_id = body.get("subProjectId", "") or body.get("subId", "")
+            child_id = body.get("childId", "")
+            new_name = (body.get("newName") or body.get("name") or "").strip()
+            rename_on_flow = body.get("renameOnFlow", True)
+
+            if not sub_id or not child_id or not new_name:
+                self._send_json(400, {"success": False, "error": "Thiếu subProjectId, childId hoặc newName"})
+                return
+
+            projs = get_projects()
+            proj = next((p for p in projs if p["id"] == proj_id), None) if proj_id else None
+            if not proj and sub_id:
+                for p in projs:
+                    if any(s.get("id") == sub_id for s in p.get("subProjects", [])):
+                        proj = p
+                        proj_id = p["id"]
+                        break
+            if not proj:
+                self._send_json(404, {"success": False, "error": "Project not found"})
+                return
+            sub = next((s for s in proj.get("subProjects", []) if s["id"] == sub_id), None)
+            if not sub:
+                self._send_json(404, {"success": False, "error": "SubProject not found"})
+                return
+
+            target_child = next((c for c in sub.get("flowChildProjects", []) if c.get("id") == child_id), None)
+            if not target_child:
+                self._send_json(404, {"success": False, "error": "Child project not found"})
+                return
+
+            old_name = target_child.get("name", "")
+            target_child["name"] = new_name
+            save_projects(projs)
+
+            cmd_id = None
+            flow_pid = target_child.get("flowProjectId")
+            if rename_on_flow and flow_pid:
+                cmd_id = f"cmd_rename_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+                cmd = {
+                    "id": cmd_id,
+                    "action": "FLOW_RENAME_PROJECT",
+                    "flowProjectId": flow_pid,
+                    "newName": new_name,
+                    "targetProjectId": proj_id,
+                    "targetSubProjectId": sub_id,
+                    "targetChildId": child_id,
+                    "targetNodeId": "*"
+                }
+                pending_commands.append(cmd)
+                recent_issued_commands[cmd_id] = cmd
+                push_log(f"✏️ Đang đổi tên Project '{old_name}' ➔ '{new_name}' trên Google Flow qua RPC o8DA4...", "info", project_id=proj_id, subproject_id=sub_id)
+
+            push_log(f"✏️ Đã đổi tên Project thành '{new_name}' thành công", "success", project_id=proj_id, subproject_id=sub_id)
+            self._send_json(200, {
+                "success": True, 
+                "childProject": target_child, 
+                "flowChildProjects": sub["flowChildProjects"],
+                "commandId": cmd_id
+            })
+            return
+
+        # =====================================================================
+        # GOOGLE FLOW: XÓA ẢNH KHỎI GALLERY VÀ ĐỒNG THỜI CHUYỂN VÀO THÙNG RÁC FLOW
+        # POST /api/v1/flow/images/delete
+        # =====================================================================
+        if pathname in ("/api/v1/flow/images/delete", "/api/v1/flow/image/delete"):
+            proj_id = body.get("projectId", "")
+            sub_id = body.get("subProjectId", "") or body.get("subId", "")
+            image_id = body.get("imageId", "")
+            flow_proj_id = body.get("flowProjectId", "")
+            delete_on_flow = body.get("deleteOnFlow", True)
+
+            projs = get_projects()
+            proj = next((p for p in projs if p["id"] == proj_id), None) if proj_id else None
+            if not proj and sub_id:
+                for p in projs:
+                    if any(s.get("id") == sub_id for s in p.get("subProjects", [])):
+                        proj = p
+                        proj_id = p["id"]
+                        break
+            sub = next((s for s in (proj.get("subProjects", []) if proj else []) if s["id"] == sub_id), None)
+            if not sub:
+                self._send_json(404, {"success": False, "error": "SubProject not found"})
+                return
+
+            queue = sub.get("imageQueue", [])
+            target_item = next((item for item in queue if item.get("id") == image_id), None)
+            if not target_item:
+                target_url = body.get("imageUrl", "")
+                if target_url:
+                    for item in queue:
+                        for img in item.get("images", []):
+                            u = img.get("url") if isinstance(img, dict) else img
+                            if u and (u == target_url or target_url in u):
+                                target_item = item
+                                image_id = item.get("id")
+                                break
+                        if target_item:
+                            break
+
+            if not target_item:
+                self._send_json(404, {"success": False, "error": "Ảnh không tồn tại trong hệ thống"})
+                return
+
+            if not flow_proj_id:
+                flow_proj_id = target_item.get("flowProjectId") or sub.get("flowProjectId", "")
+
+            first_img_url = ""
+            orig_img_url = ""
+            for img in target_item.get("images", []):
+                if isinstance(img, dict):
+                    if not first_img_url: first_img_url = img.get("url", "")
+                    if not orig_img_url: orig_img_url = img.get("originalUrl", "")
+                elif isinstance(img, str):
+                    if not first_img_url: first_img_url = img
+
+            sub["imageQueue"] = [item for item in queue if item.get("id") != image_id]
+            save_projects(projs)
+
+            if delete_on_flow and flow_proj_id:
+                cmd_id = f"cmd_delimg_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+                cmd = {
+                    "id": cmd_id,
+                    "action": "FLOW_DELETE_IMAGE",
+                    "targetProjectId": proj_id,
+                    "targetSubProjectId": sub_id,
+                    "targetNodeId": "*",
+                    "flowProjectId": flow_proj_id,
+                    "imageId": image_id,
+                    "imageUrl": first_img_url,
+                    "originalUrl": orig_img_url
+                }
+                pending_commands.append(cmd)
+                recent_issued_commands[cmd_id] = cmd
+                push_log(f"🗑️ Đã phát lệnh chuyển ảnh '{image_id}' vào thùng rác trên Google Flow canvas", "info", project_id=proj_id, subproject_id=sub_id)
+
+            push_log(f"🗑️ Đã xóa ảnh '{image_id}' khỏi Gallery của '{sub['name']}'", "success", project_id=proj_id, subproject_id=sub_id)
+            self._send_json(200, {
+                "success": True,
+                "message": "Đã xóa ảnh thành công",
+                "deletedImageId": image_id,
+                "remainingCount": len(sub["imageQueue"])
+            })
+            return
+
+        # =====================================================================
+        # GOOGLE FLOW: KIỂM TRA SỨC KHỎE & TỰ ĐỘNG DỌN DẸP PROJECT ĐÃ BỊ XÓA (GHOST PROJECTS)
+        # POST /api/v1/flow/child-projects/sync-health
+        # =====================================================================
+        if pathname == "/api/v1/flow/child-projects/sync-health":
+            proj_id = body.get("projectId", "")
+            sub_id = body.get("subProjectId", "") or body.get("subId", "")
+
+            projs = get_projects()
+            proj = next((p for p in projs if p["id"] == proj_id), None) if proj_id else None
+            if not proj and sub_id:
+                for p in projs:
+                    if any(s.get("id") == sub_id for s in p.get("subProjects", [])):
+                        proj = p
+                        proj_id = p["id"]
+                        break
+            sub = next((s for s in (proj.get("subProjects", []) if proj else []) if s["id"] == sub_id), None)
+            if not sub:
+                self._send_json(404, {"success": False, "error": "SubProject not found"})
+                return
+
+            child_projects = sub.get("flowChildProjects", [])
+            project_ids = [c.get("flowProjectId") for c in child_projects if c.get("flowProjectId")]
+
+            cmd_id = f"cmd_health_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+            cmd = {
+                "id": cmd_id,
+                "action": "FLOW_CHECK_PROJECTS_HEALTH",
+                "targetProjectId": proj_id,
+                "targetSubProjectId": sub_id,
+                "targetNodeId": "*",
+                "projectIds": project_ids
+            }
+            pending_commands.append(cmd)
+            recent_issued_commands[cmd_id] = cmd
+
+            push_log(f"🩺 Đang quét kiểm tra sức khỏe {len(project_ids)} Project Con trên Google Flow...", "info", project_id=proj_id, subproject_id=sub_id)
+            self._send_json(200, {
+                "success": True,
+                "message": "Đã phát lệnh kiểm tra sức khỏe Project Flow",
+                "totalChecked": len(project_ids),
+                "commandId": cmd_id
+            })
+            return
+
+        # =====================================================================
+        # GOOGLE FLOW: ĐỒNG BỘ TOÀN BỘ PROJECT TỪ CLOUD (RPC UpteDb)
+        # POST /api/v1/flow/child-projects/sync-cloud
+        # =====================================================================
+        if pathname == "/api/v1/flow/child-projects/sync-cloud":
+            proj_id = body.get("projectId", "")
+            sub_id = body.get("subProjectId", "") or body.get("subId", "")
+
+            projs = get_projects()
+            proj = next((p for p in projs if p["id"] == proj_id), None) if proj_id else None
+            if not proj and sub_id:
+                for p in projs:
+                    if any(s.get("id") == sub_id for s in p.get("subProjects", [])):
+                        proj = p
+                        proj_id = p["id"]
+                        break
+            sub = next((s for s in (proj.get("subProjects", []) if proj else []) if s["id"] == sub_id), None)
+            if not sub:
+                self._send_json(404, {"success": False, "error": "SubProject not found"})
+                return
+
+            cmd_id = f"cmd_listproj_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+            cmd = {
+                "id": cmd_id,
+                "action": "FLOW_LIST_PROJECTS",
+                "targetProjectId": proj_id,
+                "targetSubProjectId": sub_id,
+                "targetNodeId": "*"
+            }
+            if not any(c.get("action") == "FLOW_LIST_PROJECTS" for c in pending_commands):
+                pending_commands.append(cmd)
+                recent_issued_commands[cmd_id] = cmd
+
+            push_log(f"☁️ Đang lấy danh sách toàn bộ Project từ Google Flow qua RPC UpteDb...", "info", project_id=proj_id, subproject_id=sub_id)
+            self._send_json(200, {"success": True, "message": "Đang kết nối Google Flow để lấy danh sách dự án...", "commandId": cmd_id})
+            return
+
+        if pathname == "/api/v1/flow/child-projects/select":
+            proj_id = body.get("projectId", "")
+            sub_id = body.get("subProjectId", "") or body.get("subId", "")
+            child_id = body.get("childId", "")
+
+            projs = get_projects()
+            proj = next((p for p in projs if p["id"] == proj_id), None) if proj_id else None
+            if not proj and sub_id:
+                for p in projs:
+                    if any(s.get("id") == sub_id for s in p.get("subProjects", [])):
+                        proj = p
+                        proj_id = p["id"]
+                        break
+            sub = next((s for s in (proj.get("subProjects", []) if proj else []) if s["id"] == sub_id), None)
+            if not sub:
+                self._send_json(404, {"success": False, "error": "SubProject not found"})
+                return
+
+            target_child = next((c for c in sub.get("flowChildProjects", []) if c.get("id") == child_id), None)
+            sub["activeFlowChildId"] = child_id
+            flow_pid = ""
+            if target_child and target_child.get("flowProjectId"):
+                flow_pid = target_child["flowProjectId"]
+                sub["flowProjectId"] = flow_pid
+                sub["profileUrl"] = target_child.get("url", f"https://flow.google.com/project/{flow_pid}")
+            save_projects(projs)
+
+            # Hoàn toàn không chuyển tab, giữ người dùng ở lại trên Dashboard App
+            self._send_json(200, {
+                "success": True, 
+                "activeFlowChildId": child_id, 
+                "flowProjectId": sub.get("flowProjectId", "")
+            })
+            return
+
+        if pathname == "/api/v1/flow/child-projects/sync-tabs":
+            proj_id = body.get("projectId", "")
+            sub_id = body.get("subProjectId", "") or body.get("subId", "")
+
+            projs = get_projects()
+            proj = next((p for p in projs if p["id"] == proj_id), None) if proj_id else None
+            if not proj and sub_id:
+                for p in projs:
+                    if any(s.get("id") == sub_id for s in p.get("subProjects", [])):
+                        proj = p
+                        proj_id = p["id"]
+                        break
+            sub = next((s for s in (proj.get("subProjects", []) if proj else []) if s["id"] == sub_id), None)
+            if not sub:
+                self._send_json(404, {"success": False, "error": "SubProject not found"})
+                return
+
+            if "flowChildProjects" not in sub:
+                sub["flowChildProjects"] = []
+
+            tabs = latest_project_results.get(proj_id, {}).get("tabs", [])
+            existing_uuids = {c.get("flowProjectId") for c in sub["flowChildProjects"] if c.get("flowProjectId")}
+            added = 0
+
+            for t in tabs:
+                u = t.get("url", "")
+                m = re.search(r"/project/([a-f0-9-]+)", u)
+                if m:
+                    uuid_str = m.group(1)
+                    if uuid_str not in existing_uuids:
+                        t_title = t.get("title", "") or f"Google Flow – {uuid_str[:8]}"
+                        c_id = f"fchild_{int(time.time())}_{uuid.uuid4().hex[:4]}"
+                        sub["flowChildProjects"].append({
+                            "id": c_id,
+                            "name": t_title,
+                            "flowProjectId": uuid_str,
+                            "url": f"https://flow.google.com/project/{uuid_str}",
+                            "description": "Tự động đồng bộ từ Chrome tab",
+                            "createdAt": int(time.time() * 1000)
+                        })
+                        existing_uuids.add(uuid_str)
+                        added += 1
+
+            save_projects(projs)
+            push_log(f"🔄 Đã đồng bộ {added} Project Con Flow từ các tab Chrome vào '{sub['name']}'", "success", project_id=proj_id, subproject_id=sub_id)
+            self._send_json(200, {"success": True, "addedCount": added, "flowChildProjects": sub["flowChildProjects"]})
+            return
+
+        # =====================================================================
+        # GOOGLE FLOW: ĐỒNG BỘ TOÀN BỘ ẢNH TỪ CANVAS VÀO GALLERY PROJECT CON
+        # POST /api/v1/flow/sync-canvas-images
+        # =====================================================================
+        if pathname in ("/api/v1/flow/sync-canvas-images", "/api/v1/flow/child-projects/sync-images"):
+            proj_id = body.get("projectId", "")
+            sub_id = body.get("subProjectId", "") or body.get("subId", "")
+            child_id = body.get("childId", "")
+            flow_proj_id = body.get("flowProjectId", "")
+
+            projs = get_projects()
+            proj = next((p for p in projs if p["id"] == proj_id), None) if proj_id else None
+            if not proj and sub_id:
+                for p in projs:
+                    if any(s.get("id") == sub_id for s in p.get("subProjects", [])):
+                        proj = p
+                        proj_id = p["id"]
+                        break
+            if not proj:
+                self._send_json(404, {"success": False, "error": "Project not found"})
+                return
+            sub = next((s for s in (proj.get("subProjects", []) if proj else []) if s["id"] == sub_id), None)
+            if not sub:
+                self._send_json(404, {"success": False, "error": "SubProject not found"})
+                return
+
+            if not child_id:
+                child_id = sub.get("activeFlowChildId", "")
+            if child_id and not flow_proj_id:
+                target_child = next((c for c in sub.get("flowChildProjects", []) if c.get("id") == child_id), None)
+                if target_child:
+                    flow_proj_id = target_child.get("flowProjectId", "")
+            if not flow_proj_id:
+                flow_proj_id = sub.get("flowProjectId", "")
+
+            cmd_id = f"cmd_syncimg_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+            cmd = {
+                "id": cmd_id,
+                "action": "FLOW_SYNC_PROJECT_IMAGES",
+                "targetProjectId": proj_id,
+                "targetSubProjectId": sub_id,
+                "targetNodeId": "*",
+                "flowProjectId": flow_proj_id,
+                "flowChildId": child_id
+            }
+            pending_commands.append(cmd)
+            recent_issued_commands[cmd_id] = cmd
+
+            target_name = child_id
+            if child_id:
+                tc = next((c for c in sub.get("flowChildProjects", []) if c.get("id") == child_id), None)
+                if tc:
+                    target_name = tc.get("name", child_id)
+
+            push_log(f"🔄 Đã phát lệnh quét và nạp ảnh từ Canvas Google Flow cho '{target_name}'", "info", project_id=proj_id, subproject_id=sub_id)
+            self._send_json(200, {"success": True, "message": "Đang đồng bộ ảnh từ Flow Canvas...", "flowProjectId": flow_proj_id, "flowChildId": child_id})
             return
 
         # =====================================================================
@@ -10440,23 +12401,33 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
         # Cập nhật tiến độ đăng bài từ Extension Bridge
         if pathname == "/api/bridge/progress":
+            step = body.get("step", "")
+            if step:
+                print(f"[Bridge Progress] {step}")
             proj_id = body.get("targetProjectId")
             sub_id = body.get("targetSubProjectId")
             post_id = body.get("postId")
-            step = body.get("step", "")
+            img_req_id = body.get("imageRequestId")
 
-            if proj_id and sub_id and post_id:
+            if proj_id and sub_id:
                 projs = get_projects()
                 for p in projs:
                     if p.get("id") == proj_id:
                         for s in p.get("subProjects", []):
                             if s.get("id") == sub_id:
-                                for post_item in s.get("postQueue", []):
-                                    if post_item.get("id") == post_id:
-                                        post_item["progressStep"] = step
-                                        post_item["status"] = "in_progress"
-                                        save_projects(projs)
-                                        break
+                                if post_id:
+                                    for post_item in s.get("postQueue", []):
+                                        if post_item.get("id") == post_id:
+                                            post_item["progressStep"] = step
+                                            post_item["status"] = "in_progress"
+                                            save_projects(projs)
+                                            break
+                                if img_req_id:
+                                    for img_item in s.get("imageQueue", []):
+                                        if img_item.get("id") == img_req_id:
+                                            img_item["progressStep"] = step
+                                            save_projects(projs)
+                                            break
                                 break
                         break
             self._send_json(200, {"success": True})
@@ -10561,6 +12532,9 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     "tabCount": body.get("tabCount", 0),
                     "activeTab": body.get("activeTab"),
                     "browserFbUid": body.get("browserFbUid", ""),
+                    "browserFlowEmail": body.get("browserFlowEmail", ""),
+                    "browserFlowProjectId": body.get("browserFlowProjectId", ""),
+                    "browserFlowLoggedIn": body.get("browserFlowLoggedIn", False),
                     "lastSeen": int(time.time() * 1000)
                 }
 
@@ -10599,15 +12573,44 @@ class BridgeHandler(BaseHTTPRequestHandler):
             node = connected_nodes.get(node_id, {})
             node_proj_id = node.get("projectId")
 
+            # Xóa các lệnh FLOW_LIST_PROJECTS thừa thãi trong hàng đợi, chỉ giữ tối đa 1 lệnh
+            seen_list = False
+            filtered_pending = []
+            for c in pending_commands:
+                if c.get("action") == "FLOW_LIST_PROJECTS":
+                    if not seen_list:
+                        seen_list = True
+                        filtered_pending.append(c)
+                else:
+                    filtered_pending.append(c)
+            pending_commands[:] = filtered_pending
+
             matched_idx = -1
+            # Ưu tiên 1: Các lệnh tương tác trực tiếp của người dùng
+            high_priority_actions = (
+                "FLOW_GENERATE_IMAGE", "FLOW_DELETE_IMAGE", "FLOW_DELETE_PROJECT",
+                "FLOW_CREATE_PROJECT", "FLOW_RENAME_PROJECT", "FLOW_FOCUS_PROJECT",
+                "POST_FEED", "POST_REEL", "POST_STORY"
+            )
             for idx, c in enumerate(pending_commands):
                 t_node = c.get("targetNodeId")
                 t_proj = c.get("targetProjectId")
                 node_match = (not t_node) or (t_node == "*") or (t_node == node_id)
                 proj_match = (not t_proj) or (t_proj == "*") or (t_proj == node_proj_id)
-                if node_match and proj_match:
+                if node_match and proj_match and c.get("action") in high_priority_actions:
                     matched_idx = idx
                     break
+
+            # Ưu tiên 2: Nếu không có lệnh ưu tiên, lấy lệnh tiếp theo hợp lệ
+            if matched_idx == -1:
+                for idx, c in enumerate(pending_commands):
+                    t_node = c.get("targetNodeId")
+                    t_proj = c.get("targetProjectId")
+                    node_match = (not t_node) or (t_node == "*") or (t_node == node_id)
+                    proj_match = (not t_proj) or (t_proj == "*") or (t_proj == node_proj_id)
+                    if node_match and proj_match:
+                        matched_idx = idx
+                        break
 
             if matched_idx >= 0:
                 cmd = pending_commands.pop(matched_idx)
@@ -10667,6 +12670,9 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 latest_project_results[proj_id]["lastAction"] = action
                 latest_project_results[proj_id]["lastUpdated"] = int(time.time() * 1000)
                 latest_project_results[proj_id]["lastSuccess"] = success
+                latest_project_results[proj_id]["lastResult"] = body
+                if action == "FLOW_DEBUG_INSPECT":
+                    print("[Server Debug FlowInfo]:", json.dumps(body.get("flowInfo"), ensure_ascii=False))
 
                 if action in ("GET_FB_ACCOUNT", "GET_COOKIES"):
                     latest_project_results[proj_id]["cookies"] = cookies
@@ -10694,6 +12700,9 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     latest_project_results[proj_id]["flowInfo"] = body.get("flowInfo")
                     latest_project_results[proj_id]["inspectError"] = body.get("error")
 
+                elif action == "FLOW_DEBUG_INSPECT":
+                    latest_project_results[proj_id]["flowDebug"] = body.get("flowInfo") or body.get("data") or body
+
                 elif action == "TEST_FLOW_GEN":
                     latest_project_results[proj_id]["testFlowGen"] = body.get("data")
                     latest_project_results[proj_id]["testFlowError"] = body.get("error")
@@ -10719,24 +12728,47 @@ class BridgeHandler(BaseHTTPRequestHandler):
                         target_sub = subs[0]
 
                     if target_sub:
-                        if action in ("GET_FB_ACCOUNT", "GET_COOKIES"):
+                        if action in ("GET_FB_ACCOUNT", "GET_COOKIES", "GET_FLOW_ACCOUNT"):
                             if cookies: target_sub["cookies"] = cookies
                             if cookie_str: target_sub["cookieStr"] = cookie_str
-                            if c_user: target_sub["c_user"] = c_user
+
+                            # Google Flow & Platform specific fields
+                            email = body.get("email") or ""
+                            google_uid = body.get("googleUid") or ""
+                            flow_project_id = body.get("projectId") or ""
+                            flow_project_name = body.get("projectName") or ""
+                            if email: target_sub["googleEmail"] = email
+                            if google_uid: target_sub["googleUid"] = google_uid
+                            if flow_project_id: target_sub["flowProjectId"] = flow_project_id
+                            if flow_project_name: target_sub["flowProjectName"] = flow_project_name
+
+                            assigned_uid = c_user or email or google_uid or flow_project_id or uid
+                            if assigned_uid:
+                                target_sub["c_user"] = assigned_uid
+                                target_sub["uid"] = assigned_uid
+
                             if name:
                                 is_generic = "trang cá nhân" in name.lower() or "your profile" in name.lower() or name.lower() == "facebook"
                                 if not is_generic:
                                     target_sub["fbName"] = name
                                 elif not target_sub.get("fbName"):
                                     target_sub["fbName"] = f"Facebook ({c_user})" if c_user else ""
+                            elif email:
+                                target_sub["fbName"] = email
+
                             if avatar: target_sub["avatar"] = avatar
                             if profile_url: target_sub["profileUrl"] = profile_url
                             if token: target_sub["eaagToken"] = token
                             if dtsg: target_sub["dtsg"] = dtsg
-                            target_sub["status"] = "LIVE" if c_user else ("CHƯA ĐĂNG NHẬP" if cookies else "CHƯA CÓ COOKIE")
+
+                            is_live = bool(c_user or email or (cookies and any(c.get('name') in ('SID', 'c_user', '__Secure-1PSID', 'OSID') for c in cookies)))
+                            target_sub["status"] = "LIVE" if is_live else ("CHƯA ĐĂNG NHẬP" if cookies else "CHƯA CÓ COOKIE")
                             target_sub["lastExtracted"] = int(time.time() * 1000)
                             save_projects(projs)
-                            push_log(f"Đã cập nhật thông tin tài khoản FB cho '{target_sub['name']}': UID={c_user or '---'}, Tên={name or '---'}", "success", project_id=proj_id, subproject_id=target_sub['id'])
+
+                            p_name = "Google Flow" if (action == "GET_FLOW_ACCOUNT" or target_sub.get("type") == "flow") else "FB"
+                            disp_name = target_sub.get("fbName") or email or name or "---"
+                            push_log(f"Đã cập nhật thông tin tài khoản {p_name} cho '{target_sub['name']}': UID/Email={assigned_uid or '---'}, Tên={disp_name}", "success", project_id=proj_id, subproject_id=target_sub['id'])
 
                         elif action == "EXECUTE_SCRIPT":
                             data_str = str(body.get("data") or "")
@@ -10853,6 +12885,281 @@ class BridgeHandler(BaseHTTPRequestHandler):
                         if found:
                             break
 
+            # Xử lý kết quả quét và đồng bộ ảnh từ Google Flow Canvas
+            if action == "FLOW_SYNC_PROJECT_IMAGES":
+                flow_proj_id = body.get("flowProjectId") or orig_cmd.get("flowProjectId", "")
+                flow_child_id = body.get("flowChildId") or orig_cmd.get("flowChildId", "")
+                synced_images = body.get("images", [])
+
+                projs = get_projects()
+                found = False
+                for p in projs:
+                    if proj_id and p.get("id") != proj_id:
+                        continue
+                    for s in p.get("subProjects", []):
+                        if target_sub_id and s.get("id") != target_sub_id:
+                            continue
+                        if s.get("type") != "flow":
+                            continue
+
+                        if "imageQueue" not in s:
+                            s["imageQueue"] = []
+
+                        target_child = None
+                        if flow_child_id:
+                            target_child = next((c for c in s.get("flowChildProjects", []) if c.get("id") == flow_child_id), None)
+                        if not target_child and flow_proj_id:
+                            target_child = next((c for c in s.get("flowChildProjects", []) if c.get("flowProjectId") == flow_proj_id), None)
+
+                        actual_child_id = target_child["id"] if target_child else (flow_child_id or s.get("activeFlowChildId", ""))
+                        actual_proj_id = target_child["flowProjectId"] if target_child else (flow_proj_id or s.get("flowProjectId", ""))
+
+                        existing_keys = set()
+                        for item in s["imageQueue"]:
+                            for img in item.get("images", []):
+                                if isinstance(img, dict):
+                                    if img.get("originalUrl"):
+                                        existing_keys.add(img["originalUrl"].split("&Token=")[0].split("?Expires=")[0])
+                                    if img.get("url"):
+                                        existing_keys.add(img["url"].split("&Token=")[0].split("?Expires=")[0])
+                                elif isinstance(img, str):
+                                    existing_keys.add(img.split("&Token=")[0].split("?Expires=")[0])
+
+                        added_count = 0
+                        for img_obj in synced_images:
+                            orig_u = img_obj.get("originalUrl", "")
+                            u = img_obj.get("url", "")
+                            key_orig = orig_u.split("&Token=")[0].split("?Expires=")[0] if orig_u else ""
+                            key_u = u.split("&Token=")[0].split("?Expires=")[0] if u else ""
+                            if (key_orig and key_orig in existing_keys) or (key_u and key_u in existing_keys):
+                                continue
+
+                            new_item = {
+                                "id": f"flowimg_sync_{int(time.time())}_{uuid.uuid4().hex[:4]}",
+                                "prompt": img_obj.get("prompt") or f"Ảnh từ Canvas Flow ({actual_proj_id[:8]})",
+                                "model": "HARBOR_SEAL",
+                                "imageCount": 1,
+                                "aspectRatio": "3:4",
+                                "flowProjectId": actual_proj_id,
+                                "flowChildId": actual_child_id,
+                                "status": "completed",
+                                "images": [img_obj],
+                                "createdAt": int(time.time() * 1000) - (added_count * 1000),
+                                "completedAt": int(time.time() * 1000),
+                                "source": "canvas_sync"
+                            }
+                            s["imageQueue"].append(new_item)
+                            if key_orig:
+                                existing_keys.add(key_orig)
+                            if key_u:
+                                existing_keys.add(key_u)
+                            added_count += 1
+
+                        save_projects(projs)
+                        child_name = target_child["name"] if target_child else actual_child_id
+                        push_log(f"🔄 Đã nạp thành công {added_count} ảnh từ Canvas Google Flow vào '{child_name}'", "success", project_id=proj_id, subproject_id=target_sub_id)
+                        found = True
+                        break
+                    if found:
+                        break
+
+            # Xử lý kết quả lấy danh sách toàn bộ Project từ Google Flow qua RPC UpteDb (Đồng bộ 2 chiều toàn diện)
+            if action == "FLOW_LIST_PROJECTS":
+                cloud_projects = body.get("projects", [])
+                if cloud_projects:
+                    cloud_pids = {cp.get("id") for cp in cloud_projects if cp.get("id")}
+                    cloud_name_map = {cp.get("id"): cp.get("name") for cp in cloud_projects if cp.get("id")}
+                    projs = get_projects()
+                    found = False
+                    for p in projs:
+                        if proj_id and p.get("id") != proj_id:
+                            continue
+                        for s in p.get("subProjects", []):
+                            if target_sub_id and s.get("id") != target_sub_id:
+                                continue
+                            if s.get("type") != "flow":
+                                continue
+
+                            current_children = s.get("flowChildProjects", [])
+                            existing_map = {c.get("flowProjectId"): c for c in current_children if c.get("flowProjectId")}
+
+                            # 1. Cập nhật tên nếu Flow đổi tên
+                            for pid, c in existing_map.items():
+                                if pid in cloud_name_map and cloud_name_map[pid] and c.get("name") != cloud_name_map[pid]:
+                                    c["name"] = cloud_name_map[pid]
+
+                            # 2. Thêm các project mới từ Cloud
+                            added_cnt = 0
+                            for cp in cloud_projects:
+                                pid = cp.get("id")
+                                if pid and pid not in existing_map:
+                                    new_child = {
+                                        "id": f"fchild_{int(time.time())}_{uuid.uuid4().hex[:4]}",
+                                        "name": cp.get("name") or f"Flow Project {pid[:8]}",
+                                        "flowProjectId": pid,
+                                        "url": f"https://flow.google.com/project/{pid}",
+                                        "description": "Đồng bộ từ Google Flow Cloud",
+                                        "status": "ready",
+                                        "createdAt": int(time.time() * 1000)
+                                    }
+                                    current_children.append(new_child)
+                                    existing_map[pid] = new_child
+                                    added_cnt += 1
+
+                            # 3. Loại bỏ các project đã bị xóa trên Flow Cloud (2-way sync)
+                            removed_pids = set()
+                            surviving_children = []
+                            for c in current_children:
+                                c_pid = c.get("flowProjectId")
+                                if c_pid and c_pid not in cloud_pids and c.get("status") != "creating":
+                                    removed_pids.add(c_pid)
+                                else:
+                                    surviving_children.append(c)
+
+                            s["flowChildProjects"] = surviving_children
+                            if s.get("activeFlowChildId") and any(c.get("flowProjectId") in removed_pids for c in current_children):
+                                s["activeFlowChildId"] = surviving_children[0]["id"] if surviving_children else ""
+                                s["flowProjectId"] = surviving_children[0].get("flowProjectId", "") if surviving_children else ""
+
+                            # Xóa ảnh mồ côi
+                            if removed_pids:
+                                s["imageQueue"] = [img for img in s.get("imageQueue", []) if img.get("flowProjectId") not in removed_pids]
+
+                            save_projects(projs)
+                            log_cloud = f"☁️ Đồng bộ Google Flow: +{added_cnt} mới"
+                            if removed_pids:
+                                log_cloud += f", -{len(removed_pids)} đã xóa trên Flow"
+                            push_log(log_cloud, "success", project_id=proj_id, subproject_id=target_sub_id)
+                            found = True
+                            break
+                        if found:
+                            break
+
+            # Xử lý kết quả tạo Project mới trên Flow qua RPC jHPbke
+            if action == "FLOW_CREATE_PROJECT" and success:
+                new_flow_id = body.get("flowProjectId")
+                pnm = body.get("name")
+                target_child_id = body.get("targetChildId")
+                if new_flow_id:
+                    projs = get_projects()
+                    found = False
+                    for p in projs:
+                        if proj_id and p.get("id") != proj_id:
+                            continue
+                        for s in p.get("subProjects", []):
+                            if target_sub_id and s.get("id") != target_sub_id:
+                                continue
+                            if s.get("type") != "flow":
+                                continue
+
+                            target_child = None
+                            for c in s.get("flowChildProjects", []):
+                                if target_child_id and c.get("id") == target_child_id:
+                                    target_child = c
+                                    break
+                                elif not c.get("flowProjectId") and c.get("status") == "creating":
+                                    target_child = c
+                                    break
+
+                            if target_child:
+                                target_child["flowProjectId"] = new_flow_id
+                                target_child["url"] = f"https://flow.google.com/project/{new_flow_id}"
+                                target_child["status"] = "ready"
+                                if pnm and not target_child.get("name"):
+                                    target_child["name"] = pnm
+                                s["activeFlowChildId"] = target_child["id"]
+                                s["flowProjectId"] = new_flow_id
+                                s["profileUrl"] = target_child["url"]
+                            else:
+                                new_c = {
+                                    "id": f"fchild_{int(time.time())}_{uuid.uuid4().hex[:4]}",
+                                    "name": pnm or f"Flow Project {new_flow_id[:8]}",
+                                    "flowProjectId": new_flow_id,
+                                    "url": f"https://flow.google.com/project/{new_flow_id}",
+                                    "description": "Tạo trực tiếp trên Google Flow",
+                                    "status": "ready",
+                                    "createdAt": int(time.time() * 1000)
+                                }
+                                s.setdefault("flowChildProjects", []).append(new_c)
+                                s["activeFlowChildId"] = new_c["id"]
+                                s["flowProjectId"] = new_flow_id
+                                s["profileUrl"] = new_c["url"]
+
+                            save_projects(projs)
+                            push_log(f"🎉 Đã kích hoạt Project '{pnm or new_flow_id[:8]}' trên Flow (UUID: {new_flow_id})", "success", project_id=proj_id, subproject_id=target_sub_id)
+                            found = True
+                            break
+                        if found:
+                            break
+
+            # Xử lý kết quả đổi tên Project trên Flow qua RPC o8DA4
+            if action == "FLOW_RENAME_PROJECT" and success:
+                new_name = body.get("newName")
+                flow_pid = body.get("flowProjectId")
+                if new_name and flow_pid:
+                    projs = get_projects()
+                    found = False
+                    for p in projs:
+                        if proj_id and p.get("id") != proj_id:
+                            continue
+                        for s in p.get("subProjects", []):
+                            if target_sub_id and s.get("id") != target_sub_id:
+                                continue
+                            if s.get("type") != "flow":
+                                continue
+                            for c in s.get("flowChildProjects", []):
+                                if c.get("flowProjectId") == flow_pid:
+                                    c["name"] = new_name
+                                    found = True
+                                    break
+                            if found:
+                                save_projects(projs)
+                                push_log(f"✏️ Đã đồng bộ tên mới '{new_name}' cho Project Flow ({flow_pid[:8]})", "success", project_id=proj_id, subproject_id=target_sub_id)
+                                break
+                        if found:
+                            break
+
+            # Xử lý kết quả kiểm tra sức khỏe và tự động dọn dẹp Project ma (Ghost Projects)
+            if action == "FLOW_CHECK_PROJECTS_HEALTH":
+                dead_ids = set(body.get("deadProjectIds", []))
+                if dead_ids:
+                    projs = get_projects()
+                    found = False
+                    for p in projs:
+                        if proj_id and p.get("id") != proj_id:
+                            continue
+                        for s in p.get("subProjects", []):
+                            if target_sub_id and s.get("id") != target_sub_id:
+                                continue
+                            if s.get("type") != "flow":
+                                continue
+
+                            old_children = s.get("flowChildProjects", [])
+                            removed_names = []
+                            surviving_children = []
+                            for c in old_children:
+                                if c.get("flowProjectId") in dead_ids:
+                                    removed_names.append(c.get("name", c.get("flowProjectId")[:8]))
+                                else:
+                                    surviving_children.append(c)
+
+                            s["flowChildProjects"] = surviving_children
+                            if s.get("activeFlowChildId") and any(c.get("flowProjectId") in dead_ids and c.get("id") == s.get("activeFlowChildId") for c in old_children):
+                                s["activeFlowChildId"] = surviving_children[0]["id"] if surviving_children else ""
+                                s["flowProjectId"] = surviving_children[0].get("flowProjectId", "") if surviving_children else ""
+
+                            # Xóa ảnh của các project đã bị xóa trên Flow
+                            s["imageQueue"] = [
+                                img for img in s.get("imageQueue", [])
+                                if img.get("flowProjectId") not in dead_ids
+                            ]
+                            save_projects(projs)
+                            push_log(f"🧹 Đã tự động dọn dẹp {len(removed_names)} Project con đã bị xóa trên Google Flow: {', '.join(removed_names)}", "warn", project_id=proj_id, subproject_id=target_sub_id)
+                            found = True
+                            break
+                        if found:
+                            break
+
             log_msg = f"Đã thực thi [{action}]: "
             if action in ("GET_FB_ACCOUNT", "GET_COOKIES"):
                 log_msg += f"Trích xuất thông tin FB thành công (UID: {c_user or '---'}, Tên: {name or '---'}, Cookies: {len(cookies)})"
@@ -10867,6 +13174,32 @@ class BridgeHandler(BaseHTTPRequestHandler):
             elif action == "FLOW_GENERATE_IMAGE":
                 img_count = len(body.get('images', []))
                 log_msg += f"🎨 Tạo ảnh Flow {'thành công (' + str(img_count) + ' ảnh)' if success else 'thất bại: ' + str(body.get('error'))}"
+            elif action == "FLOW_SYNC_PROJECT_IMAGES":
+                img_cnt = len(body.get('images', []))
+                log_msg += f"🔄 Đồng bộ {img_cnt} ảnh từ Flow Canvas {'thành công' if success else 'thất bại: ' + str(body.get('error'))}"
+            elif action == "FLOW_LIST_PROJECTS":
+                cnt = body.get("count", 0)
+                log_msg += f"📋 Lấy danh sách {cnt} Project từ Google Flow {'thành công' if success else 'thất bại: ' + str(body.get('error'))}"
+            elif action == "FLOW_DELETE_IMAGE":
+                log_msg += f"🗑️ Xóa ảnh trên Flow Canvas {'thành công' if success else 'thất bại: ' + str(body.get('error'))}"
+            elif action == "FLOW_DELETE_PROJECT":
+                pid = body.get("deletedProjectId", "")
+                log_msg += f"🗑️ Xóa Project Flow '{pid[:8]}' {'thành công' if success else 'thất bại: ' + str(body.get('error'))}"
+            elif action == "FLOW_CREATE_PROJECT":
+                pid = body.get("flowProjectId", "")
+                pnm = body.get("name", "")
+                log_msg += f"➕ Tạo Project Flow mới '{pnm}' ({pid[:8] if pid else ''}) {'thành công' if success else 'thất bại: ' + str(body.get('error'))}"
+            elif action == "FLOW_RENAME_PROJECT":
+                pnm = body.get("newName", "")
+                pid = body.get("flowProjectId", "")
+                log_msg += f"✏️ Đổi tên Project Flow '{pid[:8]}' ➔ '{pnm}' {'thành công' if success else 'thất bại: ' + str(body.get('error'))}"
+            elif action == "FLOW_FOCUS_PROJECT":
+                pid = body.get("flowProjectId", "")
+                log_msg += f"🎯 Chuyển tab Google Flow '{pid[:8]}' {'thành công' if success else 'thất bại: ' + str(body.get('error'))}"
+            elif action == "FLOW_CHECK_PROJECTS_HEALTH":
+                alive = len(body.get("aliveProjectIds", []))
+                dead = len(body.get("deadProjectIds", []))
+                log_msg += f"🩺 Kiểm tra sức khỏe Flow: {alive} hợp lệ, {dead} đã xóa trên Flow"
             elif action == "INSPECT_FLOW":
                 try:
                     with open(os.path.join(os.path.dirname(__file__), "flow_inspect.json"), "w", encoding="utf-8") as f:

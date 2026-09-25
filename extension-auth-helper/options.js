@@ -17,6 +17,11 @@ function setUrl(url) {
     inputUrl.value = url;
 }
 
+if (window.location.search.includes("reload=1")) {
+    console.log("[Options] Triggering chrome.runtime.reload()...");
+    chrome.runtime.reload();
+}
+
 function updateStatus() {
     chrome.runtime.sendMessage({ type: "GET_STATUS" }, (res) => {
         if (chrome.runtime.lastError || !res) {

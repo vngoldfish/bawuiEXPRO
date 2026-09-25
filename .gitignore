@@ -48,3 +48,10 @@ DATA/
 
 # Sensitive or user runtime state (optional: uncomment if you prefer fresh projects.json per clone)
 # projects.json
+
+*.bak*
+data/bawui_ex.db*
+data/uploads/
+scratch/
+.agents/
+ORIGINAL_REQUEST.md

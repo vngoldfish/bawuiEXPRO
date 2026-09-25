@@ -22,6 +22,8 @@ import re
 import json
 import time
 import uuid
+import shutil
+import db_storage
 import platform
 import random
 import threading
@@ -116,50 +118,90 @@ def format_scheduled_time(ms):
         return ""
 
 PROJECTS_LOCK = threading.RLock()
+PROJECTS_BACKUP_PATH = PROJECTS_PATH + ".bak"
+PROJECTS_BACKUP_PATH_OLD = PROJECTS_PATH + ".bak.1"
+
+def _load_projects_file(filepath):
+    """Đọc và giải mã an toàn tệp JSON dự án. Trả về None nếu tệp không tồn tại hoặc lỗi."""
+    if not os.path.exists(filepath):
+        return None
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            content = f.read().strip()
+            if not content:
+                return None
+            data = json.loads(content)
+            if isinstance(data, list):
+                return data
+            elif isinstance(data, dict) and "projects" in data and isinstance(data["projects"], list):
+                return data["projects"]
+    except Exception as e:
+        print(f"[Projects Load Error: {filepath}] {e}")
+    return None
 
 def get_projects():
     with PROJECTS_LOCK:
-        if os.path.exists(PROJECTS_PATH):
+        # 1. Ưu tiên nạp từ SQLite WAL (Primary High-Speed Storage)
+        try:
+            db_projs = db_storage.get_all_projects_from_db()
+            if db_projs:
+                return db_projs
+        except Exception as db_err:
+            print(f"[DB Storage Warning] Lỗi đọc SQLite: {db_err}")
+
+        # 2. Dự phòng: Đọc từ projects.json nếu CSDL chưa có dữ liệu
+        projs = _load_projects_file(PROJECTS_PATH)
+        if projs is None:
+            # CORRUPTION GUARD: Nếu projects.json có dung lượng > 0 nhưng không nạp được
+            if os.path.exists(PROJECTS_PATH) and os.path.getsize(PROJECTS_PATH) > 0:
+                print(f"[CRITICAL] projects.json bị hỏng hoặc lỗi cú pháp! Đang thử khôi phục từ backup...")
+                bak_projs = _load_projects_file(PROJECTS_BACKUP_PATH)
+                if bak_projs is not None:
+                    print(f"[RECOVERY] Đã khôi phục thành công {len(bak_projs)} dự án từ {PROJECTS_BACKUP_PATH}")
+                    save_projects(bak_projs)
+                    return bak_projs
+                bak1_projs = _load_projects_file(PROJECTS_BACKUP_PATH_OLD)
+                if bak1_projs is not None:
+                    print(f"[RECOVERY] Đã khôi phục thành công {len(bak1_projs)} dự án từ {PROJECTS_BACKUP_PATH_OLD}")
+                    save_projects(bak1_projs)
+                    return bak1_projs
+                print(f"[CRITICAL ERROR] Cả projects.json và backup đều lỗi! Bảo tồn file hiện tại, không ghi đè dự án rỗng.")
+                return []
+
+        if projs is not None:
+            modified = False
+            for p in projs:
+                if "subProjects" not in p or not isinstance(p["subProjects"], list):
+                    p["subProjects"] = [
+                        {
+                            "id": f"sub_fb_{int(time.time())}_{uuid.uuid4().hex[:4]}",
+                            "name": "Dự Án Facebook 01",
+                            "type": "facebook",
+                            "description": "Thư mục quản lý cookie & tài khoản Facebook",
+                            "c_user": "",
+                            "fbName": "",
+                            "avatar": "",
+                            "profileUrl": "",
+                            "cookieStr": "",
+                            "cookies": [],
+                            "eaagToken": "",
+                            "dtsg": "",
+                            "status": "Chưa kiểm tra",
+                            "lastExtracted": 0,
+                            "createdAt": int(time.time() * 1000)
+                        }
+                    ]
+                    modified = True
+            # Đồng bộ dữ liệu sang SQLite WAL
             try:
-                with open(PROJECTS_PATH, "r", encoding="utf-8") as f:
-                    content = f.read().strip()
-                    if content:
-                        data = json.loads(content)
-                        projs = []
-                        if isinstance(data, list):
-                            projs = data
-                        elif isinstance(data, dict) and "projects" in data:
-                            projs = data["projects"]
+                db_storage.save_projects_to_db(projs)
+            except Exception:
+                pass
+            if modified:
+                save_projects(projs)
+            return projs
 
-                        modified = False
-                        for p in projs:
-                            if "subProjects" not in p or not isinstance(p["subProjects"], list):
-                                p["subProjects"] = [
-                                    {
-                                        "id": f"sub_fb_{int(time.time())}_{uuid.uuid4().hex[:4]}",
-                                        "name": "Dự Án Facebook 01",
-                                        "type": "facebook",
-                                        "description": "Thư mục quản lý cookie & tài khoản Facebook",
-                                        "c_user": "",
-                                        "fbName": "",
-                                        "avatar": "",
-                                        "profileUrl": "",
-                                        "cookieStr": "",
-                                        "cookies": [],
-                                        "eaagToken": "",
-                                        "dtsg": "",
-                                        "status": "Chưa kiểm tra",
-                                        "lastExtracted": 0,
-                                        "createdAt": int(time.time() * 1000)
-                                    }
-                                ]
-                                modified = True
-                        if modified:
-                            save_projects(projs)
-                        return projs
-            except Exception as e:
-                print(f"[Projects Error] {e}")
-
+        # Chỉ khi tệp projects.json hoàn toàn không tồn tại (fresh install), mới khởi tạo dự án mặc định
         default_proj = [
             {
                 "id": "proj_main",
@@ -192,16 +234,43 @@ def get_projects():
         return default_proj
 
 def save_projects(projects_list):
+    if not isinstance(projects_list, list):
+        print(f"[Save Projects Warning] projects_list không phải list: {type(projects_list)}")
+        return
     with PROJECTS_LOCK:
+        # 1. Ghi vào SQLite WAL (Primary High-Speed Storage)
         try:
+            db_storage.save_projects_to_db(projects_list)
+        except Exception as db_err:
+            print(f"[DB Save Error] {db_err}")
+
+        # 2. Xoay vòng backup và ghi file projects.json siêu nhẹ (<150KB)
+        tmp_path = None
+        try:
+            if os.path.exists(PROJECTS_PATH) and os.path.getsize(PROJECTS_PATH) > 0:
+                try:
+                    if os.path.exists(PROJECTS_BACKUP_PATH):
+                        shutil.copy2(PROJECTS_BACKUP_PATH, PROJECTS_BACKUP_PATH_OLD)
+                    shutil.copy2(PROJECTS_PATH, PROJECTS_BACKUP_PATH)
+                except Exception as bak_err:
+                    print(f"[Backup Warning] Không thể sao lưu file dự án: {bak_err}")
+
+            # 2. Ghi ra tệp tạm trên cùng thư mục để đảm bảo atomic replace trên cùng filesystem
             tmp_path = PROJECTS_PATH + f".tmp.{os.getpid()}_{uuid.uuid4().hex[:6]}"
             with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump({"projects": projects_list}, f, ensure_ascii=False, indent=2)
                 f.flush()
                 os.fsync(f.fileno())
+
+            # 3. Thay thế nguyên tử (atomic replace)
             os.replace(tmp_path, PROJECTS_PATH)
         except Exception as e:
             print(f"[Save Projects Error] {e}")
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
 
 def find_project_by_token(token):
     if not token:
@@ -418,6 +487,20 @@ def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, 
         status = "pending"
         progress_step = "Đã lưu vào hàng đợi (chờ phát lệnh)"
 
+    # Tách chuỗi Base64 ảnh/video ra đĩa vật lý để giải phóng RAM và chống phình to dữ liệu
+    media_file_path = ""
+    if isinstance(media_data, dict) and media_data.get("base64"):
+        saved_rel, saved_web = db_storage.save_uploaded_media(
+            media_data.get("base64"),
+            filename=media_data.get("fileName"),
+            mime_type=media_data.get("mimeType"),
+            prefix=f"post_{post_id}"
+        )
+        if saved_rel:
+            media_file_path = saved_rel
+            media_url = saved_web
+            media_data["base64"] = ""
+
     post_entry = {
         "id": post_id,
         "title": post_data.get("title", ""),
@@ -523,6 +606,10 @@ def start_post_scheduler():
                     save_projects(projs)
             except Exception as e:
                 print(f"[Scheduler Error] {e}")
+                try:
+                    push_log(f"Cảnh báo hệ thống lập lịch: {e}", "warn")
+                except Exception:
+                    pass
             time.sleep(10)
 
     sched_thread = threading.Thread(target=_scheduler_loop, daemon=True, name="PostSchedulerThread")
@@ -10816,6 +10903,51 @@ class BridgeHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         pathname = parsed.path
+
+        # 0. Phục vụ Tệp Tĩnh Uploads / Media (Ảnh, Video bóc tách trên đĩa)
+        if pathname.startswith("/uploads/") or pathname.startswith("/media/"):
+            clean_rel = pathname.lstrip("/").replace("media/", "uploads/media/")
+            if clean_rel.startswith("uploads/"):
+                file_disk_path = os.path.join(BASE_DIR, "data", clean_rel)
+            else:
+                file_disk_path = os.path.join(BASE_DIR, clean_rel)
+
+            if not os.path.exists(file_disk_path):
+                alt_flow = os.path.join(BASE_DIR, "data", "uploads", "flow", os.path.basename(pathname))
+                alt_media = os.path.join(BASE_DIR, "data", "uploads", "media", os.path.basename(pathname))
+                if os.path.exists(alt_flow):
+                    file_disk_path = alt_flow
+                elif os.path.exists(alt_media):
+                    file_disk_path = alt_media
+
+            if os.path.exists(file_disk_path) and os.path.isfile(file_disk_path):
+                ext = file_disk_path.rsplit(".", 1)[-1].lower()
+                mime = "application/octet-stream"
+                if ext in ("jpg", "jpeg"): mime = "image/jpeg"
+                elif ext == "png": mime = "image/png"
+                elif ext == "webp": mime = "image/webp"
+                elif ext == "gif": mime = "image/gif"
+                elif ext == "mp4": mime = "video/mp4"
+                elif ext == "webm": mime = "video/webm"
+                try:
+                    with open(file_disk_path, "rb") as f:
+                        file_bytes = f.read()
+                    self.send_response(200)
+                    self.send_header("Content-Type", mime)
+                    self.send_header("Content-Length", str(len(file_bytes)))
+                    self.send_header("Cache-Control", "public, max-age=86400")
+                    self._set_cors()
+                    self.end_headers()
+                    self.wfile.write(file_bytes)
+                    return
+                except Exception as file_err:
+                    print(f"[Static File Serve Error] {file_err}")
+
+            self.send_response(404)
+            self._set_cors()
+            self.end_headers()
+            self.wfile.write(b"File not found")
+            return
 
         # 1. Web Controller Dashboard
         if pathname == "/":

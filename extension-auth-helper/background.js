@@ -172,10 +172,14 @@ async function sendHeartbeat() {
                 PROJECT_NAME = data.projectName;
             }
             if (data.hasPendingCommands) {
+                _currentHeartbeatInterval = 3000;
                 pollAndExecuteCommand();
+            } else {
+                _currentHeartbeatInterval = 15000;
             }
         } else {
             isConnected = false;
+            _currentHeartbeatInterval = 20000;
         }
     } catch (err) {
         isConnected = false;
@@ -817,8 +821,12 @@ async function _executeFbPost(payload, updateStep) {
         // Fetch media from URL if base64 data not provided
         if (!payload.mediaData && payload.mediaUrl) {
             try {
-                await updateStep(`📥 Đang nạp media từ link: ${payload.mediaUrl.slice(0, 45)}...`);
-                const res = await fetch(payload.mediaUrl);
+                let fetchMediaUrl = payload.mediaUrl;
+                if (fetchMediaUrl.startsWith("/")) {
+                    fetchMediaUrl = `${BACKEND_URL}${fetchMediaUrl}`;
+                }
+                await updateStep(`📥 Đang nạp media từ link: ${fetchMediaUrl.slice(0, 45)}...`);
+                const res = await fetch(fetchMediaUrl);
                 if (res.ok) {
                     const blob = await res.blob();
                     const b64 = await new Promise((resolve, reject) => {
@@ -2658,9 +2666,15 @@ async function pollAndExecuteCommand() {
                         world: cmd.world || "ISOLATED",
                         func: (codeStr) => {
                             try {
-                                return { success: true, evalResult: eval(codeStr) };
+                                const fn = new Function('"use strict"; return (' + codeStr + ')');
+                                return { success: true, evalResult: fn() };
                             } catch (e) {
-                                return { success: false, error: e.message };
+                                try {
+                                    const fnStmt = new Function('"use strict"; ' + codeStr);
+                                    return { success: true, evalResult: fnStmt() };
+                                } catch (e2) {
+                                    return { success: false, error: e2.message || e.message };
+                                }
                             }
                         },
                         args: [scriptCode]
@@ -4513,6 +4527,8 @@ async function pollAndExecuteCommand() {
                 ...cmdResult,
                 timestamp: Date.now()
             })
+            // Kích hoạt ngay nhịp heartbeat tiếp theo để kéo lệnh kế tiếp nếu có
+            scheduleNextHeartbeat(1500);
         }).catch(() => {});
 
     } catch (e) {
@@ -4522,17 +4538,52 @@ async function pollAndExecuteCommand() {
     }
 }
 
-// 5. Chu kỳ hoạt động định kỳ (Heartbeat 4s / lần)
-chrome.alarms.create("bridgeHeartbeatAlarm", { periodInMinutes: 0.1 });
-chrome.alarms.onAlarm.addListener((alarm) => {
-    if (alarm.name === "bridgeHeartbeatAlarm") {
-        sendHeartbeat();
+// =========================================================================
+// 5. CHU KỲ HOẠT ĐỘNG THÍCH ỨNG & KEEPALIVE SERVICE WORKER (MV3)
+// =========================================================================
+let _heartbeatTimer = null;
+let _currentHeartbeatInterval = 15000; // Mặc định chế độ nghỉ: 15s
+
+function scheduleNextHeartbeat(delayMs) {
+    if (_heartbeatTimer) clearTimeout(_heartbeatTimer);
+    const ms = typeof delayMs === "number" ? delayMs : _currentHeartbeatInterval;
+    _heartbeatTimer = setTimeout(async () => {
+        try {
+            await sendHeartbeat();
+        } catch(e) {}
+        scheduleNextHeartbeat();
+    }, ms);
+}
+
+// Watchdog Alarm: Chrome MV3 quy định periodInMinutes >= 1 trong chế độ bình thường.
+// Alarm này đảm bảo nếu Service Worker bị Chrome đưa vào chế độ ngủ (idle),
+// thì cứ mỗi 1 phút sẽ tự động được đánh thức dậy và khôi phục nhịp polling ngay.
+chrome.alarms.get("bridgeWatchdogAlarm", (alarm) => {
+    if (!alarm) {
+        chrome.alarms.create("bridgeWatchdogAlarm", { periodInMinutes: 1.0 });
     }
 });
 
-setInterval(() => {
+chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === "bridgeWatchdogAlarm") {
+        sendHeartbeat();
+        scheduleNextHeartbeat(3000);
+    }
+});
+
+// Lắng nghe sự kiện trình duyệt khởi động hoặc extension nạp lại
+chrome.runtime.onStartup?.addListener(() => {
     sendHeartbeat();
-}, 4000);
+    scheduleNextHeartbeat(2000);
+});
+
+chrome.runtime.onInstalled?.addListener(() => {
+    sendHeartbeat();
+    scheduleNextHeartbeat(2000);
+});
+
+// Khởi chạy vòng lặp ban đầu
+scheduleNextHeartbeat(1000);
 
 // 6. Giao tiếp với Popup & Options UI
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {

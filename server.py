@@ -4354,56 +4354,56 @@ Sản phẩm tuyệt vời quá</textarea>
                         </div>
                     </div>
 
-                    <!-- 5 TRỤ CỘT BẢO MẬT COOKIE FB -->
+                    <!-- 5 TRỤ CỘT BẢO MẬT COOKIE -->
                     <div id="subFbCookiePillars" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px; margin-bottom:18px;">
-                        <!-- c_user Pillar -->
+                        <!-- Pillar 1 -->
                         <div class="card" style="background:#070d1e; border:1px solid #1e293b; padding:12px; margin:0;">
                             <div style="display:flex; justify-content:space-between; align-items:center;">
-                                <span style="font-weight:800; color:#38bdf8; font-size:13px;">🆔 c_user (UID)</span>
+                                <span style="font-weight:800; color:#38bdf8; font-size:13px;" id="subPillar1Title">🆔 c_user (UID)</span>
                                 <span id="subPillarCUserStatus" class="badge-folder" style="font-size:10px; background:#1e293b; color:#94a3b8;">Chưa có</span>
                             </div>
                             <div style="font-size:14px; font-weight:700; color:#fff; margin-top:6px; word-break:break-all;" id="subPillarCUserVal">---</div>
-                            <div style="font-size:11px; color:#64748b; margin-top:4px;">User ID tài khoản Facebook</div>
+                            <div style="font-size:11px; color:#64748b; margin-top:4px;" id="subPillar1Desc">User ID tài khoản Facebook</div>
                         </div>
 
-                        <!-- xs Pillar -->
+                        <!-- Pillar 2 -->
                         <div class="card" style="background:#070d1e; border:1px solid #1e293b; padding:12px; margin:0;">
                             <div style="display:flex; justify-content:space-between; align-items:center;">
-                                <span style="font-weight:800; color:#c084fc; font-size:13px;">🔐 xs (Session)</span>
+                                <span style="font-weight:800; color:#c084fc; font-size:13px;" id="subPillar2Title">🔐 xs (Session)</span>
                                 <span id="subPillarXsStatus" class="badge-folder" style="font-size:10px; background:#1e293b; color:#94a3b8;">Chưa có</span>
                             </div>
                             <div style="font-size:12px; font-weight:600; color:#e2e8f0; margin-top:6px; word-break:break-all;" id="subPillarXsTime">---</div>
                             <div style="font-size:11px; color:#64748b; margin-top:4px;" id="subPillarXsDesc">Phiên xác thực & Thời điểm tạo</div>
                         </div>
 
-                        <!-- datr Pillar -->
+                        <!-- Pillar 3 -->
                         <div class="card" style="background:#070d1e; border:1px solid #1e293b; padding:12px; margin:0;">
                             <div style="display:flex; justify-content:space-between; align-items:center;">
-                                <span style="font-weight:800; color:#f59e0b; font-size:13px;">🛡️ datr (Anti-CP)</span>
+                                <span style="font-weight:800; color:#f59e0b; font-size:13px;" id="subPillar3Title">🛡️ datr (Anti-CP)</span>
                                 <span id="subPillarDatrStatus" class="badge-folder" style="font-size:10px; background:#1e293b; color:#94a3b8;">Chưa có</span>
                             </div>
                             <div style="font-size:12px; font-weight:600; color:#e2e8f0; margin-top:6px; word-break:break-all;" id="subPillarDatrVal">---</div>
-                            <div style="font-size:11px; color:#64748b; margin-top:4px;">Chống Checkpoint 956/282 (Hardware)</div>
+                            <div style="font-size:11px; color:#64748b; margin-top:4px;" id="subPillar3Desc">Chống Checkpoint 956/282 (Hardware)</div>
                         </div>
 
-                        <!-- sb Pillar -->
+                        <!-- Pillar 4 -->
                         <div class="card" style="background:#070d1e; border:1px solid #1e293b; padding:12px; margin:0;">
                             <div style="display:flex; justify-content:space-between; align-items:center;">
-                                <span style="font-weight:800; color:#10b981; font-size:13px;">💻 sb (Device ID)</span>
+                                <span style="font-weight:800; color:#10b981; font-size:13px;" id="subPillar4Title">💻 sb (Device ID)</span>
                                 <span id="subPillarSbStatus" class="badge-folder" style="font-size:10px; background:#1e293b; color:#94a3b8;">Chưa có</span>
                             </div>
                             <div style="font-size:12px; font-weight:600; color:#e2e8f0; margin-top:6px; word-break:break-all;" id="subPillarSbVal">---</div>
-                            <div style="font-size:11px; color:#64748b; margin-top:4px;">Định danh trình duyệt máy trạm</div>
+                            <div style="font-size:11px; color:#64748b; margin-top:4px;" id="subPillar4Desc">Định danh trình duyệt máy trạm</div>
                         </div>
 
-                        <!-- fr Pillar -->
+                        <!-- Pillar 5 -->
                         <div class="card" style="background:#070d1e; border:1px solid #1e293b; padding:12px; margin:0;">
                             <div style="display:flex; justify-content:space-between; align-items:center;">
-                                <span style="font-weight:800; color:#ec4899; font-size:13px;">🔑 fr (Auth Token)</span>
+                                <span style="font-weight:800; color:#ec4899; font-size:13px;" id="subPillar5Title">🔑 fr (Auth Token)</span>
                                 <span id="subPillarFrStatus" class="badge-folder" style="font-size:10px; background:#1e293b; color:#94a3b8;">Chưa có</span>
                             </div>
                             <div style="font-size:12px; font-weight:600; color:#e2e8f0; margin-top:6px; word-break:break-all;" id="subPillarFrVal">---</div>
-                            <div style="font-size:11px; color:#64748b; margin-top:4px;">Mã hóa xác thực phiên liên tục</div>
+                            <div style="font-size:11px; color:#64748b; margin-top:4px;" id="subPillar5Desc">Mã hóa xác thực phiên liên tục</div>
                         </div>
                     </div>
 
@@ -5076,6 +5076,13 @@ Sản phẩm tuyệt vời quá</textarea>
                 return { isMismatch, folderAccount: folderEmail, browserAccount: browserEmail, cUser: folderEmail, browserFbUid: browserEmail, platform: "flow" };
             }
 
+            if (subType === 'x') {
+                const folderX = (sub.xUsername || sub.c_user || "").trim().toLowerCase().replace(/^@/, '');
+                const browserX = (activeNode && activeNode.browserXUsername) ? String(activeNode.browserXUsername).trim().toLowerCase().replace(/^@/, '') : "";
+                const isMismatch = !!(folderX && browserX && folderX !== browserX);
+                return { isMismatch, folderAccount: folderX ? '@' + folderX : '', browserAccount: browserX ? '@' + browserX : '', cUser: folderX, browserFbUid: browserX, platform: "x" };
+            }
+
             return { isMismatch: false, folderAccount: "", browserAccount: "", cUser: "", browserFbUid: "" };
         }
 
@@ -5090,7 +5097,7 @@ Sản phẩm tuyệt vời quá</textarea>
             // KHÓA TOÀN BỘ CHỨC NĂNG NẾU LỆCH TÀI KHOẢN TRÊN CHROME
             const mismatchStatus = checkSubProjectMismatch(sub);
             if (mismatchStatus.isMismatch && targetKey !== 'sub-account-info') {
-                const pLabel = subType === 'flow' ? 'Google Account' : 'Nick Facebook';
+                const pLabel = subType === 'flow' ? 'Google Account' : (subType === 'x' ? 'Tài Khoản X (Twitter)' : 'Nick Facebook');
                 alert(`🔒 TÍNH NĂNG BỊ KHÓA DO KHÁC TÀI KHOẢN!\n\nThư mục này của ${pLabel}: ${mismatchStatus.folderAccount}\nTrong khi Chrome đang đăng nhập: ${mismatchStatus.browserAccount}\n\n👉 Bạn chỉ có thể:\n1. Tạo Dự Án Con mới cho tài khoản Chrome này\n2. Hoặc bấm Quét & Nạp Đè toàn bộ vào thư mục này!`);
                 targetKey = 'sub-account-info';
             }
@@ -5539,6 +5546,10 @@ async function triggerRunNow(postId) {
                 if (cookieDecoderTitle) cookieDecoderTitle.textContent = "Giải Mã Cookie Google Flow & Kiểm Tra Phiên Làm Việc";
                 if (cookieDecoderDesc) cookieDecoderDesc.textContent = "Bóc tách và phân tích 5 trụ cột cookie xác thực Google (SID, SSID, HSID, SAPISID, OSID) đảm bảo phiên kết nối Google Flow AI Studio thông suốt.";
                 if (pillarsBox) pillarsBox.style.display = "grid";
+            } else if (subType === 'x') {
+                if (cookieDecoderTitle) cookieDecoderTitle.textContent = "Giải Mã Cookie X (Twitter) & Kiểm Tra Sức Khỏe Phiên";
+                if (cookieDecoderDesc) cookieDecoderDesc.textContent = "Bóc tách 5 trụ cột cookie bảo mật cốt lõi của X (auth_token, ct0, twid, kdt, guest_id) đảm bảo phiên LIVE và sẵn sàng cào tweets/đăng bài.";
+                if (pillarsBox) pillarsBox.style.display = "grid";
             } else {
                 if (cookieDecoderTitle) cookieDecoderTitle.textContent = `Giải Mã Cookie ${pCfg.name} & Kiểm Tra Phiên`;
                 if (cookieDecoderDesc) cookieDecoderDesc.textContent = `Phân tích cấu trúc session cookie và kiểm tra tính toàn vẹn của tài khoản ${pCfg.name} (${pCfg.domain}).`;
@@ -5854,6 +5865,23 @@ async function triggerRunNow(postId) {
                     flowCardStatusHtml = `<b style="color:var(--warning);">Đã có cookie (${cookieCount} cookies)</b>`;
                 }
 
+                const isX = (subType === 'x');
+                const browserXUsername = (activeNode && activeNode.browserXUsername) ? String(activeNode.browserXUsername).trim().toLowerCase().replace(/^@/, '') : "";
+                const xFolderUser = (f.xUsername || f.c_user || "").trim().toLowerCase().replace(/^@/, '');
+
+                let xCardStatusHtml = '<b style="color:var(--warning);">⚪ Chưa quét</b>';
+                if (xFolderUser) {
+                    if (browserXUsername && browserXUsername === xFolderUser) {
+                        xCardStatusHtml = '<b style="color:var(--success);">🟢 LIVE (Khớp X Chrome)</b>';
+                    } else if (browserXUsername && browserXUsername !== xFolderUser) {
+                        xCardStatusHtml = `<b style="color:#ef4444;">⚠️ Khác @${browserXUsername}</b>`;
+                    } else {
+                        xCardStatusHtml = `<b style="color:#38bdf8;">Đã nạp (${cookieCount} cookies)</b>`;
+                    }
+                } else if (hasCookie) {
+                    xCardStatusHtml = `<b style="color:var(--warning);">Đã có cookie (${cookieCount} cookies)</b>`;
+                }
+
                 const flowImagesCount = (f.flowImages || []).length;
 
                 let statsHtml = '';
@@ -5904,6 +5932,31 @@ async function triggerRunNow(postId) {
                         <div style="display:flex; justify-content:space-between;">
                             <span style="color:var(--text-muted);">Ảnh AI đã tạo:</span>
                             <span style="color:${flowImagesCount > 0 ? '#2dd4bf' : '#94a3b8'}; font-weight:700;">${flowImagesCount} ảnh</span>
+                        </div>
+                    </div>
+                    `;
+                } else if (isX) {
+                    statsHtml = `
+                    <div style="background:#050914; border:1px solid #1e293b; border-radius:8px; padding:10px 12px; font-size:12px; margin-bottom:14px;">
+                        <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                            <span style="color:var(--text-muted);">Web nguồn:</span>
+                            <span style="font-family:monospace; font-weight:700; color:#cbd5e1;">x.com</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                            <span style="color:var(--text-muted);">Trạng thái X:</span>
+                            ${xCardStatusHtml}
+                        </div>
+                        <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                            <span style="color:var(--text-muted);">Tài khoản X:</span>
+                            <span style="color:#fbbf24; font-weight:700; max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${f.xUsername ? '@' + f.xUsername : (f.fbName || f.c_user || 'Chưa nhận diện')}</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                            <span style="color:var(--text-muted);">Followers:</span>
+                            <span style="color:#38bdf8; font-weight:700;">${f.xFollowers || 0} người</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between;">
+                            <span style="color:var(--text-muted);">Số bài Tweets:</span>
+                            <span style="color:#34d399; font-weight:700;">${f.xTweets || (f.scrapedData || []).length || 0} bài</span>
                         </div>
                     </div>
                     `;
@@ -6026,6 +6079,7 @@ async function triggerRunNow(postId) {
             if (bannerTitle) {
                 if (subType === 'facebook') bannerTitle.textContent = "Kiểm Tra Thông Tin Tài Khoản Facebook";
                 else if (subType === 'flow') bannerTitle.textContent = "Google Flow AI Studio & Prompt Generator";
+                else if (subType === 'x') bannerTitle.textContent = "Quản Lý Tài Khoản X (Twitter) & Session Cookie";
                 else if (subType === 'tiktok') bannerTitle.textContent = "Quản Lý Tài Khoản TikTok & Session Cookie";
                 else if (subType === 'instagram') bannerTitle.textContent = "Quản Lý Tài Khoản Instagram & Reels";
                 else bannerTitle.textContent = "Tổng Quan Dự Án Browser Automation";
@@ -6035,6 +6089,8 @@ async function triggerRunNow(postId) {
                     bannerDesc.textContent = "Trích xuất toàn bộ danh tính, UID, trạng thái nick LIVE/DIE, cookie và token của tài khoản Facebook hiện đang login trên trình duyệt.";
                 } else if (subType === 'flow') {
                     bannerDesc.textContent = "Quản lý phiên làm việc Google Flow Studio, quét cookie xác thực tài khoản Google và điều khiển prompt tạo ảnh AI.";
+                } else if (subType === 'x') {
+                    bannerDesc.textContent = "Trích xuất toàn bộ thông tin tài khoản X (Twitter): @username, tên hiển thị, avatar nét, UID số, cookie phiên (auth_token) và mã bảo mật ct0 (CSRF token).";
                 } else if (subType === 'tiktok') {
                     bannerDesc.textContent = "Trích xuất session cookie TikTok, kiểm tra tài khoản đang login trên trình duyệt để chuẩn bị reup video và seeding.";
                 } else if (subType === 'instagram') {
@@ -6048,6 +6104,8 @@ async function triggerRunNow(postId) {
                     bannerBtn.innerHTML = `<span>🔄</span> <span>QUÉT & LẤY TOÀN BỘ THÔNG TIN TÀI KHOẢN FB</span>`;
                 } else if (subType === 'flow') {
                     bannerBtn.innerHTML = `<span>🔄</span> <span>QUÉT & LẤY TOÀN BỘ THÔNG TIN TÀI KHOẢN FLOW</span>`;
+                } else if (subType === 'x') {
+                    bannerBtn.innerHTML = `<span>🔄</span> <span>QUÉT & LẤY TOÀN BỘ THÔNG TIN TÀI KHOẢN X</span>`;
                 } else {
                     bannerBtn.innerHTML = `<span>🔄</span> <span>QUÉT & NẠP LẠI COOKIE ${pCfg.name} (${pCfg.domain})</span>`;
                 }
@@ -6246,6 +6304,100 @@ async function triggerRunNow(postId) {
                     if (accLoginSub) accLoginSub.textContent = "Bấm nút Quét & Lấy Thông Tin ở trên";
                     if (mismatchAlert) mismatchAlert.style.display = "none";
                 }
+            } else if (subType === 'x') {
+                // X (TWITTER): Hiển thị đầy đủ @username, Avatar X, UID số, Profile link và trạng thái LIVE khớp Chrome
+                const xUser = (sub.xUsername || sub.c_user || "").replace(/^@/, '');
+                const dispName = sub.fbName || sub.accountName || (xUser ? `@${xUser}` : sub.name);
+                const hasAuth = !!sub.xAuthToken || (hasCookies && cookies.some(c => c.name === "auth_token"));
+                const isLive = (sub.status === "LIVE") || hasAuth;
+
+                if (accAvatar) {
+                    accAvatar.src = avatar || "https://abs.twimg.com/sticky/default_profile_images/default_profile_400x400.png";
+                }
+                if (accName) {
+                    accName.innerHTML = `<span style="color:#fff; font-weight:800;">${escapeHtml(dispName)}</span> ${xUser ? `<span style="font-size:12px; color:#38bdf8; font-family:monospace; margin-left:6px;">@${escapeHtml(xUser)}</span>` : ''} ${sub.isVerified ? '<span title="Đã xác minh" style="color:#38bdf8; margin-left:4px;">☑️</span>' : ''}`;
+                }
+
+                const xProfileUrl = sub.profileUrl || (xUser ? `https://x.com/${xUser}` : "https://x.com");
+                if (accProfileLink) {
+                    accProfileLink.href = xProfileUrl;
+                    accProfileLink.textContent = xProfileUrl;
+                }
+
+                if (stat1Label) stat1Label.textContent = "Tài Khoản X (@Username / ID)";
+                if (accUid) {
+                    accUid.innerHTML = xUser ? `<b style="color:#38bdf8;">@${escapeHtml(xUser)}</b> ${sub.xUid ? `<span style="font-size:10px; color:#94a3b8; margin-left:4px;">(UID: ${sub.xUid})</span>` : ''}` : (sub.c_user ? `ID: ${sub.c_user}` : "---");
+                }
+
+                if (stat2Label) stat2Label.textContent = "Trạng Thái Đăng Nhập X";
+                if (stat3Label) stat3Label.textContent = "Tổng Số Cookie X (Twitter)";
+                if (stat3Sub) stat3Sub.textContent = "x.com & twitter.com";
+
+                // Kiểm tra tài khoản X hiện tại trên Chrome từ node kết nối
+                const nodes = (latestParentData && latestParentData.nodes) || [];
+                const activeNode = nodes[0] || null;
+                const browserXUser = (activeNode && activeNode.browserXUsername) ? String(activeNode.browserXUsername).trim().toLowerCase().replace(/^@/, '') : "";
+                const isBrowserOnline = nodes.length > 0;
+                const folderXUser = xUser.trim().toLowerCase();
+
+                const mismatchAlert = document.getElementById("fbAccountMismatchAlert");
+                const mismatchText = document.getElementById("fbAccountMismatchAlertText");
+                const mismatchTitle = document.getElementById("fbAccountMismatchAlertTitle");
+                const btnMismatchQuickCreateText = document.getElementById("btnMismatchQuickCreateText");
+                const btnMismatchRescanText = document.getElementById("btnMismatchRescanText");
+
+                if (folderXUser) {
+                    if (browserXUser && browserXUser === folderXUser) {
+                        if (accStatusBadge) accStatusBadge.innerHTML = '<span class="dot online"></span> <span style="color:var(--success); font-weight:700;">LIVE (Khớp X Chrome)</span>';
+                        if (accLoginStatus) accLoginStatus.innerHTML = '<span style="color:var(--success);">🟢 ĐÃ ĐĂNG NHẬP X</span>';
+                        if (accLoginSub) accLoginSub.textContent = `Tài khoản active khớp Chrome (@${folderXUser})`;
+                        if (mismatchAlert) mismatchAlert.style.display = "none";
+                    } else if (browserXUser && browserXUser !== folderXUser) {
+                        if (accStatusBadge) accStatusBadge.innerHTML = '<span class="dot" style="background:#ef4444;"></span> <span style="color:#ef4444; font-weight:800;">⚠️ SAI TÀI KHOẢN (Khác Chrome)</span>';
+                        if (accLoginStatus) accLoginStatus.innerHTML = `<span style="color:#ef4444; font-weight:800;">❌ KHÔNG TRÙNG KHỚP</span>`;
+                        if (accLoginSub) accLoginSub.innerHTML = `<span style="color:#fca5a5;">Chrome đang login: <b>@${browserXUser}</b></span>`;
+
+                        if (mismatchAlert) {
+                            mismatchAlert.style.display = "block";
+                            if (mismatchTitle) mismatchTitle.textContent = "ĐÃ KHÓA TOÀN BỘ CHỨC NĂNG DO KHÁC TÀI KHOẢN X!";
+                            if (mismatchText) {
+                                mismatchText.innerHTML = `Thư mục này dành cho tài khoản X: <b style="color:#38bdf8;">@${folderXUser}</b>, nhưng Chrome hiện đang đăng nhập: <b style="color:#fbbf24;">@${browserXUser}</b>.<br/>👉 Bạn hãy chọn <b>[Cách 1: Tạo Dự Án Con Mới Cho @${browserXUser}]</b> hoặc <b>[Cách 2: Quét & Nạp Đè Toàn Bộ Vào Thư Mục Này]</b> để tiếp tục!`;
+                            }
+                            if (btnMismatchQuickCreateText) btnMismatchQuickCreateText.innerHTML = `<b>Cách 1:</b> Tạo Dự Án Con Mới Cho @${browserXUser}`;
+                            if (btnMismatchRescanText) btnMismatchRescanText.innerHTML = `<b>Cách 2:</b> Quét & Nạp Đè Toàn Bộ Vào Thư Mục Này`;
+                        }
+                        adaptSubMenuForPlatform(subType, pCfg, sub.id);
+                    } else if (isBrowserOnline) {
+                        if (accStatusBadge) accStatusBadge.innerHTML = isLive
+                            ? `<span class="dot online"></span> <span style="color:var(--success); font-weight:700;">LIVE (${cookies.length} Cookies)</span>`
+                            : `<span class="dot" style="background:#f59e0b;"></span> <span style="color:var(--warning); font-weight:700;">⚠️ CHƯA MỞ X TRÊN CHROME</span>`;
+                        if (accLoginStatus) accLoginStatus.innerHTML = isLive
+                            ? `<span style="color:var(--success);">🟢 SẴN SÀNG</span>`
+                            : `<span style="color:var(--warning);">⚠️ CHƯA MỞ X</span>`;
+                        if (accLoginSub) accLoginSub.textContent = `Tài khoản @${folderXUser}`;
+                        if (mismatchAlert) mismatchAlert.style.display = "none";
+                        adaptSubMenuForPlatform(subType, pCfg, sub.id);
+                    } else {
+                        if (accStatusBadge) accStatusBadge.innerHTML = '<span class="dot" style="background:#94a3b8;"></span> <span style="color:#94a3b8;">CHỜ KẾT NỐI CHROME</span>';
+                        if (accLoginStatus) accLoginStatus.innerHTML = '<span style="color:#94a3b8;">⚪ CHỜ EXTENSION</span>';
+                        if (accLoginSub) accLoginSub.textContent = "Mở Chrome và bật Extension để check LIVE";
+                        if (mismatchAlert) mismatchAlert.style.display = "none";
+                    }
+                } else if (hasCookies) {
+                    if (accStatusBadge) accStatusBadge.innerHTML = isLive
+                        ? `<span class="dot online"></span> <span style="color:var(--success); font-weight:700;">LIVE (${cookies.length} Cookies)</span>`
+                        : `<span class="dot"></span> <span style="color:var(--warning);">ĐÃ CÓ COOKIE X</span>`;
+                    if (accLoginStatus) accLoginStatus.innerHTML = isLive
+                        ? `<span style="color:var(--success);">🟢 X ACCOUNT LIVE</span>`
+                        : `<span style="color:var(--warning);">🟡 ĐÃ CÓ COOKIE</span>`;
+                    if (accLoginSub) accLoginSub.textContent = "Bấm Quét để cập nhật tên tài khoản & avatar";
+                    if (mismatchAlert) mismatchAlert.style.display = "none";
+                } else {
+                    if (accStatusBadge) accStatusBadge.innerHTML = '⚪ Chưa quét tài khoản';
+                    if (accLoginStatus) accLoginStatus.innerHTML = '⚪ Chưa quét';
+                    if (accLoginSub) accLoginSub.textContent = "Bấm nút Quét & Lấy Thông Tin ở trên";
+                    if (mismatchAlert) mismatchAlert.style.display = "none";
+                }
             } else {
                 // Các nền tảng: TikTok, Instagram, Custom
                 if (accAvatar) {
@@ -6339,6 +6491,18 @@ async function triggerRunNow(postId) {
                     <button class="btn-sm btn-purple" onclick="projectOpenTab('https://business.facebook.com')">🏢 Meta Business</button>
                     <button class="btn-sm btn-orange" onclick="projectOpenTab('https://adsmanager.facebook.com')">📊 Ads Manager</button>
                 `;
+            } else if (subType === 'x') {
+                const proj = allProjects.find(p => p.id === currentProjectId);
+                const sub = proj ? (proj.subProjects || []).find(s => s.id === currentSubProjectId) : null;
+                const xUser = (sub && (sub.xUsername || sub.c_user) || "").replace(/^@/, '');
+                const profUrl = xUser ? `https://x.com/${xUser}` : 'https://x.com';
+                container.innerHTML = `
+                    <button class="btn-sm" onclick="projectOpenTab('https://x.com/home')">🌐 Mở X (x.com)</button>
+                    <button class="btn-sm btn-purple" onclick="projectOpenTab('${profUrl}')">👤 Trang Cá Nhân ${xUser ? '@' + xUser : ''}</button>
+                    <button class="btn-sm btn-orange" onclick="projectOpenTab('https://x.com/compose/post')">✍️ Soạn Tweet</button>
+                    <button class="btn-sm" onclick="projectOpenTab('https://x.com/explore')">🔍 Khám Phá & Xu Hướng</button>
+                    <button class="btn-sm btn-secondary" onclick="projectOpenTab('https://x.com/notifications')">🔔 Thông Báo</button>
+                `;
             } else {
                 container.innerHTML = `
                     <button class="btn-sm" onclick="projectOpenTab('https://${pCfg.domain}')">🌐 Mở ${pCfg.name}</button>
@@ -6421,7 +6585,7 @@ async function triggerRunNow(postId) {
             const pillarsDiv = document.getElementById("subFbCookiePillars");
             const healthBadge = document.getElementById("subCookieHealthBadge");
 
-            if (subType !== 'facebook' && subType !== 'flow') {
+            if (subType !== 'facebook' && subType !== 'flow' && subType !== 'x') {
                 if (pillarsDiv) pillarsDiv.style.display = "none";
                 if (healthBadge) {
                     healthBadge.innerHTML = list.length > 0 ? 
@@ -6435,6 +6599,17 @@ async function triggerRunNow(postId) {
             if (pillarsDiv) pillarsDiv.style.display = "grid";
 
             if (subType === 'flow') {
+                const p1T = document.getElementById("subPillar1Title"); if (p1T) p1T.textContent = "🔑 SID (Google ID)";
+                const p1D = document.getElementById("subPillar1Desc"); if (p1D) p1D.textContent = "Session ID tài khoản Google";
+                const p2T = document.getElementById("subPillar2Title"); if (p2T) p2T.textContent = "🔒 HSID & SSID";
+                const p2D = document.getElementById("subPillar2Desc"); if (p2D) p2D.textContent = "Bảo mật phiên SSL Google";
+                const p3T = document.getElementById("subPillar3Title"); if (p3T) p3T.textContent = "🛡️ Secure-1PSID";
+                const p3D = document.getElementById("subPillar3Desc"); if (p3D) p3D.textContent = "Xác thực Google 1P Session";
+                const p4T = document.getElementById("subPillar4Title"); if (p4T) p4T.textContent = "⚡ SAPISID (API)";
+                const p4D = document.getElementById("subPillar4Desc"); if (p4D) p4D.textContent = "Token gọi API Google Studio";
+                const p5T = document.getElementById("subPillar5Title"); if (p5T) p5T.textContent = "🌊 OSID (Flow)";
+                const p5D = document.getElementById("subPillar5Desc"); if (p5D) p5D.textContent = "Phiên riêng biệt flow.google.com";
+
                 // GOOGLE FLOW 5 PILLARS (SID, HSID/SSID, __Secure-1PSID, SAPISID, OSID)
                 let sid = list.find(c => c.name === "SID");
                 let hsid = list.find(c => c.name === "HSID");
@@ -6535,7 +6710,130 @@ async function triggerRunNow(postId) {
                 return;
             }
 
+            if (subType === 'x') {
+                const p1T = document.getElementById("subPillar1Title"); if (p1T) p1T.textContent = "🔐 auth_token";
+                const p1D = document.getElementById("subPillar1Desc"); if (p1D) p1D.textContent = "Phiên đăng nhập chính Twitter/X";
+                const p2T = document.getElementById("subPillar2Title"); if (p2T) p2T.textContent = "🛡️ ct0 (CSRF Token)";
+                const p2D = document.getElementById("subPillar2Desc"); if (p2D) p2D.textContent = "Bắt buộc để Tweet/Like/API";
+                const p3T = document.getElementById("subPillar3Title"); if (p3T) p3T.textContent = "🆔 twid (Numeric UID)";
+                const p3D = document.getElementById("subPillar3Desc"); if (p3D) p3D.textContent = "Twitter User ID định danh số";
+                const p4T = document.getElementById("subPillar4Title"); if (p4T) p4T.textContent = "💻 kdt (Device Lock)";
+                const p4D = document.getElementById("subPillar4Desc"); if (p4D) p4D.textContent = "Khóa thiết bị bảo mật phiên";
+                const p5T = document.getElementById("subPillar5Title"); if (p5T) p5T.textContent = "🌐 guest_id / tracking";
+                const p5D = document.getElementById("subPillar5Desc"); if (p5D) p5D.textContent = "Định danh phiên trình duyệt X";
+
+                let authToken = list.find(c => c.name === "auth_token");
+                let ct0 = list.find(c => c.name === "ct0");
+                let twid = list.find(c => c.name === "twid");
+                let kdt = list.find(c => c.name === "kdt");
+                let guestId = list.find(c => c.name === "guest_id" || c.name === "personalization_id" || c.name === "guest_id_marketing");
+
+                let xHealthScore = 0;
+                if (authToken && authToken.value) xHealthScore += 35;
+                if (ct0 && ct0.value) xHealthScore += 30;
+                if (twid && twid.value) xHealthScore += 20;
+                if (kdt && kdt.value) xHealthScore += 10;
+                if (guestId && guestId.value) xHealthScore += 5;
+
+                if (healthBadge) {
+                    if (xHealthScore >= 85) {
+                        healthBadge.innerHTML = `<span class="dot online"></span> <span style="color:var(--success);">🟢 PHIÊN X HOÀN HẢO (${xHealthScore}/100) — ĐỦ 5 TRỤ CỘT</span>`;
+                        healthBadge.style.borderColor = "var(--success)";
+                    } else if (xHealthScore >= 50) {
+                        healthBadge.innerHTML = `<span class="dot" style="background:#eab308;"></span> <span style="color:#eab308;">🟡 KHÁ TỐT (${xHealthScore}/100) — ĐỦ ĐĂNG BÀI & CÀO X</span>`;
+                        healthBadge.style.borderColor = "#eab308";
+                    } else if (xHealthScore > 0) {
+                        healthBadge.innerHTML = `<span class="dot" style="background:#ef4444;"></span> <span style="color:#ef4444;">🔴 YẾU (${xHealthScore}/100) — THIẾU COOKIE XÁC THỰC X</span>`;
+                        healthBadge.style.borderColor = "#ef4444";
+                    } else {
+                        healthBadge.innerHTML = `⚪ Chưa có cookie X (${list.length} Cookies)`;
+                        healthBadge.style.borderColor = "#334155";
+                    }
+                }
+
+                // 1. auth_token
+                const pCUserVal = document.getElementById("subPillarCUserVal");
+                const pCUserStatus = document.getElementById("subPillarCUserStatus");
+                if (pCUserVal) {
+                    if (authToken && authToken.value) {
+                        pCUserVal.innerHTML = '<span style="color:#38bdf8; font-family:monospace; font-size:11px;">' + escapeHtml(authToken.value.slice(0, 18)) + '...</span>';
+                        if (pCUserStatus) { pCUserStatus.textContent = "✅ ĐÃ CÓ AUTH"; pCUserStatus.style.background = "#0369a1"; pCUserStatus.style.color = "#fff"; }
+                    } else {
+                        pCUserVal.innerHTML = '<span style="color:#64748b;">Chưa có auth_token</span>';
+                        if (pCUserStatus) { pCUserStatus.textContent = "❌ Thiếu"; pCUserStatus.style.background = "#1e293b"; pCUserStatus.style.color = "#94a3b8"; }
+                    }
+                }
+
+                // 2. ct0 (CSRF Token)
+                const pXsTime = document.getElementById("subPillarXsTime");
+                const pXsStatus = document.getElementById("subPillarXsStatus");
+                const pXsDesc = document.getElementById("subPillarXsDesc");
+                if (pXsTime) {
+                    if (ct0 && ct0.value) {
+                        pXsTime.innerHTML = '<div style="color:#c084fc; font-weight:700; font-family:monospace; font-size:11px;">' + escapeHtml(ct0.value.slice(0, 16)) + '...</div>';
+                        if (pXsStatus) { pXsStatus.textContent = "✅ CSRF SẴN SÀNG"; pXsStatus.style.background = "#6d28d9"; pXsStatus.style.color = "#fff"; }
+                        if (pXsDesc) pXsDesc.textContent = "Mã bảo mật Tweet / API";
+                    } else {
+                        pXsTime.innerHTML = '<span style="color:#64748b;">Chưa có ct0 (CSRF)</span>';
+                        if (pXsStatus) { pXsStatus.textContent = "❌ Thiếu"; pXsStatus.style.background = "#1e293b"; pXsStatus.style.color = "#94a3b8"; }
+                    }
+                }
+
+                // 3. twid (Twitter User ID)
+                const pDatrVal = document.getElementById("subPillarDatrVal");
+                const pDatrStatus = document.getElementById("subPillarDatrStatus");
+                if (pDatrVal) {
+                    if (twid && twid.value) {
+                        let parsedId = "";
+                        try { parsedId = (decodeURIComponent(twid.value).match(/u=(\d+)/) || [])[1] || ""; } catch(e) {}
+                        pDatrVal.innerHTML = '<span style="color:#f59e0b; font-family:monospace; font-size:11px;">' + (parsedId ? `ID: ${parsedId}` : escapeHtml(twid.value.slice(0, 16))) + '</span>';
+                        if (pDatrStatus) { pDatrStatus.textContent = "✅ CÓ TWID"; pDatrStatus.style.background = "#b45309"; pDatrStatus.style.color = "#fff"; }
+                    } else {
+                        pDatrVal.innerHTML = '<span style="color:#64748b;">Chưa có twid</span>';
+                        if (pDatrStatus) { pDatrStatus.textContent = "⚪ Chưa có"; pDatrStatus.style.background = "#1e293b"; pDatrStatus.style.color = "#94a3b8"; }
+                    }
+                }
+
+                // 4. kdt (Device lock)
+                const pSbVal = document.getElementById("subPillarSbVal");
+                const pSbStatus = document.getElementById("subPillarSbStatus");
+                if (pSbVal) {
+                    if (kdt && kdt.value) {
+                        pSbVal.innerHTML = '<span style="color:#10b981; font-family:monospace; font-size:11px;">' + escapeHtml(kdt.value.slice(0, 16)) + '...</span>';
+                        if (pSbStatus) { pSbStatus.textContent = "✅ KHÓA THIẾT BỊ"; pSbStatus.style.background = "#047857"; pSbStatus.style.color = "#fff"; }
+                    } else {
+                        pSbVal.innerHTML = '<span style="color:#64748b;">Chưa có kdt</span>';
+                        if (pSbStatus) { pSbStatus.textContent = "⚪ Chưa có"; pSbStatus.style.background = "#1e293b"; pSbStatus.style.color = "#94a3b8"; }
+                    }
+                }
+
+                // 5. guest_id / personalization_id
+                const pFrVal = document.getElementById("subPillarFrVal");
+                const pFrStatus = document.getElementById("subPillarFrStatus");
+                if (pFrVal) {
+                    if (guestId && guestId.value) {
+                        pFrVal.innerHTML = '<span style="color:#22d3ee; font-family:monospace; font-size:11px;">' + escapeHtml(guestId.value.slice(0, 16)) + '...</span>';
+                        if (pFrStatus) { pFrStatus.textContent = "✅ GUEST SESSION"; pFrStatus.style.background = "#0891b2"; pFrStatus.style.color = "#fff"; }
+                    } else {
+                        pFrVal.innerHTML = '<span style="color:#64748b;">Chưa có guest_id</span>';
+                        if (pFrStatus) { pFrStatus.textContent = "⚪ Chưa có"; pFrStatus.style.background = "#1e293b"; pFrStatus.style.color = "#94a3b8"; }
+                    }
+                }
+                return;
+            }
+
             if (pillarsDiv) pillarsDiv.style.display = "grid";
+
+            const p1T = document.getElementById("subPillar1Title"); if (p1T) p1T.textContent = "🆔 c_user (UID)";
+            const p1D = document.getElementById("subPillar1Desc"); if (p1D) p1D.textContent = "User ID tài khoản Facebook";
+            const p2T = document.getElementById("subPillar2Title"); if (p2T) p2T.textContent = "🔐 xs (Session)";
+            const p2D = document.getElementById("subPillar2Desc"); if (p2D) p2D.textContent = "Phiên xác thực & Thời điểm tạo";
+            const p3T = document.getElementById("subPillar3Title"); if (p3T) p3T.textContent = "🛡️ datr (Anti-CP)";
+            const p3D = document.getElementById("subPillar3Desc"); if (p3D) p3D.textContent = "Chống Checkpoint 956/282 (Hardware)";
+            const p4T = document.getElementById("subPillar4Title"); if (p4T) p4T.textContent = "💻 sb (Device ID)";
+            const p4D = document.getElementById("subPillar4Desc"); if (p4D) p4D.textContent = "Định danh trình duyệt máy trạm";
+            const p5T = document.getElementById("subPillar5Title"); if (p5T) p5T.textContent = "🔑 fr (Auth Token)";
+            const p5D = document.getElementById("subPillar5Desc"); if (p5D) p5D.textContent = "Mã hóa xác thực phiên liên tục";
 
             let cUser = list.find(c => c.name === "c_user");
             let xs = list.find(c => c.name === "xs");
@@ -10226,6 +10524,8 @@ async function triggerRunNow(postId) {
                 extractAllFbAccountInfo();
             } else if (subType === 'flow') {
                 extractFlowAccountInfo();
+            } else if (subType === 'x') {
+                extractXAccountInfo();
             } else {
                 extractCookiesForActiveSub();
             }
@@ -10344,6 +10644,117 @@ async function triggerRunNow(postId) {
                     bannerBtn.disabled = false;
                     bannerBtn.style.opacity = "1";
                 }
+            }
+        }
+
+        let isExtractingXInfo = false;
+        async function extractXAccountInfo(bypassConfirm = false) {
+            if (!currentProjectId || !currentSubProjectId) return;
+            if (isExtractingXInfo) return;
+
+            const proj = allProjects.find(p => p.id === currentProjectId);
+            const sub = proj ? (proj.subProjects || []).find(s => s.id === currentSubProjectId) : null;
+            const hasExistingData = sub && (sub.xUsername || sub.c_user || (sub.cookies && sub.cookies.length > 0) || sub.cookieStr || sub.xAuthToken);
+
+            const nodes = (latestParentData && latestParentData.nodes) || [];
+            const activeNode = nodes[0] || null;
+            const browserXUser = (activeNode && activeNode.browserXUsername) ? String(activeNode.browserXUsername).trim().toLowerCase().replace(/^@/, '') : "";
+            const folderXUser = (sub && (sub.xUsername || sub.c_user) || "").trim().toLowerCase().replace(/^@/, '');
+
+            if (!bypassConfirm) {
+                // Kiểm tra xem Chrome có nick X khác với thư mục hiện tại không
+                if (hasExistingData && folderXUser && browserXUser && browserXUser !== folderXUser) {
+                    const choice = confirm(`⚠️ CẢNH BÁO LỆCH TÀI KHOẢN X (TWITTER)!\n\nThư mục này đang lưu tài khoản: @${folderXUser} (${sub.fbName || 'Tài khoản X'}).\nTrong khi Chrome hiện đang đăng nhập: @${browserXUser}.\n\nNếu tiếp tục, dữ liệu của tài khoản [@${folderXUser}] sẽ bị XÓA và THAY THẾ bằng [@${browserXUser}]!\n\n👉 Bấm 'OK' nếu bạn chấp nhận XÓA và GHI ĐÈ.\n👉 Bấm 'Cancel' (Hủy) để giữ nguyên (khuyến nghị tạo Dự Án Con khác).`);
+                    if (!choice) {
+                        return;
+                    }
+
+                    // Xóa trắng dữ liệu cũ trên server trước khi quét mới
+                    try {
+                        await fetch("/api/subprojects/clear-account", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ projectId: currentProjectId, subProjectId: currentSubProjectId })
+                        });
+                        if (currentProjectId) await fetchParentProjectData(currentProjectId);
+                    } catch(errClear) {
+                        console.warn("Lỗi xóa dữ liệu cũ:", errClear);
+                    }
+                } else if (hasExistingData) {
+                    const accLabel = sub.fbName || (folderXUser ? `@${folderXUser}` : 'hiện tại');
+                    const ok = confirm(`⚠️ Tài khoản X này đã có thông tin [${accLabel}].\n\nBạn có muốn XÓA TRẮNG DỮ LIỆU CŨ để quét và nạp dữ liệu mới từ Chrome không?`);
+                    if (!ok) return;
+
+                    try {
+                        await fetch("/api/subprojects/clear-account", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ projectId: currentProjectId, subProjectId: currentSubProjectId })
+                        });
+                        if (currentProjectId) await fetchParentProjectData(currentProjectId);
+                    } catch(errClear) {
+                        console.warn("Lỗi xóa dữ liệu cũ:", errClear);
+                    }
+                }
+            }
+
+            const bannerBtn = document.getElementById("subAccBannerBtn");
+            const oldBtnHtml = bannerBtn ? bannerBtn.innerHTML : "";
+
+            if (nodes.length === 0) {
+                alert("⚠️ Trình duyệt Chrome chưa kết nối Extension! Vui lòng mở Chrome và đảm bảo Extension Auth Helper đang chạy.");
+            }
+
+            try {
+                isExtractingXInfo = true;
+                if (bannerBtn) {
+                    bannerBtn.innerHTML = `<span>⏳</span> <span>ĐANG QUÉT TÀI KHOẢN X TỪ CHROME (CHỜ 2-5S)...</span>`;
+                    bannerBtn.disabled = true;
+                    bannerBtn.style.opacity = "0.75";
+                }
+
+                const loginStatus = document.getElementById("fbAccLoginStatus");
+                if (loginStatus) {
+                    loginStatus.innerHTML = `<span style="color:#38bdf8;">🔄 Đang lấy dữ liệu từ X.com...</span>`;
+                }
+
+                await fetch("/api/bridge/command", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        targetProjectId: currentProjectId,
+                        targetSubProjectId: currentSubProjectId,
+                        targetNodeId: "*",
+                        action: "GET_X_ACCOUNT",
+                        domain: "x.com"
+                    })
+                });
+
+                // Polling kiểm tra kết quả trả về từ Chrome (mỗi 1s, tối đa 7 lần)
+                let attempts = 0;
+                const pollInterval = setInterval(async () => {
+                    attempts++;
+                    if (currentProjectId) await fetchParentProjectData(currentProjectId);
+
+                    if (attempts >= 7) {
+                        clearInterval(pollInterval);
+                        isExtractingXInfo = false;
+                        if (bannerBtn) {
+                            bannerBtn.innerHTML = oldBtnHtml || `<span>🔄</span> <span>QUÉT & LẤY TOÀN BỘ THÔNG TIN TÀI KHOẢN X</span>`;
+                            bannerBtn.disabled = false;
+                            bannerBtn.style.opacity = "1";
+                        }
+                    }
+                }, 1000);
+
+            } catch(e) {
+                isExtractingXInfo = false;
+                if (bannerBtn) {
+                    bannerBtn.innerHTML = oldBtnHtml;
+                    bannerBtn.disabled = false;
+                    bannerBtn.style.opacity = "1";
+                }
+                alert("Lỗi: " + e.message);
             }
         }
 
@@ -12887,6 +13298,9 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     "browserFlowEmail": body.get("browserFlowEmail", ""),
                     "browserFlowProjectId": body.get("browserFlowProjectId", ""),
                     "browserFlowLoggedIn": body.get("browserFlowLoggedIn", False),
+                    "browserXUsername": body.get("browserXUsername", ""),
+                    "browserXUid": body.get("browserXUid", ""),
+                    "browserXLoggedIn": body.get("browserXLoggedIn", False),
                     "isFlowBusy": is_flow_busy,
                     "isFbBusy": is_fb_busy,
                     "busySubProjects": list(busy_subprojects),
@@ -13072,11 +13486,11 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 if action == "FLOW_DEBUG_INSPECT":
                     print("[Server Debug FlowInfo]:", json.dumps(body.get("flowInfo"), ensure_ascii=False))
 
-                if action in ("GET_FB_ACCOUNT", "GET_COOKIES"):
+                if action in ("GET_FB_ACCOUNT", "GET_COOKIES", "GET_X_ACCOUNT"):
                     latest_project_results[proj_id]["cookies"] = cookies
                     latest_project_results[proj_id]["cookieStr"] = cookie_str
                     latest_project_results[proj_id]["cookieCount"] = len(cookies)
-                    latest_project_results[proj_id]["c_user"] = c_user
+                    latest_project_results[proj_id]["c_user"] = c_user or body.get("username") or ""
                     if name: latest_project_results[proj_id]["fbName"] = name
                     if avatar: latest_project_results[proj_id]["avatar"] = avatar
                     if profile_url: latest_project_results[proj_id]["profileUrl"] = profile_url
@@ -13126,7 +13540,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                         target_sub = subs[0]
 
                     if target_sub:
-                        if action in ("GET_FB_ACCOUNT", "GET_COOKIES", "GET_FLOW_ACCOUNT"):
+                        if action in ("GET_FB_ACCOUNT", "GET_COOKIES", "GET_FLOW_ACCOUNT", "GET_X_ACCOUNT"):
                             if cookies: target_sub["cookies"] = cookies
                             if cookie_str: target_sub["cookieStr"] = cookie_str
 
@@ -13140,7 +13554,30 @@ class BridgeHandler(BaseHTTPRequestHandler):
                             if flow_project_id: target_sub["flowProjectId"] = flow_project_id
                             if flow_project_name: target_sub["flowProjectName"] = flow_project_name
 
-                            assigned_uid = c_user or email or google_uid or flow_project_id or uid
+                            # X (Twitter) specific fields
+                            x_username = body.get("username") or body.get("screenName") or ""
+                            x_uid = body.get("uid") or body.get("restId") or ""
+                            x_auth_token = body.get("authToken") or ""
+                            x_ct0 = body.get("ct0") or ""
+                            x_bio = body.get("bio") or ""
+                            x_followers = body.get("followersCount") or 0
+                            x_following = body.get("followingCount") or 0
+                            x_tweets = body.get("tweetsCount") or 0
+                            x_verified = body.get("isVerified", False)
+
+                            if x_username:
+                                target_sub["xUsername"] = x_username
+                                target_sub["xScreenName"] = x_username
+                            if x_uid: target_sub["xUid"] = str(x_uid)
+                            if x_auth_token: target_sub["xAuthToken"] = x_auth_token
+                            if x_ct0: target_sub["xCt0"] = x_ct0
+                            if x_bio: target_sub["xBio"] = x_bio
+                            if x_followers: target_sub["xFollowers"] = x_followers
+                            if x_following: target_sub["xFollowing"] = x_following
+                            if x_tweets: target_sub["xTweets"] = x_tweets
+                            if x_verified: target_sub["isVerified"] = x_verified
+
+                            assigned_uid = c_user or email or x_username or google_uid or flow_project_id or (str(x_uid) if x_uid else "") or uid
                             if assigned_uid:
                                 target_sub["c_user"] = assigned_uid
                                 target_sub["uid"] = assigned_uid
@@ -13151,22 +13588,31 @@ class BridgeHandler(BaseHTTPRequestHandler):
                                     target_sub["fbName"] = name
                                 elif not target_sub.get("fbName"):
                                     target_sub["fbName"] = f"Facebook ({c_user})" if c_user else ""
+                            elif x_username:
+                                target_sub["fbName"] = f"@{x_username}"
                             elif email:
                                 target_sub["fbName"] = email
 
                             if avatar: target_sub["avatar"] = avatar
                             if profile_url: target_sub["profileUrl"] = profile_url
+                            elif x_username: target_sub["profileUrl"] = f"https://x.com/{x_username}"
                             if token: target_sub["eaagToken"] = token
                             if dtsg: target_sub["dtsg"] = dtsg
 
-                            is_live = bool(c_user or email or (cookies and any(c.get('name') in ('SID', 'c_user', '__Secure-1PSID', 'OSID') for c in cookies)))
+                            has_x_auth = bool(x_auth_token or (cookies and any(c.get('name') == 'auth_token' for c in cookies)))
+                            is_live = bool(c_user or email or (x_username and has_x_auth) or has_x_auth or (cookies and any(c.get('name') in ('SID', 'c_user', '__Secure-1PSID', 'OSID', 'auth_token') for c in cookies)))
                             target_sub["status"] = "LIVE" if is_live else ("CHƯA ĐĂNG NHẬP" if cookies else "CHƯA CÓ COOKIE")
                             target_sub["lastExtracted"] = int(time.time() * 1000)
                             save_projects(projs)
 
-                            p_name = "Google Flow" if (action == "GET_FLOW_ACCOUNT" or target_sub.get("type") == "flow") else "FB"
-                            disp_name = target_sub.get("fbName") or email or name or "---"
-                            push_log(f"Đã cập nhật thông tin tài khoản {p_name} cho '{target_sub['name']}': UID/Email={assigned_uid or '---'}, Tên={disp_name}", "success", project_id=proj_id, subproject_id=target_sub['id'])
+                            if action == "GET_FLOW_ACCOUNT" or target_sub.get("type") == "flow":
+                                p_name = "Google Flow"
+                            elif action == "GET_X_ACCOUNT" or target_sub.get("type") == "x":
+                                p_name = "X (Twitter)"
+                            else:
+                                p_name = "FB"
+                            disp_name = target_sub.get("fbName") or email or (f"@{x_username}" if x_username else name) or "---"
+                            push_log(f"Đã cập nhật thông tin tài khoản {p_name} cho '{target_sub['name']}': {assigned_uid or '---'}, Tên={disp_name}, Cookies={len(cookies) if cookies else 0}", "success", project_id=proj_id, subproject_id=target_sub['id'])
 
                         elif action == "EXECUTE_SCRIPT":
                             data_str = str(body.get("data") or "")
@@ -13591,6 +14037,10 @@ class BridgeHandler(BaseHTTPRequestHandler):
             log_msg = f"Đã thực thi [{action}]: "
             if action in ("GET_FB_ACCOUNT", "GET_COOKIES"):
                 log_msg += f"Trích xuất thông tin FB thành công (UID: {c_user or '---'}, Tên: {name or '---'}, Cookies: {len(cookies)})"
+            elif action == "GET_X_ACCOUNT":
+                x_u = body.get('username') or body.get('screenName') or c_user or '---'
+                x_n = body.get('name') or name or '---'
+                log_msg += f"Trích xuất thông tin X (Twitter) thành công (@{x_u}, Tên: {x_n}, Cookies: {len(cookies)})"
             elif action == "EXECUTE_SCRIPT":
                 log_msg += f"Kết quả Script: {str(body.get('data') or body.get('error'))[:60]}"
             elif action == "POST_STORY":

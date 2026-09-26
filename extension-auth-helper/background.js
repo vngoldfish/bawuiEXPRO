@@ -140,6 +140,61 @@ async function sendHeartbeat() {
             }
         } catch(e) {}
 
+        // Quét thông tin tài khoản X (Twitter) đang active trên Chrome
+        let browserXUsername = "";
+        let browserXUid = "";
+        let browserXLoggedIn = false;
+        try {
+            const xAuth = await chrome.cookies.get({ url: "https://x.com", name: "auth_token" });
+            const twAuth = (!xAuth || !xAuth.value) ? await chrome.cookies.get({ url: "https://twitter.com", name: "auth_token" }) : null;
+            const activeAuth = (xAuth && xAuth.value) ? xAuth : twAuth;
+            browserXLoggedIn = !!(activeAuth && activeAuth.value);
+
+            // twid cookie (numeric user id)
+            const xTwid = (await chrome.cookies.get({ url: "https://x.com", name: "twid" })) || (await chrome.cookies.get({ url: "https://twitter.com", name: "twid" }));
+            if (xTwid && xTwid.value) {
+                const tm = decodeURIComponent(xTwid.value).match(/u=(\d+)/);
+                if (tm) browserXUid = tm[1];
+            }
+
+            const cachedX = await chrome.storage.local.get(["cachedXUsername", "cachedXUid"]);
+            browserXUsername = cachedX.cachedXUsername || "";
+            if (!browserXUid && cachedX.cachedXUid) browserXUid = cachedX.cachedXUid;
+
+            // Nếu đang mở tab x.com / twitter.com nhưng chưa có username, đọc nhanh từ tab
+            if (!browserXUsername && browserXLoggedIn) {
+                const xTab = tabs.find(t => t.url && (t.url.includes("x.com") || t.url.includes("twitter.com")));
+                if (xTab && xTab.id && !xTab.url.startsWith("chrome://")) {
+                    try {
+                        const [xRes] = await chrome.scripting.executeScript({
+                            target: { tabId: xTab.id },
+                            func: () => {
+                                try {
+                                    const prof = document.querySelector('a[data-testid="AppTabBar_Profile_Link"]');
+                                    if (prof) {
+                                        const m = (prof.getAttribute("href") || "").match(/^\/([a-zA-Z0-9_]+)/);
+                                        if (m && m[1] && !["home", "explore", "notifications", "messages"].includes(m[1].toLowerCase())) return m[1];
+                                    }
+                                    const btn = document.querySelector('[data-testid="SideNav_AccountSwitcher_Button"]');
+                                    if (btn) {
+                                        for (const s of btn.querySelectorAll('span, div[dir="ltr"]')) {
+                                            const t = (s.innerText || '').trim();
+                                            if (t.startsWith('@')) return t.substring(1);
+                                        }
+                                    }
+                                } catch(e) {}
+                                return "";
+                            }
+                        });
+                        if (xRes && xRes.result) {
+                            browserXUsername = xRes.result;
+                            chrome.storage.local.set({ cachedXUsername: browserXUsername });
+                        }
+                    } catch(e) {}
+                }
+            }
+        } catch(e) {}
+
         const payload = {
             nodeId: NODE_ID,
             nodeName: NODE_NAME,
@@ -151,6 +206,9 @@ async function sendHeartbeat() {
             browserFlowEmail: browserFlowEmail,
             browserFlowProjectId: browserFlowProjectId,
             browserFlowLoggedIn: browserFlowLoggedIn,
+            browserXUsername: browserXUsername,
+            browserXUid: browserXUid,
+            browserXLoggedIn: browserXLoggedIn,
             isFlowBusy: activeFlowCount > 0,
             isFbBusy: activeFbCount > 0,
             busySubProjects: Array.from(activeSubProjectIds),
@@ -2233,6 +2291,238 @@ async function _executeCommandAsync(cmd) {
                     // Đóng tab tạm nếu vừa mở ngầm
                     if (createdTabId) {
                         setTimeout(() => { chrome.tabs.remove(createdTabId).catch(() => {}); }, 1000);
+                    }
+
+                    cmdResult = { success: true, ...accountInfo };
+                    break;
+                }
+
+                case "GET_X_ACCOUNT": {
+                    // 1. Quét cookies của cả x.com và twitter.com
+                    const xCookies = await chrome.cookies.getAll({ domain: "x.com" });
+                    const twCookies = await chrome.cookies.getAll({ domain: "twitter.com" });
+
+                    // Gộp & khử trùng lặp theo name@domain
+                    const cookieMap = new Map();
+                    [...xCookies, ...twCookies].forEach(c => {
+                        cookieMap.set(`${c.name}@${c.domain}`, c);
+                    });
+                    const allCookies = Array.from(cookieMap.values());
+                    const cookieStr = allCookies.map(c => `${c.name}=${c.value}`).join("; ");
+
+                    // Tìm các cookie nhận diện phiên X cốt lõi
+                    let authToken = "";
+                    let ct0 = "";
+                    let twid = "";
+                    let kdt = "";
+                    let guestId = "";
+                    let personalizationId = "";
+                    for (const c of allCookies) {
+                        if (c.name === "auth_token") authToken = c.value;
+                        if (c.name === "ct0") ct0 = c.value;
+                        if (c.name === "twid") twid = c.value;
+                        if (c.name === "kdt") kdt = c.value;
+                        if (c.name === "guest_id" || c.name === "guest_id_marketing" || c.name === "guest_id_ads") guestId = c.value;
+                        if (c.name === "personalization_id") personalizationId = c.value;
+                    }
+
+                    // Giải mã User ID số từ twid cookie (ví dụ "u%3D12345678" hoặc "u=12345678")
+                    let numericUid = "";
+                    if (twid) {
+                        try {
+                            const decodedTwid = decodeURIComponent(twid);
+                            const m = decodedTwid.match(/u=(\d+)/);
+                            if (m) numericUid = m[1];
+                        } catch(e) {}
+                    }
+
+                    const isLoggedIn = !!authToken;
+
+                    let accountInfo = {
+                        platform: "x",
+                        domain: "x.com",
+                        name: "",
+                        username: "",
+                        screenName: "",
+                        uid: numericUid,
+                        restId: numericUid,
+                        avatar: "",
+                        profileUrl: "",
+                        bio: "",
+                        followersCount: 0,
+                        followingCount: 0,
+                        tweetsCount: 0,
+                        isVerified: false,
+                        isLoggedIn: isLoggedIn,
+                        cookieCount: allCookies.length,
+                        cookieStr: cookieStr,
+                        cookies: allCookies,
+                        authToken: authToken,
+                        ct0: ct0,
+                        twid: twid,
+                        kdt: kdt,
+                        guestId: guestId,
+                        personalizationId: personalizationId
+                    };
+
+                    // 2. TẦNG 1: Gọi API xác thực chính thức của Twitter/X Web Client
+                    // Bearer token chuẩn công khai được Twitter web app sử dụng
+                    const TWITTER_BEARER = "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA";
+                    if (authToken) {
+                        try {
+                            const headers = {
+                                "Authorization": TWITTER_BEARER,
+                                "x-twitter-auth-type": "OAuth2Session",
+                                "x-twitter-active-user": "yes"
+                            };
+                            if (ct0) headers["x-csrf-token"] = ct0;
+
+                            const vRes = await fetch("https://x.com/i/api/1.1/account/verify_credentials.json", {
+                                headers,
+                                credentials: "include"
+                            });
+
+                            if (vRes.ok) {
+                                const uData = await vRes.json();
+                                if (uData && (uData.screen_name || uData.id_str)) {
+                                    accountInfo.username = uData.screen_name || "";
+                                    accountInfo.screenName = uData.screen_name || "";
+                                    accountInfo.name = uData.name || uData.screen_name || "";
+                                    accountInfo.uid = String(uData.id_str || uData.id || accountInfo.uid);
+                                    accountInfo.restId = accountInfo.uid;
+                                    accountInfo.bio = uData.description || "";
+                                    accountInfo.followersCount = uData.followers_count || 0;
+                                    accountInfo.followingCount = uData.friends_count || 0;
+                                    accountInfo.tweetsCount = uData.statuses_count || 0;
+                                    accountInfo.isVerified = !!uData.verified;
+                                    if (uData.profile_image_url_https) {
+                                        accountInfo.avatar = uData.profile_image_url_https.replace("_normal.", "_400x400.");
+                                    }
+                                    accountInfo.profileUrl = `https://x.com/${uData.screen_name}`;
+                                }
+                            }
+                        } catch(apiErr) {
+                            console.warn("[Bridge] Lỗi fetch X verify_credentials:", apiErr);
+                        }
+                    }
+
+                    // 3. TẦNG 2: Nếu chưa có username hoặc avatar, quét từ tab x.com / twitter.com đang mở
+                    if (!accountInfo.username || !accountInfo.avatar) {
+                        const tabs = await chrome.tabs.query({});
+                        let xTab = tabs.find(t => t.url && (t.url.includes("x.com") || t.url.includes("twitter.com")));
+
+                        let createdTabId = null;
+                        if (!xTab && isLoggedIn) {
+                            try {
+                                const newTab = await chrome.tabs.create({ url: "https://x.com/home", active: false });
+                                createdTabId = newTab.id;
+                                await ensureTabLoaded(createdTabId);
+                                await new Promise(r => setTimeout(r, 3500));
+                                xTab = newTab;
+                            } catch(e) {}
+                        }
+
+                        if (xTab && xTab.id) {
+                            try {
+                                const scanRes = await chrome.scripting.executeScript({
+                                    target: { tabId: xTab.id },
+                                    world: "MAIN",
+                                    func: () => {
+                                        try {
+                                            let name = "";
+                                            let username = "";
+                                            let avatar = "";
+                                            let bio = "";
+
+                                            // A. Profile Link in Sidebar: a[data-testid="AppTabBar_Profile_Link"]
+                                            const profLink = document.querySelector('a[data-testid="AppTabBar_Profile_Link"]');
+                                            if (profLink) {
+                                                const href = profLink.getAttribute("href") || "";
+                                                const m = href.match(/^\/([a-zA-Z0-9_]+)/);
+                                                if (m && m[1] && !["home", "explore", "notifications", "messages", "i", "settings"].includes(m[1].toLowerCase())) {
+                                                    username = m[1];
+                                                }
+                                            }
+
+                                            // B. Account Switcher Button in bottom navbar
+                                            const accBtn = document.querySelector('[data-testid="SideNav_AccountSwitcher_Button"]');
+                                            if (accBtn) {
+                                                const img = accBtn.querySelector('img');
+                                                if (img && img.src) {
+                                                    avatar = img.src.replace('_normal.', '_400x400.');
+                                                }
+                                                const spans = Array.from(accBtn.querySelectorAll('span, div[dir="ltr"]'));
+                                                for (const s of spans) {
+                                                    const t = (s.innerText || "").trim();
+                                                    if (t.startsWith("@") && !username) {
+                                                        username = t.substring(1);
+                                                    } else if (t && !t.startsWith("@") && !name && t.length > 1 && !t.includes("\n")) {
+                                                        name = t;
+                                                    }
+                                                }
+                                            }
+
+                                            // C. On User Profile Page
+                                            const uNameEl = document.querySelector('[data-testid="UserName"]');
+                                            if (uNameEl) {
+                                                const lines = (uNameEl.innerText || "").split("\n").map(l => l.trim()).filter(Boolean);
+                                                for (const l of lines) {
+                                                    if (l.startsWith("@") && !username) username = l.substring(1);
+                                                    else if (!l.startsWith("@") && !name) name = l;
+                                                }
+                                            }
+
+                                            // D. Avatar image on page
+                                            if (!avatar) {
+                                                const avImg = document.querySelector('img[src*="profile_images"]');
+                                                if (avImg && avImg.src) avatar = avImg.src.replace('_normal.', '_400x400.');
+                                            }
+
+                                            return { name, username, avatar, bio };
+                                        } catch(e) {
+                                            return { error: e.message };
+                                        }
+                                    }
+                                });
+
+                                const tabData = scanRes?.[0]?.result || {};
+                                if (tabData.username && !accountInfo.username) accountInfo.username = tabData.username;
+                                if (tabData.username && !accountInfo.screenName) accountInfo.screenName = tabData.username;
+                                if (tabData.name && !accountInfo.name) accountInfo.name = tabData.name;
+                                if (tabData.avatar && !accountInfo.avatar) accountInfo.avatar = tabData.avatar;
+                                if (tabData.bio && !accountInfo.bio) accountInfo.bio = tabData.bio;
+                            } catch(errTab) {
+                                console.warn("[Bridge] Lỗi inject script tab X:", errTab);
+                            }
+                        }
+
+                        if (createdTabId) {
+                            setTimeout(() => { chrome.tabs.remove(createdTabId).catch(() => {}); }, 1000);
+                        }
+                    }
+
+                    // 4. Fallback gán giá trị mặc định nếu thiếu
+                    if (accountInfo.username) {
+                        accountInfo.profileUrl = `https://x.com/${accountInfo.username}`;
+                        if (!accountInfo.name) accountInfo.name = `@${accountInfo.username}`;
+                    } else if (numericUid) {
+                        accountInfo.username = `id_${numericUid}`;
+                        accountInfo.profileUrl = `https://x.com/i/user/${numericUid}`;
+                        if (!accountInfo.name) accountInfo.name = `X User (${numericUid})`;
+                    } else {
+                        accountInfo.name = isLoggedIn ? "Tài khoản X (Đã Đăng Nhập)" : "Chưa đăng nhập X";
+                    }
+
+                    accountInfo.uid = accountInfo.uid || accountInfo.username || (isLoggedIn ? "X_SESSION_LIVE" : "");
+
+                    // Lưu cache username & uid để heartbeat luôn nhận diện
+                    if (accountInfo.username || accountInfo.uid) {
+                        try {
+                            chrome.storage.local.set({
+                                cachedXUsername: accountInfo.username || "",
+                                cachedXUid: accountInfo.uid || ""
+                            });
+                        } catch(e) {}
                     }
 
                     cmdResult = { success: true, ...accountInfo };

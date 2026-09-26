@@ -2705,7 +2705,7 @@ Sản phẩm tuyệt vời quá</textarea>
                     <div id="postSeedingSection" style="margin-bottom:16px; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.06); border-radius:12px; padding:14px;">
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
                             <label style="font-size:12px; font-weight:700; color:#34d399; display:flex; align-items:center; gap:6px;">
-                                <span>💬</span> <span>5. Kịch Bản Bình Luận Seeding Ngay Sau Khi Đăng:</span>
+                                <span>💬</span> <span id="postSeedingTitleSpan">5. Kịch Bản Bình Luận Seeding Ngay Sau Khi Đăng:</span>
                             </label>
                             <div style="display:flex; gap:6px;">
                                 <button type="button" class="btn-sm" style="background:#1e293b; color:#a78bfa;" onclick="insertSeedingPreset('inquiry')">✨ Mẫu Hỏi Giá</button>
@@ -5561,7 +5561,13 @@ async function triggerRunNow(postId) {
                 const postShareToFeedLabel = document.getElementById("postShareToFeedLabel");
                 if (postShareToFeedLabel) postShareToFeedLabel.style.display = "flex";
                 const postSeedingSection = document.getElementById("postSeedingSection");
-                if (postSeedingSection) postSeedingSection.style.display = "block";
+                if (postSeedingSection) {
+                    postSeedingSection.style.display = "block";
+                    const postSeedingTitleSpan = document.getElementById("postSeedingTitleSpan");
+                    if (postSeedingTitleSpan) postSeedingTitleSpan.textContent = "5. Kịch Bản Bình Luận Seeding Ngay Sau Khi Đăng:";
+                    const postSeedingInput = document.getElementById("postSeedingCommentsInput");
+                    if (postSeedingInput) postSeedingInput.placeholder = "💬 Mỗi dòng một bình luận seeding tự động...\\nSản phẩm này còn hàng không shop?\\nĐã nhận được hàng, rất ưng ý ạ!\\nShop tư vấn nhiệt tình lắm nha";
+                }
                 const btnSubmitNowTitle = document.getElementById("btnSubmitAutoPostNowTitle");
                 if (btnSubmitNowTitle) btnSubmitNowTitle.textContent = "PHÁT LỆNH ĐĂNG BÀI & SEEDING NGAY";
                 const btnSubmitSchedTitle = document.getElementById("btnSubmitAutoPostScheduleTitle");
@@ -5637,7 +5643,13 @@ async function triggerRunNow(postId) {
                 const postShareToFeedLabel = document.getElementById("postShareToFeedLabel");
                 if (postShareToFeedLabel) postShareToFeedLabel.style.display = "none";
                 const postSeedingSection = document.getElementById("postSeedingSection");
-                if (postSeedingSection) postSeedingSection.style.display = "none";
+                if (postSeedingSection) {
+                    postSeedingSection.style.display = "block";
+                    const postSeedingTitleSpan = document.getElementById("postSeedingTitleSpan");
+                    if (postSeedingTitleSpan) postSeedingTitleSpan.textContent = "5. Kịch Bản Reply / Bình Luận Seeding Dưới Tweet:";
+                    const postSeedingInput = document.getElementById("postSeedingCommentsInput");
+                    if (postSeedingInput) postSeedingInput.placeholder = "💬 Mỗi dòng một bình luận/reply seeding dưới Tweet...\\nVD: Chấm hóng thông tin\\nVD: Cảm ơn bạn đã chia sẻ!";
+                }
                 const btnSubmitNowTitle = document.getElementById("btnSubmitAutoPostNowTitle");
                 if (btnSubmitNowTitle) btnSubmitNowTitle.textContent = "PHÁT LỆNH ĐĂNG TWEET NGAY";
                 const btnSubmitSchedTitle = document.getElementById("btnSubmitAutoPostScheduleTitle");
@@ -9930,7 +9942,7 @@ async function triggerRunNow(postId) {
             const mediaUrl = document.getElementById("postMediaInput")?.value.trim() || "";
             const targetUrl = document.getElementById("postTargetUrlInput")?.value.trim() || (isX ? "https://x.com" : "https://www.facebook.com");
             const targetId = document.getElementById("postTargetIdInput")?.value.trim() || "";
-            const rawSeeding = isX ? "" : (document.getElementById("postSeedingCommentsInput")?.value.trim() || "");
+            const rawSeeding = document.getElementById("postSeedingCommentsInput")?.value.trim() || "";
             const autoReactType = isX ? "NONE" : (document.getElementById("postAutoReactInput")?.value || "LIKE");
             const statusEl = document.getElementById("autopostStatusText");
             const scheduleInput = document.getElementById("postScheduleTimeInput");

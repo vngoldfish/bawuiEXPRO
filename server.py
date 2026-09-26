@@ -2624,7 +2624,7 @@ Sản phẩm tuyệt vời quá</textarea>
                 <div class="card" style="margin-bottom:24px; border-color:#202d46;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
                         <h3 style="font-size:16px; color:#34d399; margin:0; display:flex; align-items:center; gap:8px;">
-                            <span>✍️</span> <span>Soạn Thảo Bài Viết & Kịch Bản Seeding Mới</span>
+                            <span>✍️</span> <span id="postStudioFormHeaderTitle">Soạn Thảo Bài Viết & Kịch Bản Seeding Mới</span>
                         </h3>
                         <span style="font-size:11px; color:var(--text-muted);">Hỗ trợ đa định dạng & Spintax</span>
                     </div>
@@ -2763,18 +2763,18 @@ Sản phẩm tuyệt vời quá</textarea>
                     <!-- SUBMIT BUTTONS -->
                     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
                         <div class="btn-group-responsive" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-                            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; background:rgba(30,41,59,0.7); padding:8px 14px; border-radius:8px; border:1px solid #334155; font-size:13px; font-weight:600; color:#38bdf8; user-select:none; transition:all 0.2s;" title="Tự động chia sẻ bài viết lên Bảng tin & Tin Story (theo mutation useCometFeedToStoryReshare trong sharetinfacebook.har)">
+                            <label id="postShareToFeedLabel" style="display:flex; align-items:center; gap:8px; cursor:pointer; background:rgba(30,41,59,0.7); padding:8px 14px; border-radius:8px; border:1px solid #334155; font-size:13px; font-weight:600; color:#38bdf8; user-select:none; transition:all 0.2s;" title="Tự động chia sẻ bài viết lên Bảng tin & Tin Story (theo mutation useCometFeedToStoryReshare trong sharetinfacebook.har)">
                                 <input type="checkbox" id="postShareToFeed" checked style="width:17px; height:17px; accent-color:#0284c7; cursor:pointer;" />
                                 <span>📰 Chia sẻ lên bảng tin / Tin (Story)</span>
                             </label>
                             <button type="button" class="btn-green btn-lg" onclick="submitAutoPost('now')" style="background:linear-gradient(135deg,#059669,#10b981); box-shadow:0 4px 15px rgba(16,185,129,0.35);">
-                                <span>🚀</span> <span>PHÁT LỆNH ĐĂNG BÀI & SEEDING NGAY</span>
+                                <span>🚀</span> <span id="btnSubmitAutoPostNowTitle">PHÁT LỆNH ĐĂNG BÀI & SEEDING NGAY</span>
                             </button>
                             <button type="button" class="btn-purple btn-lg" onclick="submitAutoPost('schedule')" style="background:linear-gradient(135deg,#0284c7,#2563eb); box-shadow:0 4px 15px rgba(37,99,235,0.35);">
-                                <span>⏰</span> <span>LÊN LỊCH ĐĂNG (SCHEDULE)</span>
+                                <span>⏰</span> <span id="btnSubmitAutoPostScheduleTitle">LÊN LỊCH ĐĂNG (SCHEDULE)</span>
                             </button>
                             <button type="button" class="btn-purple btn-lg" onclick="submitAutoPost('queue')">
-                                <span>➕</span> <span>Thêm Vào Hàng Đợi (Lưu Nháp)</span>
+                                <span>➕</span> <span id="btnSubmitAutoPostQueueTitle">Thêm Vào Hàng Đợi (Lưu Nháp)</span>
                             </button>
                         </div>
                         <span id="autopostStatusText" style="font-size:13px; font-weight:700;"></span>
@@ -2785,7 +2785,7 @@ Sản phẩm tuyệt vời quá</textarea>
                 <div class="card" style="border-color:#202d46;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:12px;">
                         <h4 style="font-size:16px; color:#fff; margin:0; display:flex; align-items:center; gap:8px;">
-                            <span>📑</span> <span>Quản Lý Bài Viết Đã Đăng & Hàng Đợi</span>
+                            <span>📑</span> <span id="postQueueSectionTitle">Quản Lý Bài Viết Đã Đăng & Hàng Đợi</span>
                             <span class="badge-folder" style="background:rgba(52,211,153,0.2); color:#34d399; border:1px solid rgba(52,211,153,0.4);" id="postQueueCountBadge">0 Bài</span>
                         </h4>
                         <!-- SEARCH BAR -->
@@ -3863,24 +3863,24 @@ Sản phẩm tuyệt vời quá</textarea>
                 <!-- THANH CHUYỂN NHANH TRONG CHỨC NĂNG POST FACEBOOK -->
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; background:#070d1e; border:1px solid #1e293b; padding:8px 14px; border-radius:8px; flex-wrap:wrap; gap:10px;">
                     <div class="post-fb-toolbar" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-                        <span style="font-size:12px; font-weight:800; color:#38bdf8; margin-right:4px;">🚀 POST FACEBOOK:</span>
-                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-autopost')">
-                            📝 Đăng Bài Viết Thường
+                        <span id="mgrToolbarPlatform" style="font-size:12px; font-weight:800; color:#38bdf8; margin-right:4px;">🚀 POST FACEBOOK:</span>
+                        <button class="btn-sm" id="btnMgrToolbarAutopost" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-autopost')">
+                            📝 <span id="btnMgrToolbarAutopostTitle">Đăng Bài Viết Thường</span>
                         </button>
-                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-post-video')">
+                        <button class="btn-sm" id="btnMgrToolbarPostVideo" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-post-video')">
                             🎬 Facebook Video Watch
                         </button>
-                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-post-reels')">
+                        <button class="btn-sm" id="btnMgrToolbarPostReels" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-post-reels')">
                             ⚡ Facebook Reels
                         </button>
-                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-post-story')">
+                        <button class="btn-sm" id="btnMgrToolbarPostStory" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-post-story')">
                             📖 Facebook Story
                         </button>
-                        <button class="btn-sm" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-api-doc')">
+                        <button class="btn-sm" id="btnMgrToolbarApiDoc" style="background:#1e293b; color:#cbd5e1; font-weight:600; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-api-doc')">
                             📖 Tài Liệu API
                         </button>
-                        <button class="btn-sm active" style="background:#0284c7; color:#fff; font-weight:700; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-post-manager')">
-                            📑 Quản Lý Bài Viết
+                        <button class="btn-sm active" id="btnMgrToolbarPostManager" style="background:#0284c7; color:#fff; font-weight:700; border-radius:6px; padding:5px 12px;" onclick="switchSubMenu('sub-post-manager')">
+                            📑 <span id="btnMgrToolbarPostManagerTitle">Quản Lý Bài Viết</span>
                         </button>
                     </div>
                     <div style="font-size:11px; color:#a78bfa; font-weight:600;">
@@ -3893,9 +3893,9 @@ Sản phẩm tuyệt vời quá</textarea>
                     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px;">
                         <div>
                             <h2 style="font-size:18px; font-weight:800; color:#fff; display:flex; align-items:center; gap:8px;">
-                                <span>📑</span> <span>Quản Lý Bài Viết Đã Đăng</span>
+                                <span>📑</span> <span id="postMgrBannerTitle">Quản Lý Bài Viết Đã Đăng</span>
                             </h2>
-                            <p style="font-size:13px; color:#cbd5e1; margin-top:4px;">
+                            <p style="font-size:13px; color:#cbd5e1; margin-top:4px;" id="postMgrBannerDesc">
                                 Theo dõi và quản lý tất cả bài viết đã đăng thành công, đã lên lịch, đang chờ, hoặc thất bại. Bao gồm tất cả loại bài: Bài viết thường, Video Watch, Reels, và Story.
                             </p>
                         </div>
@@ -5110,8 +5110,13 @@ Sản phẩm tuyệt vời quá</textarea>
             if (subType !== 'facebook') {
                 if (subType === 'flow') {
                     // FLOW: cho phép sub-flow-image, chặn các menu Facebook
-                    if (targetKey === 'sub-scraper' || targetKey === 'sub-autopost' || targetKey === 'sub-post-video' || targetKey === 'sub-post-reels' || targetKey === 'sub-post-story' || targetKey === 'sub-api-doc' || targetKey === 'sub-post-manager' || targetKey === 'sub-interaction') {
+                    if (targetKey === 'sub-scraper' || targetKey === 'sub-autopost' || targetKey === 'sub-post-video' || targetKey === 'sub-post-reels' || targetKey === 'sub-post-story' || targetKey === 'sub-api-doc' || targetKey === 'sub-post-manager' || targetKey === 'sub-interaction' || targetKey === 'sub-other-notice') {
                         targetKey = 'sub-flow-image';
+                    }
+                } else if (subType === 'x') {
+                    // X (TWITTER): Cho phép sub-autopost (Soạn & Đăng Tweet) và sub-post-manager (Hàng Đợi Tweet)
+                    if (targetKey === 'sub-scraper' || targetKey === 'sub-post-video' || targetKey === 'sub-post-reels' || targetKey === 'sub-post-story' || targetKey === 'sub-api-doc' || targetKey === 'sub-interaction' || targetKey === 'sub-flow-image' || targetKey === 'sub-other-notice') {
+                        targetKey = 'sub-autopost';
                     }
                 } else {
                     // CÁC NỀN TẢNG KHÁC: chặn tất cả menu FB + Flow
@@ -5129,7 +5134,7 @@ Sản phẩm tuyệt vời quá</textarea>
                 item.classList.toggle("active", item.getAttribute("data-sub-menu") === targetKey);
             });
 
-            // Đồng bộ trạng thái nhóm POST FACEBOOK
+            // Đồng bộ trạng thái nhóm POST FACEBOOK / X
             const postFbGroup = document.getElementById("sideMenuPostFbGroup");
             const postFbTree = document.getElementById("postFbSubTree");
             if (postFbGroup) {
@@ -5154,9 +5159,17 @@ Sản phẩm tuyệt vời quá</textarea>
                 const pName = p ? p.name : "Dự Án Cha";
                 const subName = sub ? sub.name : "Dự Án Con";
                 const pCfg = PLATFORM_CONFIG[subType] || PLATFORM_CONFIG["facebook"];
-                document.getElementById("pageTitle").innerHTML = `📁 ${pName} &gt; 📂 <b>${subName}</b> [${pCfg.icon} ${pCfg.name}] &rarr; ${subMenus[targetKey].title}`;
+                let menuTitle = subMenus[targetKey].title;
+                if (subType === 'x') {
+                    if (targetKey === 'sub-autopost') menuTitle = "✍️ Soạn & Đăng Tweet";
+                    else if (targetKey === 'sub-post-manager') menuTitle = "📋 Hàng Đợi Tweet";
+                }
+                document.getElementById("pageTitle").innerHTML = `📁 ${pName} &gt; 📂 <b>${subName}</b> [${pCfg.icon} ${pCfg.name}] &rarr; ${menuTitle}`;
                 if (targetKey === 'sub-api-doc') {
                     updateSubApiDocView();
+                }
+                if (targetKey === 'sub-post-manager' && typeof refreshPostManagerFromCache === 'function') {
+                    refreshPostManagerFromCache();
                 }
                 if (targetKey === 'sub-flow-image' && sub && typeof renderFlowImageGallery === 'function') {
                     renderFlowImageGallery(sub);
@@ -5526,7 +5539,7 @@ async function triggerRunNow(postId) {
                 if (sideAccount) sideAccount.textContent = "Thông Tin & Cookie FB";
                 if (sideBrowser) sideBrowser.textContent = "Điều Khiển Tab Facebook";
 
-                // Toolbar Studio
+                // Toolbar Studio Autopost
                 if (autopostToolbarPlatform) autopostToolbarPlatform.textContent = "🚀 POST FACEBOOK:";
                 if (btnToolbarAutopostTitle) btnToolbarAutopostTitle.textContent = "Đăng Bài Viết Thường";
                 if (btnToolbarPostVideo) btnToolbarPostVideo.style.display = "inline-flex";
@@ -5541,6 +5554,44 @@ async function triggerRunNow(postId) {
                 if (postTargetTypeGroup) postTargetTypeGroup.style.display = "block";
                 if (postAutoReactCol) postAutoReactCol.style.display = "block";
                 if (postContentInput) postContentInput.placeholder = "{Chào bạn|Hello quý khách|Hi cả nhà}! Hôm nay bên mình {giảm giá|ưu đãi khủng|tri ân khách hàng}...\\n#sanpham #khuyenmai";
+
+                // Form Studio FB
+                const postStudioFormHeaderTitle = document.getElementById("postStudioFormHeaderTitle");
+                if (postStudioFormHeaderTitle) postStudioFormHeaderTitle.textContent = "Soạn Thảo Bài Viết & Kịch Bản Seeding Mới";
+                const postShareToFeedLabel = document.getElementById("postShareToFeedLabel");
+                if (postShareToFeedLabel) postShareToFeedLabel.style.display = "flex";
+                const postSeedingSection = document.getElementById("postSeedingSection");
+                if (postSeedingSection) postSeedingSection.style.display = "block";
+                const btnSubmitNowTitle = document.getElementById("btnSubmitAutoPostNowTitle");
+                if (btnSubmitNowTitle) btnSubmitNowTitle.textContent = "PHÁT LỆNH ĐĂNG BÀI & SEEDING NGAY";
+                const btnSubmitSchedTitle = document.getElementById("btnSubmitAutoPostScheduleTitle");
+                if (btnSubmitSchedTitle) btnSubmitSchedTitle.textContent = "LÊN LỊCH ĐĂNG (SCHEDULE)";
+                const btnSubmitQueueTitle = document.getElementById("btnSubmitAutoPostQueueTitle");
+                if (btnSubmitQueueTitle) btnSubmitQueueTitle.textContent = "Thêm Vào Hàng Đợi (Lưu Nháp)";
+                const postQueueSectionTitle = document.getElementById("postQueueSectionTitle");
+                if (postQueueSectionTitle) postQueueSectionTitle.textContent = "Quản Lý Bài Viết Đã Đăng & Hàng Đợi";
+                const schedHint = document.getElementById("autopostScheduleHint");
+                if (schedHint) schedHint.textContent = "ℹ️ Để trống để phát lệnh ngay. Nếu chọn thời gian, bài sẽ được lưu vào hàng đợi và tự động kích hoạt đăng lên Facebook khi đến giờ hẹn.";
+
+                // Toolbar & Banner Post Manager FB
+                const mgrToolbarPlatform = document.getElementById("mgrToolbarPlatform");
+                if (mgrToolbarPlatform) mgrToolbarPlatform.textContent = "🚀 POST FACEBOOK:";
+                const btnMgrToolbarAutopostTitle = document.getElementById("btnMgrToolbarAutopostTitle");
+                if (btnMgrToolbarAutopostTitle) btnMgrToolbarAutopostTitle.textContent = "Đăng Bài Viết Thường";
+                const btnMgrToolbarPostVideo = document.getElementById("btnMgrToolbarPostVideo");
+                if (btnMgrToolbarPostVideo) btnMgrToolbarPostVideo.style.display = "inline-flex";
+                const btnMgrToolbarPostReels = document.getElementById("btnMgrToolbarPostReels");
+                if (btnMgrToolbarPostReels) btnMgrToolbarPostReels.style.display = "inline-flex";
+                const btnMgrToolbarPostStory = document.getElementById("btnMgrToolbarPostStory");
+                if (btnMgrToolbarPostStory) btnMgrToolbarPostStory.style.display = "inline-flex";
+                const btnMgrToolbarApiDoc = document.getElementById("btnMgrToolbarApiDoc");
+                if (btnMgrToolbarApiDoc) btnMgrToolbarApiDoc.style.display = "inline-flex";
+                const btnMgrToolbarPostManagerTitle = document.getElementById("btnMgrToolbarPostManagerTitle");
+                if (btnMgrToolbarPostManagerTitle) btnMgrToolbarPostManagerTitle.textContent = "Quản Lý Bài Viết";
+                const postMgrBannerTitle = document.getElementById("postMgrBannerTitle");
+                if (postMgrBannerTitle) postMgrBannerTitle.textContent = "Quản Lý Bài Viết Đã Đăng";
+                const postMgrBannerDesc = document.getElementById("postMgrBannerDesc");
+                if (postMgrBannerDesc) postMgrBannerDesc.textContent = "Theo dõi và quản lý tất cả bài viết đã đăng thành công, đã lên lịch, đang chờ, hoặc thất bại. Bao gồm tất cả loại bài: Bài viết thường, Video Watch, Reels, và Story.";
 
             } else if (isX) {
                 // X (TWITTER): BẬT CÔNG CỤ SOẠN & ĐĂNG TWEET X
@@ -5564,7 +5615,7 @@ async function triggerRunNow(postId) {
                 if (sideAccount) sideAccount.textContent = "Tài Khoản & Cookie X";
                 if (sideBrowser) sideBrowser.textContent = "Điều Khiển Tab X (Twitter)";
 
-                // Toolbar Studio
+                // Toolbar Studio Autopost X
                 if (autopostToolbarPlatform) autopostToolbarPlatform.textContent = "𝕏 ĐĂNG BÀI X:";
                 if (btnToolbarAutopostTitle) btnToolbarAutopostTitle.textContent = "Soạn & Đăng Tweet";
                 if (btnToolbarPostVideo) btnToolbarPostVideo.style.display = "none";
@@ -5579,6 +5630,44 @@ async function triggerRunNow(postId) {
                 if (postTargetTypeGroup) postTargetTypeGroup.style.display = "none";
                 if (postAutoReactCol) postAutoReactCol.style.display = "none";
                 if (postContentInput) postContentInput.placeholder = "Bạn đang nghĩ gì? Soạn Tweet để chia sẻ lên X (hỗ trợ hashtag # và link)...";
+
+                // Form Studio X
+                const postStudioFormHeaderTitle = document.getElementById("postStudioFormHeaderTitle");
+                if (postStudioFormHeaderTitle) postStudioFormHeaderTitle.textContent = "Soạn Thảo & Xuất Bản Tweet Mới";
+                const postShareToFeedLabel = document.getElementById("postShareToFeedLabel");
+                if (postShareToFeedLabel) postShareToFeedLabel.style.display = "none";
+                const postSeedingSection = document.getElementById("postSeedingSection");
+                if (postSeedingSection) postSeedingSection.style.display = "none";
+                const btnSubmitNowTitle = document.getElementById("btnSubmitAutoPostNowTitle");
+                if (btnSubmitNowTitle) btnSubmitNowTitle.textContent = "PHÁT LỆNH ĐĂNG TWEET NGAY";
+                const btnSubmitSchedTitle = document.getElementById("btnSubmitAutoPostScheduleTitle");
+                if (btnSubmitSchedTitle) btnSubmitSchedTitle.textContent = "LÊN LỊCH ĐĂNG TWEET";
+                const btnSubmitQueueTitle = document.getElementById("btnSubmitAutoPostQueueTitle");
+                if (btnSubmitQueueTitle) btnSubmitQueueTitle.textContent = "Lưu Nháp Tweet";
+                const postQueueSectionTitle = document.getElementById("postQueueSectionTitle");
+                if (postQueueSectionTitle) postQueueSectionTitle.textContent = "Hàng Đợi & Lịch Sử Tweet Đã Đăng";
+                const schedHint = document.getElementById("autopostScheduleHint");
+                if (schedHint) schedHint.textContent = "ℹ️ Để trống để phát lệnh đăng Tweet ngay. Nếu chọn thời gian, bài sẽ được lưu vào hàng đợi và tự động kích hoạt đăng lên X khi đến giờ hẹn.";
+
+                // Toolbar & Banner Post Manager X
+                const mgrToolbarPlatform = document.getElementById("mgrToolbarPlatform");
+                if (mgrToolbarPlatform) mgrToolbarPlatform.textContent = "𝕏 ĐĂNG BÀI X:";
+                const btnMgrToolbarAutopostTitle = document.getElementById("btnMgrToolbarAutopostTitle");
+                if (btnMgrToolbarAutopostTitle) btnMgrToolbarAutopostTitle.textContent = "Soạn & Đăng Tweet";
+                const btnMgrToolbarPostVideo = document.getElementById("btnMgrToolbarPostVideo");
+                if (btnMgrToolbarPostVideo) btnMgrToolbarPostVideo.style.display = "none";
+                const btnMgrToolbarPostReels = document.getElementById("btnMgrToolbarPostReels");
+                if (btnMgrToolbarPostReels) btnMgrToolbarPostReels.style.display = "none";
+                const btnMgrToolbarPostStory = document.getElementById("btnMgrToolbarPostStory");
+                if (btnMgrToolbarPostStory) btnMgrToolbarPostStory.style.display = "none";
+                const btnMgrToolbarApiDoc = document.getElementById("btnMgrToolbarApiDoc");
+                if (btnMgrToolbarApiDoc) btnMgrToolbarApiDoc.style.display = "none";
+                const btnMgrToolbarPostManagerTitle = document.getElementById("btnMgrToolbarPostManagerTitle");
+                if (btnMgrToolbarPostManagerTitle) btnMgrToolbarPostManagerTitle.textContent = "Hàng Đợi Tweet";
+                const postMgrBannerTitle = document.getElementById("postMgrBannerTitle");
+                if (postMgrBannerTitle) postMgrBannerTitle.textContent = "Quản Lý Hàng Đợi & Lịch Sử Tweet Đã Đăng";
+                const postMgrBannerDesc = document.getElementById("postMgrBannerDesc");
+                if (postMgrBannerDesc) postMgrBannerDesc.textContent = "Theo dõi và quản lý tất cả Tweet đã đăng thành công lên X (Twitter), các bài viết đang chờ hoặc đã lên lịch hẹn giờ.";
 
             } else {
                 // CÁC NỀN TẢNG KHÁC (TIKTOK, FLOW...): ẨN CÁC TOOL FB ĐỂ KHÔNG BỊ TRỘN LẪN
@@ -6579,6 +6668,7 @@ async function triggerRunNow(postId) {
             const pCfg = PLATFORM_CONFIG[subType] || PLATFORM_CONFIG["facebook"];
             if (subType === 'facebook') {
                 container.innerHTML = `
+                    <button class="btn-sm btn-green" onclick="switchSubMenu('sub-autopost')">✍️ Soạn & Đăng Bài (Studio)</button>
                     <button class="btn-sm" onclick="projectOpenTab('https://www.facebook.com')">🌐 Facebook Web</button>
                     <button class="btn-sm" onclick="projectOpenTab('https://m.facebook.com')">📱 Mobile Facebook</button>
                     <button class="btn-sm btn-purple" onclick="projectOpenTab('https://business.facebook.com')">🏢 Meta Business</button>
@@ -6590,9 +6680,10 @@ async function triggerRunNow(postId) {
                 const xUser = (sub && (sub.xUsername || sub.c_user) || "").replace(/^@/, '');
                 const profUrl = xUser ? `https://x.com/${xUser}` : 'https://x.com';
                 container.innerHTML = `
+                    <button class="btn-sm btn-green" onclick="switchSubMenu('sub-autopost')">✍️ Soạn & Đăng Tweet (Studio)</button>
                     <button class="btn-sm" onclick="projectOpenTab('https://x.com/home')">🌐 Mở X (x.com)</button>
                     <button class="btn-sm btn-purple" onclick="projectOpenTab('${profUrl}')">👤 Trang Cá Nhân ${xUser ? '@' + xUser : ''}</button>
-                    <button class="btn-sm btn-orange" onclick="projectOpenTab('https://x.com/compose/post')">✍️ Soạn Tweet</button>
+                    <button class="btn-sm btn-orange" onclick="projectOpenTab('https://x.com/compose/post')">𝕏 Mở Trình Soạn X.com</button>
                     <button class="btn-sm" onclick="projectOpenTab('https://x.com/explore')">🔍 Khám Phá & Xu Hướng</button>
                     <button class="btn-sm btn-secondary" onclick="projectOpenTab('https://x.com/notifications')">🔔 Thông Báo</button>
                 `;
@@ -8853,13 +8944,16 @@ async function triggerRunNow(postId) {
         }
 
         function renderAutoPosterStudio(sub, pCfg) {
+            const isX = (sub.type === 'x');
             const bannerTitle = document.getElementById("autopostBannerTitle");
             const targetUrlInput = document.getElementById("postTargetUrlInput");
 
-            const sourceDomain = sub.sourceDomain || pCfg.domain || "facebook.com";
-            if (bannerTitle) bannerTitle.textContent = `Studio Đăng Bài Viết Thường: ${pCfg.name} (${sourceDomain})`;
-            if (targetUrlInput && (!targetUrlInput.value || targetUrlInput.value === "https://...")) {
-                targetUrlInput.value = "https://www.facebook.com";
+            const sourceDomain = sub.sourceDomain || pCfg.domain || (isX ? "x.com" : "facebook.com");
+            if (bannerTitle) {
+                bannerTitle.textContent = isX ? "Studio Soạn & Xuất Bản Tweet Lên X (Twitter)" : `Studio Đăng Bài Viết Thường: ${pCfg.name} (${sourceDomain})`;
+            }
+            if (targetUrlInput && (!targetUrlInput.value || targetUrlInput.value === "https://..." || (isX && targetUrlInput.value.includes("facebook.com")) || (!isX && targetUrlInput.value.includes("x.com")))) {
+                targetUrlInput.value = isX ? "https://x.com" : "https://www.facebook.com";
             }
 
             const queue = sub.postQueue || [];
@@ -8870,9 +8964,13 @@ async function triggerRunNow(postId) {
             const reelsPosts = queue.filter(p => p.postType === "reel");
             const storyPosts = queue.filter(p => p.postType === "story");
 
-            // 2. Render Studio 1: Bài Viết Thường (Feed)
+            // 2. Render Studio 1: Bài Viết Thường (Feed) / X Tweet
             updateKpis(feedPosts, "kpiTotalPosts", "kpiPendingPosts", "kpiCompletedPosts", "kpiTotalSeeding");
-            renderPostQueueList(feedPosts, "postQueueTableContainer", "postQueueCountBadge", "📝", "Hàng đợi bài viết thường đang trống", "Soạn nội dung bài viết và đính kèm ảnh/video ở trên rồi bấm [🚀 PHÁT LỆNH ĐĂNG BÀI]!");
+            if (isX) {
+                renderPostQueueList(feedPosts, "postQueueTableContainer", "postQueueCountBadge", "𝕏", "Hàng đợi Tweet đang trống", "Soạn nội dung Tweet và đính kèm ảnh/video ở trên rồi bấm [🚀 PHÁT LỆNH ĐĂNG TWEET NGAY]!");
+            } else {
+                renderPostQueueList(feedPosts, "postQueueTableContainer", "postQueueCountBadge", "📝", "Hàng đợi bài viết thường đang trống", "Soạn nội dung bài viết và đính kèm ảnh/video ở trên rồi bấm [🚀 PHÁT LỆNH ĐĂNG BÀI]!");
+            }
 
             // 3. Render Studio 2: Facebook Video Watch
             updateKpis(videoPosts, "kpiTotalVideoPosts", "kpiPendingVideoPosts", "kpiCompletedVideoPosts", "kpiTotalVideoSeeding");
@@ -9814,12 +9912,15 @@ async function triggerRunNow(postId) {
         async function submitAutoPost(runMode) {
             if (!currentProjectId || !currentSubProjectId) return;
 
-            // Kiểm tra bảo vệ chống đăng nhầm nick khi lệch UID
+            // Kiểm tra bảo vệ chống đăng nhầm nick khi lệch tài khoản
             const projObj = allProjects.find(p => p.id === currentProjectId);
             const subObj = projObj ? (projObj.subProjects || []).find(s => s.id === currentSubProjectId) : null;
+            const subType = subObj ? (subObj.type || 'facebook') : 'facebook';
+            const isX = (subType === 'x');
             const mismatchStatus = checkSubProjectMismatch(subObj);
             if (mismatchStatus.isMismatch) {
-                alert(`🔒 TÍNH NĂNG BỊ KHÓA DO KHÁC TÀI KHOẢN!\n\nThư mục này của UID: ${mismatchStatus.cUser}\nTrong khi Chrome đang đăng nhập UID: ${mismatchStatus.browserFbUid}\n\n👉 Vui lòng:\n1. Tạo Dự Án Con mới cho nick Chrome này\n2. Hoặc vào trang Thông Tin FB để quét nạp lại nick mới!`);
+                const pLabel = subType === 'flow' ? 'Google Account' : (subType === 'x' ? 'Tài Khoản X (Twitter)' : 'Nick Facebook');
+                alert(`🔒 TÍNH NĂNG BỊ KHÓA DO KHÁC TÀI KHOẢN!\n\nThư mục này của ${pLabel}: ${mismatchStatus.folderAccount}\nTrong khi Chrome đang đăng nhập: ${mismatchStatus.browserAccount}\n\n👉 Vui lòng:\n1. Tạo Dự Án Con mới cho tài khoản Chrome này\n2. Hoặc vào trang Thông Tin để quét nạp lại tài khoản mới!`);
                 switchSubMenu('sub-account-info');
                 return;
             }
@@ -9827,15 +9928,15 @@ async function triggerRunNow(postId) {
             const title = document.getElementById("postTitleInput")?.value.trim() || "";
             const rawContent = document.getElementById("postContentInput")?.value.trim() || "";
             const mediaUrl = document.getElementById("postMediaInput")?.value.trim() || "";
-            const targetUrl = document.getElementById("postTargetUrlInput")?.value.trim() || "https://www.facebook.com";
+            const targetUrl = document.getElementById("postTargetUrlInput")?.value.trim() || (isX ? "https://x.com" : "https://www.facebook.com");
             const targetId = document.getElementById("postTargetIdInput")?.value.trim() || "";
-            const rawSeeding = document.getElementById("postSeedingCommentsInput")?.value.trim() || "";
-            const autoReactType = document.getElementById("postAutoReactInput")?.value || "LIKE";
+            const rawSeeding = isX ? "" : (document.getElementById("postSeedingCommentsInput")?.value.trim() || "");
+            const autoReactType = isX ? "NONE" : (document.getElementById("postAutoReactInput")?.value || "LIKE");
             const statusEl = document.getElementById("autopostStatusText");
             const scheduleInput = document.getElementById("postScheduleTimeInput");
             const scheduledVal = scheduleInput ? scheduleInput.value.trim() : "";
             const shareToFeedEl = document.getElementById("postShareToFeed");
-            const shareToFeed = shareToFeedEl ? shareToFeedEl.checked : true;
+            const shareToFeed = isX ? false : (shareToFeedEl ? shareToFeedEl.checked : true);
 
             let runNow = false;
             let scheduledAt = null;
@@ -9863,7 +9964,7 @@ async function triggerRunNow(postId) {
             }
 
             if (!rawContent && !title && !_adminMediaData && !mediaUrl) {
-                alert("Vui lòng nhập nội dung bài viết hoặc đính kèm ảnh/video!");
+                alert(isX ? "Vui lòng nhập nội dung Tweet hoặc đính kèm ảnh/video!" : "Vui lòng nhập nội dung bài viết hoặc đính kèm ảnh/video!");
                 return;
             }
 
@@ -9872,11 +9973,11 @@ async function triggerRunNow(postId) {
 
             if (statusEl) {
                 if (runNow) {
-                    statusEl.textContent = "⏳ Đang chuyển lệnh đăng ngầm sang Extension...";
+                    statusEl.textContent = isX ? "⏳ Đang chuyển lệnh đăng Tweet sang Chrome Extension..." : "⏳ Đang chuyển lệnh đăng ngầm sang Extension...";
                 } else if (scheduledAt) {
-                    statusEl.textContent = "⏰ Đang lên lịch đăng bài...";
+                    statusEl.textContent = isX ? "⏰ Đang lên lịch đăng Tweet..." : "⏰ Đang lên lịch đăng bài...";
                 } else {
-                    statusEl.textContent = "⏳ Đang lưu vào hàng đợi...";
+                    statusEl.textContent = isX ? "⏳ Đang lưu vào hàng đợi Tweet..." : "⏳ Đang lưu vào hàng đợi...";
                 }
                 statusEl.style.color = "var(--accent)";
             }
@@ -9916,11 +10017,11 @@ async function triggerRunNow(postId) {
                 if (data.success) {
                     if (statusEl) {
                         if (runNow) {
-                            statusEl.textContent = "🚀 Đã phát lệnh đăng bài & seeding ngầm lên Facebook!";
+                            statusEl.textContent = isX ? "🚀 Đã phát lệnh đăng Tweet lên X (Twitter)!" : "🚀 Đã phát lệnh đăng bài & seeding ngầm lên Facebook!";
                         } else if (scheduledAt) {
-                            statusEl.textContent = "⏰ Đã lên lịch đăng bài thành công!";
+                            statusEl.textContent = isX ? "⏰ Đã lên lịch đăng Tweet thành công!" : "⏰ Đã lên lịch đăng bài thành công!";
                         } else {
-                            statusEl.textContent = "✅ Đã lưu vào hàng đợi bài đăng!";
+                            statusEl.textContent = isX ? "✅ Đã lưu vào hàng đợi Tweet!" : "✅ Đã lưu vào hàng đợi bài đăng!";
                         }
                         statusEl.style.color = "var(--success)";
                     }

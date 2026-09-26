@@ -3136,6 +3136,36 @@
               "runNow": true,
               "progressStep": "⏳ 3/4: Đang chờ Google Flow xử lý... (55s / 60s)",
               "lastError": "Google Flow không tạo ảnh mới cho prompt này sau 60s (có thể prompt bị bộ lọc an toàn của Google chặn hoặc hết quota)"
+            },
+            {
+              "id": "flowimg_1790420089214_1025",
+              "prompt": "test prompt",
+              "model": "HARBOR_SEAL",
+              "imageCount": 4,
+              "aspectRatio": "3:4",
+              "flowProjectId": "d7be0595-14b8-4052-8803-b668f1a9c4e7",
+              "flowChildId": "fchild_1790313899_43fd",
+              "status": "failed",
+              "images": [],
+              "createdAt": 1790420089214,
+              "runNow": true,
+              "lastError": "Timeout: Quá trình tạo ảnh vượt quá 90s không nhận được phản hồi từ Google Flow",
+              "progressStep": "❌ Quá hạn (Timeout 90s) — Google Flow không phản hồi"
+            },
+            {
+              "id": "flowimg_1790420268194_8055",
+              "prompt": "con meo",
+              "model": "GEM_PIX_2",
+              "imageCount": 1,
+              "aspectRatio": "3:4",
+              "flowProjectId": "d7be0595-14b8-4052-8803-b668f1a9c4e7",
+              "flowChildId": "fchild_1790313899_43fd",
+              "status": "failed",
+              "images": [],
+              "createdAt": 1790420268194,
+              "runNow": true,
+              "lastError": "Timeout: Quá trình tạo ảnh vượt quá 90s không nhận được phản hồi từ Google Flow",
+              "progressStep": "❌ Quá hạn (Timeout 90s) — Google Flow không phản hồi"
             }
           ],
           "pendingCommands": [

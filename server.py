@@ -29,6 +29,7 @@ import threading
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+import traceback
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -4598,9 +4599,48 @@ Sản phẩm tuyệt vời quá</textarea>
         // Helper: trích xuất thông báo lỗi từ API response (hỗ trợ cả string và object)
         function extractErrorMsg(err, fallback) {
             if (!err) return fallback || "Lỗi không xác định";
-            if (typeof err === 'string') return err;
-            if (typeof err === 'object' && err.message) return err.message;
-            try { return JSON.stringify(err); } catch(e) { return fallback || "Lỗi không xác định"; }
+            let msg = "";
+            if (typeof err === 'string') msg = err;
+            else if (typeof err === 'object') msg = err.message || err.error || "";
+            else {
+                try { msg = JSON.stringify(err); } catch(e) { msg = fallback || "Lỗi không xác định"; }
+            }
+            if (typeof msg === 'string') {
+                if (msg.includes("Unexpected end of JSON input") || msg.includes("Failed to execute 'json'") || msg.includes("Unexpected token")) {
+                    return "Kết nối gián đoạn hoặc máy chủ phản hồi rỗng (0 bytes). Vui lòng thử lại!";
+                }
+                return msg;
+            }
+            return fallback || "Lỗi không xác định";
+        }
+
+        // Helper an toàn: đọc và phân tích JSON từ fetch mà không bao giờ bị lỗi Unexpected end of JSON
+        async function safeFetchJson(url, options = {}) {
+            try {
+                const res = await fetch(url, options);
+                const text = await res.text();
+                if (!text || !text.trim()) {
+                    return {
+                        success: false,
+                        error: res.status && res.status !== 200 
+                            ? `Máy chủ báo mã HTTP ${res.status}` 
+                            : "Máy chủ phản hồi rỗng (0 bytes). Vui lòng thử lại!"
+                    };
+                }
+                try {
+                    return JSON.parse(text);
+                } catch(pe) {
+                    return {
+                        success: false,
+                        error: `Dữ liệu phản hồi không đúng chuẩn JSON (${text.substring(0, 60)}...)`
+                    };
+                }
+            } catch(netErr) {
+                return {
+                    success: false,
+                    error: netErr.message || "Không thể kết nối tới máy chủ"
+                };
+            }
         }
 
         // Global Toast Notification Helper
@@ -5561,9 +5601,8 @@ async function triggerRunNow(postId) {
 
         async function fetchProjects() {
             try {
-                const res = await fetch("/api/projects");
-                const data = await res.json();
-                if (!data.success) return;
+                const data = await safeFetchJson("/api/projects");
+                if (!data || !data.success) return;
 
                 allProjects = data.projects || [];
                 const container = document.getElementById("hubProjectsListContainer");
@@ -5633,9 +5672,8 @@ async function triggerRunNow(postId) {
         async function fetchParentProjectData(projId) {
             if (!projId) return;
             try {
-                const res = await fetch(`/api/bridge/project-latest?projectId=${encodeURIComponent(projId)}`);
-                const data = await res.json();
-                if (!data.success) return;
+                const data = await safeFetchJson(`/api/bridge/project-latest?projectId=${encodeURIComponent(projId)}`);
+                if (!data || !data.success) return;
 
                 latestParentData = data;
                 const nodes = data.nodes || [];
@@ -8772,7 +8810,19 @@ async function triggerRunNow(postId) {
                         openTab: false
                     })
                 });
-                const data = await res.json();
+                const data = await safeFetchJson('/api/v1/flow/child-projects/create', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        projectId: currentProjectId,
+                        subProjectId: currentSubProjectId,
+                        name: name || 'Dự án mới',
+                        targetFlowUrl: targetUrl,
+                        description: desc,
+                        createOnFlow: autoCreateFlow,
+                        openTab: false
+                    })
+                });
                 if (data.success) {
                     closeCreateFlowChildModal();
                     if (data.creatingOnFlow) {
@@ -8786,10 +8836,10 @@ async function triggerRunNow(postId) {
                         alert(`✅ Đã thêm Project con '${data.childProject.name}' thành công!`);
                     }
                 } else {
-                    alert('❌ Lỗi: ' + (data.error || 'Không thể tạo project con'));
+                    alert('❌ Lỗi: ' + extractErrorMsg(data.error, 'Không thể tạo project con'));
                 }
             } catch(e) {
-                alert('❌ Lỗi kết nối: ' + e.message);
+                alert('❌ Lỗi kết nối: ' + extractErrorMsg(e));
             }
         }
 
@@ -8798,7 +8848,7 @@ async function triggerRunNow(postId) {
             if (!confirm('⚠️ CẢNH BÁO ĐỒNG BỘ 2 CHIỀU:\\n\\nXóa Project con này sẽ ĐỒNG THỜI xóa vĩnh viễn Project tương ứng trên máy chủ Google Flow và dọn dẹp các ảnh liên quan!\\n\\nBạn có chắc chắn muốn xóa không?')) return;
 
             try {
-                const res = await fetch('/api/v1/flow/child-projects/delete', {
+                const data = await safeFetchJson('/api/v1/flow/child-projects/delete', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -8808,15 +8858,14 @@ async function triggerRunNow(postId) {
                         deleteOnFlow: true
                     })
                 });
-                const data = await res.json();
                 if (data.success) {
                     if (currentSelectedFlowChildId === childId) currentSelectedFlowChildId = 'all';
                     if (currentProjectId) await fetchParentProjectData(currentProjectId);
                 } else {
-                    alert('❌ Lỗi: ' + (data.error || 'Không thể xóa'));
+                    alert('❌ Lỗi: ' + extractErrorMsg(data.error, 'Không thể xóa'));
                 }
             } catch(e) {
-                alert('❌ Lỗi: ' + e.message);
+                alert('❌ Lỗi: ' + extractErrorMsg(e));
             }
         }
 
@@ -8826,7 +8875,7 @@ async function triggerRunNow(postId) {
                 await sendProjectAction('GET_TABS');
                 await new Promise(r => setTimeout(r, 1200));
 
-                const res = await fetch('/api/v1/flow/child-projects/sync-tabs', {
+                const data = await safeFetchJson('/api/v1/flow/child-projects/sync-tabs', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -8834,12 +8883,11 @@ async function triggerRunNow(postId) {
                         subProjectId: currentSubProjectId
                     })
                 });
-                const data = await res.json();
                 if (data.success) {
                     if (currentProjectId) await fetchParentProjectData(currentProjectId);
                     alert(`✅ Đã đồng bộ thành công! Thêm mới ${data.addedCount} project con từ các tab Flow đang mở trên Chrome.`);
                 } else {
-                    alert('❌ Lỗi: ' + (data.error || 'Không thể đồng bộ'));
+                    alert('❌ Lỗi: ' + extractErrorMsg(data.error, 'Không thể đồng bộ'));
                 }
             } catch(e) {
                 alert('❌ Lỗi: ' + e.message);
@@ -8849,7 +8897,7 @@ async function triggerRunNow(postId) {
         async function syncFlowProjectsFromCloud(silent = false) {
             if (!currentProjectId || !currentSubProjectId) return;
             try {
-                const res = await fetch('/api/v1/flow/child-projects/sync-cloud', {
+                const data = await safeFetchJson('/api/v1/flow/child-projects/sync-cloud', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -8857,7 +8905,6 @@ async function triggerRunNow(postId) {
                         subProjectId: currentSubProjectId
                     })
                 });
-                const data = await res.json();
                 if (data.success) {
                     if (!silent) {
                         alert('☁️ Đang kết nối Google Flow Cloud (RPC UpteDb) để nạp danh sách dự án...\\nVui lòng đợi vài giây để hệ thống tự động cập nhật!');
@@ -8866,17 +8913,17 @@ async function triggerRunNow(postId) {
                         if (currentProjectId) await fetchParentProjectData(currentProjectId);
                     }, 3500);
                 } else {
-                    if (!silent) alert('❌ Lỗi: ' + (data.error || 'Không thể kết nối Cloud Flow'));
+                    if (!silent) alert('❌ Lỗi: ' + extractErrorMsg(data.error, 'Không thể kết nối Cloud Flow'));
                 }
             } catch(e) {
-                if (!silent) alert('❌ Lỗi kết nối: ' + e.message);
+                if (!silent) alert('❌ Lỗi kết nối: ' + extractErrorMsg(e));
             }
         }
 
         async function syncFlowProjectsHealth() {
             if (!currentProjectId || !currentSubProjectId) return;
             try {
-                const res = await fetch('/api/v1/flow/child-projects/sync-health', {
+                const data = await safeFetchJson('/api/v1/flow/child-projects/sync-health', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -8884,17 +8931,16 @@ async function triggerRunNow(postId) {
                         subProjectId: currentSubProjectId
                     })
                 });
-                const data = await res.json();
                 if (data.success) {
                     alert(`🩺 Đang quét kiểm tra ${data.totalChecked} Project con trên Google Flow... Nếu có project nào đã bị xóa trực tiếp trên Flow, Dashboard sẽ tự động dọn sạch!`);
                     setTimeout(async () => {
                         if (currentProjectId) await fetchParentProjectData(currentProjectId);
                     }, 3500);
                 } else {
-                    alert('❌ Lỗi: ' + (data.error || 'Không thể kiểm tra sức khỏe'));
+                    alert('❌ Lỗi: ' + extractErrorMsg(data.error, 'Không thể kiểm tra sức khỏe'));
                 }
             } catch(e) {
-                alert('❌ Lỗi kết nối: ' + e.message);
+                alert('❌ Lỗi kết nối: ' + extractErrorMsg(e));
             }
         }
 
@@ -9054,13 +9100,12 @@ async function triggerRunNow(postId) {
                     runNow: !isQueue
                 };
 
-                const res = await fetch('/api/v1/flow/generate-image', {
+                const data = await safeFetchJson('/api/v1/flow/generate-image', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
 
-                const data = await res.json();
                 if (data.success) {
                     if (statusEl) {
                         statusEl.textContent = isQueue ? '✅ Đã lưu vào hàng đợi tạo ảnh!' : '🎨 Đã gửi yêu cầu tạo ảnh thành công! Đang chờ kết quả...';
@@ -9079,7 +9124,7 @@ async function triggerRunNow(postId) {
                 }
             } catch(e) {
                 if (statusEl) {
-                    statusEl.textContent = '❌ Lỗi: ' + e.message;
+                    statusEl.textContent = '❌ Lỗi: ' + extractErrorMsg(e);
                     statusEl.style.color = 'var(--danger)';
                 }
             }
@@ -9106,7 +9151,7 @@ async function triggerRunNow(postId) {
             }
 
             try {
-                const res = await fetch('/api/v1/flow/sync-canvas-images', {
+                const data = await safeFetchJson('/api/v1/flow/sync-canvas-images', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -9116,7 +9161,6 @@ async function triggerRunNow(postId) {
                         flowProjectId: targetFlowProjId
                     })
                 });
-                const data = await res.json();
                 if (data.success) {
                     let countdown = 5;
                     const timer = setInterval(async () => {
@@ -9132,14 +9176,14 @@ async function triggerRunNow(postId) {
                         }
                     }, 1000);
                 } else {
-                    alert('❌ Lỗi: ' + (data.error || 'Không thể gửi lệnh đồng bộ ảnh'));
+                    alert('❌ Lỗi: ' + extractErrorMsg(data.error, 'Không thể gửi lệnh đồng bộ ảnh'));
                     if (btn) {
                         btn.disabled = false;
                         btn.innerHTML = originalText;
                     }
                 }
             } catch(e) {
-                alert('❌ Lỗi kết nối: ' + e.message);
+                alert('❌ Lỗi kết nối: ' + extractErrorMsg(e));
                 if (btn) {
                     btn.disabled = false;
                     btn.innerHTML = originalText;
@@ -9344,7 +9388,7 @@ async function triggerRunNow(postId) {
             if (!confirm('🗑️ XÁC NHẬN XÓA ẢNH:\\n\\nBạn có chắc muốn xóa ảnh này?\\nẢnh này sẽ bị xóa khỏi Gallery và ĐỒNG THỜI được chuyển vào Thùng Rác (Trash) trên Google Flow Canvas.')) return;
 
             try {
-                const res = await fetch('/api/v1/flow/images/delete', {
+                const data = await safeFetchJson('/api/v1/flow/images/delete', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -9355,14 +9399,13 @@ async function triggerRunNow(postId) {
                         deleteOnFlow: true
                     })
                 });
-                const data = await res.json();
                 if (data.success) {
                     if (currentProjectId) await fetchParentProjectData(currentProjectId);
                 } else {
-                    alert('❌ Lỗi khi xóa ảnh: ' + (data.error || 'Không thể xóa'));
+                    alert('❌ Lỗi khi xóa ảnh: ' + extractErrorMsg(data.error, 'Không thể xóa'));
                 }
             } catch(e) {
-                alert('❌ Lỗi kết nối: ' + e.message);
+                alert('❌ Lỗi kết nối: ' + extractErrorMsg(e));
             }
         }
 
@@ -9458,7 +9501,7 @@ async function triggerRunNow(postId) {
                     scheduledAt: scheduledAt
                 };
 
-                const res = await fetch("/api/v1/posts", {
+                const data = await safeFetchJson("/api/v1/posts", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
@@ -9468,7 +9511,6 @@ async function triggerRunNow(postId) {
                     })
                 });
 
-                const data = await res.json();
                 if (data.success) {
                     if (statusEl) {
                         if (runNow) {
@@ -9503,7 +9545,7 @@ async function triggerRunNow(postId) {
                 }
             } catch(e) {
                 if (statusEl) {
-                    statusEl.textContent = "❌ Lỗi: " + e.message;
+                    statusEl.textContent = "❌ Lỗi: " + extractErrorMsg(e);
                     statusEl.style.color = "var(--danger)";
                 }
             }
@@ -9512,17 +9554,16 @@ async function triggerRunNow(postId) {
         async function deletePostQueueItem(postId) {
             if (!confirm("Bạn có chắc chắn muốn xóa bài viết / mục này khỏi hàng đợi không?")) return;
             try {
-                const res = await fetch(`/api/v1/posts/${postId}`, {
+                const data = await safeFetchJson(`/api/v1/posts/${postId}`, {
                     method: "DELETE"
                 });
-                const data = await res.json();
                 if (data.success) {
                     if (currentProjectId) fetchParentProjectData(currentProjectId);
                 } else {
                     alert("Lỗi: " + extractErrorMsg(data.error, "Không thể xóa bài"));
                 }
             } catch(e) {
-                alert("Lỗi: " + e.message);
+                alert("Lỗi: " + extractErrorMsg(e));
             }
         }
 
@@ -9748,7 +9789,7 @@ async function triggerRunNow(postId) {
             }
 
             try {
-                const res = await fetch("/api/subprojects", {
+                const data = await safeFetchJson("/api/subprojects", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
@@ -9761,7 +9802,6 @@ async function triggerRunNow(postId) {
                         sourceDomain
                     })
                 });
-                const data = await res.json();
                 if (data.success) {
                     document.getElementById("newFolderName").value = "";
                     document.getElementById("newFolderDesc").value = "";
@@ -9777,7 +9817,7 @@ async function triggerRunNow(postId) {
                     statusEl.style.color = "var(--danger)";
                 }
             } catch(e) {
-                statusEl.textContent = "❌ Lỗi: " + e.message;
+                statusEl.textContent = "❌ Lỗi: " + extractErrorMsg(e);
                 statusEl.style.color = "var(--danger)";
             }
         }
@@ -9785,19 +9825,18 @@ async function triggerRunNow(postId) {
         async function deleteFolder(subId) {
             if (!confirm("🗑️ Bạn có chắc chắn muốn xóa thư mục / dự án con này?")) return;
             try {
-                const res = await fetch("/api/subprojects/delete", {
+                const data = await safeFetchJson("/api/subprojects/delete", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ projectId: currentProjectId, subProjectId: subId })
                 });
-                const data = await res.json();
                 if (data.success) {
                     fetchParentProjectData(currentProjectId);
                 } else {
                     alert("❌ Lỗi: " + extractErrorMsg(data.error));
                 }
             } catch(e) {
-                alert("❌ Lỗi: " + e.message);
+                alert("❌ Lỗi: " + extractErrorMsg(e));
             }
         }
 
@@ -9842,7 +9881,7 @@ async function triggerRunNow(postId) {
             if (!projName || !projName.trim()) return;
 
             try {
-                const res = await fetch("/api/subprojects", {
+                const data = await safeFetchJson("/api/subprojects", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
@@ -9855,7 +9894,6 @@ async function triggerRunNow(postId) {
                         sourceDomain: "flow.google.com"
                     })
                 });
-                const data = await res.json();
                 if (data.success && data.subProject) {
                     await fetchParentProjectData(currentProjectId);
                     alert(`✅ Đã tạo thành công Dự Án Con [${projName.trim()}]. Đang chuyển vào dự án mới...`);
@@ -9865,10 +9903,10 @@ async function triggerRunNow(postId) {
                         extractFlowAccountInfo();
                     }, 500);
                 } else {
-                    alert("❌ Lỗi tạo dự án: " + (data.error || "Không xác định"));
+                    alert("❌ Lỗi tạo dự án: " + extractErrorMsg(data.error, "Không xác định"));
                 }
             } catch(e) {
-                alert("❌ Lỗi: " + e.message);
+                alert("❌ Lỗi: " + extractErrorMsg(e));
             }
         }
 
@@ -9911,7 +9949,7 @@ async function triggerRunNow(postId) {
             if (!projName || !projName.trim()) return;
 
             try {
-                const res = await fetch("/api/subprojects", {
+                const data = await safeFetchJson("/api/subprojects", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
@@ -9924,7 +9962,6 @@ async function triggerRunNow(postId) {
                         sourceDomain: "facebook.com"
                     })
                 });
-                const data = await res.json();
                 if (data.success && data.subProject) {
                     await fetchParentProjectData(currentProjectId);
                     alert(`✅ Đã tạo thành công Dự Án Con [${projName.trim()}]. Đang chuyển vào dự án mới...`);
@@ -9934,10 +9971,10 @@ async function triggerRunNow(postId) {
                         extractAllFbAccountInfo();
                     }, 500);
                 } else {
-                    alert("❌ Lỗi tạo dự án: " + (data.error || "Không xác định"));
+                    alert("❌ Lỗi tạo dự án: " + extractErrorMsg(data.error, "Không xác định"));
                 }
             } catch(e) {
-                alert("❌ Lỗi: " + e.message);
+                alert("❌ Lỗi: " + extractErrorMsg(e));
             }
         }
 
@@ -10544,12 +10581,11 @@ async function triggerRunNow(postId) {
             statusEl.style.color = "var(--accent)";
 
             try {
-                const res = await fetch("/api/projects", {
+                const data = await safeFetchJson("/api/projects", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ name, description: desc })
                 });
-                const data = await res.json();
                 if (data.success) {
                     document.getElementById("newProjName").value = "";
                     document.getElementById("newProjDesc").value = "";
@@ -10565,7 +10601,7 @@ async function triggerRunNow(postId) {
                     statusEl.style.color = "var(--danger)";
                 }
             } catch(e) {
-                statusEl.textContent = "❌ Lỗi: " + e.message;
+                statusEl.textContent = "❌ Lỗi: " + extractErrorMsg(e);
                 statusEl.style.color = "var(--danger)";
             }
         }
@@ -10582,12 +10618,11 @@ async function triggerRunNow(postId) {
         async function regenerateProjectToken(id) {
             if (!confirm("⚠️ Bạn có chắc muốn tạo lại mã Token mới?\\nMáy đang dùng Token cũ sẽ bị ngắt kết nối cho đến khi nhập mã mới!")) return;
             try {
-                const res = await fetch("/api/projects/regenerate-token", {
+                const data = await safeFetchJson("/api/projects/regenerate-token", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ projectId: id })
                 });
-                const data = await res.json();
                 if (data.success) {
                     alert("✅ Đã tạo mã Token mới:\\n" + data.project.token);
                     fetchProjects();
@@ -10595,26 +10630,25 @@ async function triggerRunNow(postId) {
                     alert("❌ Lỗi: " + extractErrorMsg(data.error));
                 }
             } catch(e) {
-                alert("❌ Lỗi: " + e.message);
+                alert("❌ Lỗi: " + extractErrorMsg(e));
             }
         }
 
         async function deleteProject(id) {
             if (!confirm("🗑️ Bạn có chắc chắn muốn xóa dự án này?")) return;
             try {
-                const res = await fetch("/api/projects/delete", {
+                const data = await safeFetchJson("/api/projects/delete", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ projectId: id })
                 });
-                const data = await res.json();
                 if (data.success) {
                     fetchProjects();
                 } else {
                     alert("❌ Lỗi: " + extractErrorMsg(data.error));
                 }
             } catch(e) {
-                alert("❌ Lỗi: " + e.message);
+                alert("❌ Lỗi: " + extractErrorMsg(e));
             }
         }
 
@@ -10624,8 +10658,8 @@ async function triggerRunNow(postId) {
 
         async function fetchStatus() {
             try {
-                const res = await fetch("/api/bridge/status");
-                const data = await res.json();
+                const data = await safeFetchJson("/api/bridge/status");
+                if (!data || !data.success) return;
 
                 const dot = document.getElementById("headerDot");
                 const statusText = document.getElementById("headerStatusText");
@@ -10647,11 +10681,10 @@ async function triggerRunNow(postId) {
 
         async function loadManifestConfig() {
             try {
-                const res = await fetch("/api/bridge/manifest");
-                const data = await res.json();
-                if (data.name) document.getElementById("configNameInput").value = data.name;
-                if (data.description) document.getElementById("configDescInput").value = data.description;
-                if (data.version) document.getElementById("configVerInput").value = data.version;
+                const data = await safeFetchJson("/api/bridge/manifest");
+                if (data && data.name) document.getElementById("configNameInput").value = data.name;
+                if (data && data.description) document.getElementById("configDescInput").value = data.description;
+                if (data && data.version) document.getElementById("configVerInput").value = data.version;
             } catch(e) {}
         }
 
@@ -10664,12 +10697,11 @@ async function triggerRunNow(postId) {
             statusEl.style.color = "var(--accent)";
 
             try {
-                const res = await fetch("/api/bridge/manifest", {
+                const data = await safeFetchJson("/api/bridge/manifest", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ name, description, version })
                 });
-                const data = await res.json();
                 if (data.success) {
                     statusEl.textContent = "✅ Đã lưu! Bấm Reload 🔄 trên chrome://extensions";
                     statusEl.style.color = "var(--success)";
@@ -10678,7 +10710,7 @@ async function triggerRunNow(postId) {
                     statusEl.style.color = "var(--danger)";
                 }
             } catch(e) {
-                statusEl.textContent = "❌ Lỗi: " + e.message;
+                statusEl.textContent = "❌ Lỗi: " + extractErrorMsg(e);
                 statusEl.style.color = "var(--danger)";
             }
         }
@@ -10948,6 +10980,8 @@ async function triggerRunNow(postId) {
 """
 
 class BridgeHandler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
     def log_message(self, format, *args):
         return
 
@@ -10980,13 +11014,23 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
     def _send_json(self, status_code, data):
         try:
+            try:
+                payload = json.dumps(data, ensure_ascii=False, default=str).encode("utf-8")
+            except Exception as e:
+                payload = json.dumps({"success": False, "error": f"JSON serialization error: {str(e)}"}).encode("utf-8")
+                status_code = 500
+
             self.send_response(status_code)
             self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Connection", "close")
             self._set_cors()
             self.end_headers()
-            self.wfile.write(json.dumps(data, ensure_ascii=False).encode("utf-8"))
+            self.wfile.write(payload)
         except (BrokenPipeError, ConnectionResetError):
             pass
+        except Exception as e:
+            print(f"[BridgeHandler Send Error] {e}")
 
     def _parse_body(self):
         content_length = int(self.headers.get("Content-Length", 0))
@@ -11006,11 +11050,26 @@ class BridgeHandler(BaseHTTPRequestHandler):
         return {}
 
     def do_OPTIONS(self):
-        self.send_response(204)
-        self._set_cors()
-        self.end_headers()
+        try:
+            self.send_response(204)
+            self.send_header("Content-Length", "0")
+            self.send_header("Connection", "close")
+            self._set_cors()
+            self.end_headers()
+        except Exception:
+            pass
 
     def do_GET(self):
+        try:
+            self._handle_GET()
+        except Exception as exc:
+            print(f"[HTTP GET Error] {exc}\n{traceback.format_exc()}")
+            self._send_json(500, {"success": False, "error": f"Internal Server Error (GET): {str(exc)}"})
+
+    def do_HEAD(self):
+        self.do_GET()
+
+    def _handle_GET(self):
         parsed = urlparse(self.path)
         pathname = parsed.path
 
@@ -11046,6 +11105,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     self.send_header("Content-Type", mime)
                     self.send_header("Content-Length", str(len(file_bytes)))
                     self.send_header("Cache-Control", "public, max-age=86400")
+                    self.send_header("Connection", "close")
                     self._set_cors()
                     self.end_headers()
                     self.wfile.write(file_bytes)
@@ -11053,19 +11113,26 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 except Exception as file_err:
                     print(f"[Static File Serve Error] {file_err}")
 
+            not_found = b"File not found"
             self.send_response(404)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(not_found)))
+            self.send_header("Connection", "close")
             self._set_cors()
             self.end_headers()
-            self.wfile.write(b"File not found")
+            self.wfile.write(not_found)
             return
 
         # 1. Web Controller Dashboard
         if pathname == "/":
+            payload = HTML_DASHBOARD.encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Connection", "close")
             self._set_cors()
             self.end_headers()
-            self.wfile.write(HTML_DASHBOARD.encode("utf-8"))
+            self.wfile.write(payload)
             return
 
         # 2. Danh sách Dự Án Cha (Projects)
@@ -11335,6 +11402,13 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self._send_json(404, {"error": "Endpoint not found"})
 
     def do_POST(self):
+        try:
+            self._handle_POST()
+        except Exception as exc:
+            print(f"[HTTP POST Error] {exc}\n{traceback.format_exc()}")
+            self._send_json(500, {"success": False, "error": f"Internal Server Error (POST): {str(exc)}"})
+
+    def _handle_POST(self):
         parsed = urlparse(self.path)
         pathname = parsed.path
         body = self._parse_body()
@@ -13573,6 +13647,13 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self._send_json(404, {"error": "Endpoint not found"})
 
     def do_PATCH(self):
+        try:
+            self._handle_PATCH()
+        except Exception as exc:
+            print(f"[HTTP PATCH Error] {exc}\n{traceback.format_exc()}")
+            self._send_json(500, {"success": False, "error": f"Internal Server Error (PATCH): {str(exc)}"})
+
+    def _handle_PATCH(self):
         parsed = urlparse(self.path)
         pathname = parsed.path
         body = self._parse_body()
@@ -13653,6 +13734,13 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self._send_json(404, {"error": "Endpoint not found"})
 
     def do_DELETE(self):
+        try:
+            self._handle_DELETE()
+        except Exception as exc:
+            print(f"[HTTP DELETE Error] {exc}\n{traceback.format_exc()}")
+            self._send_json(500, {"success": False, "error": f"Internal Server Error (DELETE): {str(exc)}"})
+
+    def _handle_DELETE(self):
         parsed = urlparse(self.path)
         pathname = parsed.path
 

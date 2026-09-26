@@ -1266,6 +1266,65 @@
           "scrapedData": [],
           "postQueue": [
             {
+              "id": "post_1790422239_8655",
+              "title": "",
+              "content": "321",
+              "postType": "post",
+              "targetType": "profile",
+              "targetId": "",
+              "targetUrl": "https://www.facebook.com",
+              "shareToFeed": true,
+              "mediaUrl": "",
+              "mediaData": null,
+              "seedingComments": [
+                "1",
+                "2",
+                "3"
+              ],
+              "autoReactType": "LIKE",
+              "status": "completed",
+              "progressStep": "✅ Đã đăng thành công lên Facebook (ID: 2154538878752723)",
+              "fbPostId": "2154538878752723",
+              "fbPostUrl": "https://www.facebook.com/permalink.php?story_fbid=2154538878752723&id=100025898964308",
+              "scheduledTime": 0,
+              "scheduledTimeStr": "",
+              "scheduledAt": "",
+              "lastError": "",
+              "createdAt": 1790422239255,
+              "callbackUrl": "",
+              "source": "api",
+              "updatedAt": 1790422290231,
+              "fbFeedbackId": "ZmVlZGJhY2s6MjE1NDUzODg3ODc1MjcyMw==",
+              "seedingIds": [
+                "1115780040804211",
+                "2542188612916315",
+                "1824435878558878"
+              ],
+              "seedingDetails": [
+                {
+                  "id": "1115780040804211",
+                  "status": "success",
+                  "text": "1",
+                  "timestamp": 1790422271987
+                },
+                {
+                  "id": "2542188612916315",
+                  "status": "success",
+                  "text": "2",
+                  "timestamp": 1790422278319
+                },
+                {
+                  "id": "1824435878558878",
+                  "status": "success",
+                  "text": "3",
+                  "timestamp": 1790422285725
+                }
+              ],
+              "shareToStorySuccess": true,
+              "publishedAt": 1790422290281,
+              "publishedAtStr": "20:31:30 26/09/2026"
+            },
+            {
               "id": "post_1790414175_fbc7",
               "title": "",
               "content": "654",

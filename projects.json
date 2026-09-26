@@ -1266,6 +1266,122 @@
           "scrapedData": [],
           "postQueue": [
             {
+              "id": "post_1790414175_fbc7",
+              "title": "",
+              "content": "654",
+              "postType": "post",
+              "targetType": "profile",
+              "targetId": "",
+              "targetUrl": "https://www.facebook.com",
+              "shareToFeed": true,
+              "mediaUrl": "",
+              "mediaData": null,
+              "seedingComments": [
+                "1",
+                "2",
+                "3"
+              ],
+              "autoReactType": "LIKE",
+              "status": "completed",
+              "progressStep": "✅ Đã đăng thành công lên Facebook (ID: 2154441808762430)",
+              "fbPostId": "2154441808762430",
+              "fbPostUrl": "https://www.facebook.com/permalink.php?story_fbid=2154441808762430&id=100025898964308",
+              "scheduledTime": 0,
+              "scheduledTimeStr": "",
+              "scheduledAt": "",
+              "lastError": "",
+              "createdAt": 1790414175053,
+              "callbackUrl": "",
+              "source": "api",
+              "fbFeedbackId": "ZmVlZGJhY2s6MjE1NDQ0MTgwODc2MjQzMA==",
+              "seedingIds": [
+                "2493493687840336",
+                "1848787249624192",
+                "1087349134196598"
+              ],
+              "seedingDetails": [
+                {
+                  "id": "2493493687840336",
+                  "status": "success",
+                  "text": "1",
+                  "timestamp": 1790414202832
+                },
+                {
+                  "id": "1848787249624192",
+                  "status": "success",
+                  "text": "2",
+                  "timestamp": 1790414207099
+                },
+                {
+                  "id": "1087349134196598",
+                  "status": "success",
+                  "text": "3",
+                  "timestamp": 1790414212660
+                }
+              ],
+              "shareToStorySuccess": true,
+              "publishedAt": 1790414214346,
+              "publishedAtStr": "18:16:54 26/09/2026"
+            },
+            {
+              "id": "post_1790413161_04b3",
+              "title": "",
+              "content": "abc",
+              "postType": "post",
+              "targetType": "profile",
+              "targetId": "",
+              "targetUrl": "https://www.facebook.com",
+              "shareToFeed": true,
+              "mediaUrl": "",
+              "mediaData": null,
+              "seedingComments": [
+                "1",
+                "2",
+                "3"
+              ],
+              "autoReactType": "LIKE",
+              "status": "completed",
+              "progressStep": "✅ Đã đăng thành công lên Facebook (ID: 2154431398763471)",
+              "fbPostId": "2154431398763471",
+              "fbPostUrl": "https://www.facebook.com/permalink.php?story_fbid=2154431398763471&id=100025898964308",
+              "scheduledTime": 0,
+              "scheduledTimeStr": "",
+              "scheduledAt": "",
+              "lastError": "",
+              "createdAt": 1790413161589,
+              "callbackUrl": "",
+              "source": "api",
+              "fbFeedbackId": "ZmVlZGJhY2s6MjE1NDQzMTM5ODc2MzQ3MQ==",
+              "seedingIds": [
+                "883188271545054",
+                "2090939808448637",
+                "1591844835756387"
+              ],
+              "seedingDetails": [
+                {
+                  "id": "883188271545054",
+                  "status": "success",
+                  "text": "1",
+                  "timestamp": 1790413208059
+                },
+                {
+                  "id": "2090939808448637",
+                  "status": "success",
+                  "text": "2",
+                  "timestamp": 1790413214247
+                },
+                {
+                  "id": "1591844835756387",
+                  "status": "success",
+                  "text": "3",
+                  "timestamp": 1790413220128
+                }
+              ],
+              "shareToStorySuccess": true,
+              "publishedAt": 1790413222270,
+              "publishedAtStr": "18:00:22 26/09/2026"
+            },
+            {
               "id": "post_1790233892_01c3",
               "title": "",
               "content": "asdasd",
@@ -2990,6 +3106,34 @@
               "runNow": true,
               "progressStep": "✅ 4/4: Đã hoàn tất tạo 1 ảnh AI Flow thành công!",
               "completedAt": 1790322618984
+            },
+            {
+              "id": "flowimg_1790323442924_9728",
+              "prompt": "con mèo đang nói chuyện với con gà",
+              "model": "GEM_PIX_2",
+              "imageCount": 1,
+              "aspectRatio": "3:4",
+              "flowProjectId": "d7be0595-14b8-4052-8803-b668f1a9c4e7",
+              "flowChildId": "fchild_1790313899_43fd",
+              "status": "pending",
+              "images": [],
+              "createdAt": 1790323442924,
+              "runNow": true
+            },
+            {
+              "id": "flowimg_1790413123639_2446",
+              "prompt": "con chó",
+              "model": "HARBOR_SEAL",
+              "imageCount": 1,
+              "aspectRatio": "3:4",
+              "flowProjectId": "d7be0595-14b8-4052-8803-b668f1a9c4e7",
+              "flowChildId": "fchild_1790313899_43fd",
+              "status": "failed",
+              "images": [],
+              "createdAt": 1790413123639,
+              "runNow": true,
+              "progressStep": "⏳ 3/4: Đang chờ Google Flow xử lý... (55s / 60s)",
+              "lastError": "Google Flow không tạo ảnh mới cho prompt này sau 60s (có thể prompt bị bộ lọc an toàn của Google chặn hoặc hết quota)"
             }
           ],
           "pendingCommands": [

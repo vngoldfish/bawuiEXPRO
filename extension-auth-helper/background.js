@@ -9,7 +9,10 @@ let NODE_NAME = "My Chrome Node";
 let PROJECT_NAME = "";
 let NODE_ID = "bridge_" + Math.random().toString(36).slice(2, 10);
 let isConnected = false;
-let isPolling = false;
+let isPollingBridge = false;
+const activeSubProjectIds = new Set();
+let activeFlowCount = 0;
+let activeFbCount = 0;
 let lastLatencyMs = 0;
 
 function getHeaders(extra = {}) {
@@ -148,6 +151,9 @@ async function sendHeartbeat() {
             browserFlowEmail: browserFlowEmail,
             browserFlowProjectId: browserFlowProjectId,
             browserFlowLoggedIn: browserFlowLoggedIn,
+            isFlowBusy: activeFlowCount > 0,
+            isFbBusy: activeFbCount > 0,
+            busySubProjects: Array.from(activeSubProjectIds),
             timestamp: Date.now()
         };
 
@@ -172,14 +178,16 @@ async function sendHeartbeat() {
                 PROJECT_NAME = data.projectName;
             }
             if (data.hasPendingCommands) {
-                _currentHeartbeatInterval = 3000;
+                _currentHeartbeatInterval = 1200;
                 pollAndExecuteCommand();
+            } else if (activeSubProjectIds.size > 0) {
+                _currentHeartbeatInterval = 1500;
             } else {
-                _currentHeartbeatInterval = 15000;
+                _currentHeartbeatInterval = 3000;
             }
         } else {
             isConnected = false;
-            _currentHeartbeatInterval = 20000;
+            _currentHeartbeatInterval = 5000;
         }
     } catch (err) {
         isConnected = false;
@@ -1731,22 +1739,26 @@ let pollingStartedAt = 0;
 
 // 3. Kéo lệnh từ Backend và thực thi trên Trình duyệt
 async function pollAndExecuteCommand() {
-    if (isPolling) {
-        if (Date.now() - pollingStartedAt > 60000) {
-            console.warn("[Bridge] Polling bị kẹt > 60s, tự động reset isPolling!");
-            isPolling = false;
+    if (isPollingBridge) {
+        if (Date.now() - pollingStartedAt > 30000) {
+            isPollingBridge = false;
         } else {
             return;
         }
     }
-    isPolling = true;
+    isPollingBridge = true;
     pollingStartedAt = Date.now();
 
     try {
         const res = await fetch(`${BACKEND_URL}/api/bridge/poll`, {
             method: "POST",
             headers: getHeaders(),
-            body: JSON.stringify({ nodeId: NODE_ID }),
+            body: JSON.stringify({
+                nodeId: NODE_ID,
+                busySubProjects: Array.from(activeSubProjectIds),
+                isFlowBusy: activeFlowCount > 0,
+                isFbBusy: activeFbCount > 0
+            }),
             signal: AbortSignal.timeout(5000)
         });
 
@@ -1755,11 +1767,35 @@ async function pollAndExecuteCommand() {
         const cmd = data.command;
         if (!cmd) return;
 
-        console.log(`[Bridge] Nhận lệnh từ VPS: ${cmd.action} (ID: ${cmd.id})`);
-        let cmdResult = { success: false, error: "Chưa hỗ trợ action" };
+        // Thực thi lệnh trong luồng async độc lập, tách biệt hoàn toàn theo từng project con
+        _executeCommandAsync(cmd);
 
-        try {
-            switch (cmd.action) {
+        // Nếu còn lệnh chờ khác của các project con khác đang rảnh, kéo tiếp ngay lập tức
+        if (data.hasMorePending) {
+            setTimeout(pollAndExecuteCommand, 50);
+        }
+
+    } catch (e) {
+        console.warn("[Bridge] Lỗi polling:", e.message);
+    } finally {
+        isPollingBridge = false;
+    }
+}
+
+async function _executeCommandAsync(cmd) {
+    const subId = cmd.targetSubProjectId || "";
+    const isFlowAction = cmd.action && cmd.action.startsWith("FLOW_") && cmd.action !== "FLOW_LIST_PROJECTS";
+    const isFbAction = cmd.action && (cmd.action.startsWith("POST_") || cmd.action.startsWith("SHARE_") || cmd.action === "SEEDING");
+
+    if (subId) activeSubProjectIds.add(subId);
+    if (isFlowAction) activeFlowCount++;
+    if (isFbAction) activeFbCount++;
+
+    console.log(`[Bridge] Nhận lệnh từ VPS: ${cmd.action} (ID: ${cmd.id}, SubProject: ${subId || 'global'})`);
+    let cmdResult = { success: false, error: "Chưa hỗ trợ action" };
+
+    try {
+        switch (cmd.action) {
                 case "GET_COOKIES": {
                     const domain = cmd.domain || "facebook.com";
                     const cookies = await chrome.cookies.getAll({ domain });
@@ -4512,38 +4548,39 @@ async function pollAndExecuteCommand() {
             }
         } catch (execErr) {
             cmdResult = { success: false, error: execErr.message };
+        } finally {
+            if (subId) activeSubProjectIds.delete(subId);
+            if (isFlowAction) activeFlowCount = Math.max(0, activeFlowCount - 1);
+            if (isFbAction) activeFbCount = Math.max(0, activeFbCount - 1);
         }
 
         // 4. Trả kết quả lệnh về Backend VPS
-        await fetch(`${BACKEND_URL}/api/bridge/result`, {
-            method: "POST",
-            headers: getHeaders(),
-            body: JSON.stringify({
-                nodeId: NODE_ID,
-                commandId: cmd.id,
-                action: cmd.action,
-                targetProjectId: cmd.targetProjectId,
-                targetSubProjectId: cmd.targetSubProjectId,
-                ...cmdResult,
-                timestamp: Date.now()
-            })
-        }).catch(() => {});
+        try {
+            await fetch(`${BACKEND_URL}/api/bridge/result`, {
+                method: "POST",
+                headers: getHeaders(),
+                body: JSON.stringify({
+                    nodeId: NODE_ID,
+                    commandId: cmd.id,
+                    action: cmd.action,
+                    targetProjectId: cmd.targetProjectId,
+                    targetSubProjectId: cmd.targetSubProjectId,
+                    ...cmdResult,
+                    timestamp: Date.now()
+                })
+            });
+        } catch(e) {}
 
-        // Kích hoạt ngay nhịp heartbeat tiếp theo để kéo lệnh kế tiếp nếu có
-        scheduleNextHeartbeat(1500);
-
-    } catch (e) {
-        console.warn("[Bridge] Lỗi polling:", e.message);
-    } finally {
-        isPolling = false;
-    }
+        // Kích hoạt ngay nhịp heartbeat và polling tiếp theo để kéo lệnh kế tiếp của project con này hoặc các project khác
+        scheduleNextHeartbeat(300);
+        setTimeout(pollAndExecuteCommand, 100);
 }
 
 // =========================================================================
 // 5. CHU KỲ HOẠT ĐỘNG THÍCH ỨNG & KEEPALIVE SERVICE WORKER (MV3)
 // =========================================================================
 let _heartbeatTimer = null;
-let _currentHeartbeatInterval = 15000; // Mặc định chế độ nghỉ: 15s
+let _currentHeartbeatInterval = 3500; // Mặc định chế độ nghỉ: 3.5s
 
 function scheduleNextHeartbeat(delayMs) {
     if (_heartbeatTimer) clearTimeout(_heartbeatTimer);

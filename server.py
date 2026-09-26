@@ -523,7 +523,7 @@ def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, 
             "targetNodeId": "*",
             "post": post_entry
         }
-        pending_commands.append(cmd)
+        pending_commands.insert(0, cmd)
         recent_issued_commands[cmd_id] = cmd
         push_log(f"Đã phát lệnh đăng ngay bài viết '{post_id}' lên Facebook cho '{target_sub['name']}'", "step", project_id=target_proj["id"], subproject_id=target_sub["id"])
     elif is_scheduled:
@@ -11750,7 +11750,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     "openTab": open_tab,
                     "targetNodeId": "*"
                 }
-                pending_commands.append(cmd)
+                pending_commands.insert(0, cmd)
                 recent_issued_commands[cmd_id] = cmd
                 push_log(f"☁️ Đang phát lệnh tạo Project mới '{child['name']}' trên Google Flow Cloud...", "info", project_id=proj_id, subproject_id=sub_id)
 
@@ -11818,7 +11818,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     "targetNodeId": "*",
                     "flowProjectId": flow_proj_id
                 }
-                pending_commands.append(cmd)
+                pending_commands.insert(0, cmd)
                 recent_issued_commands[cmd_id] = cmd
                 push_log(f"🗑️ Đã phát lệnh xóa vĩnh viễn Project '{child_name}' ({flow_proj_id[:8]}) trên Google Flow", "info", project_id=proj_id, subproject_id=sub_id)
 
@@ -11885,7 +11885,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     "targetChildId": child_id,
                     "targetNodeId": "*"
                 }
-                pending_commands.append(cmd)
+                pending_commands.insert(0, cmd)
                 recent_issued_commands[cmd_id] = cmd
                 push_log(f"✏️ Đang đổi tên Project '{old_name}' ➔ '{new_name}' trên Google Flow qua RPC o8DA4...", "info", project_id=proj_id, subproject_id=sub_id)
 
@@ -11969,7 +11969,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     "imageUrl": first_img_url,
                     "originalUrl": orig_img_url
                 }
-                pending_commands.append(cmd)
+                pending_commands.insert(0, cmd)
                 recent_issued_commands[cmd_id] = cmd
                 push_log(f"🗑️ Đã phát lệnh chuyển ảnh '{image_id}' vào thùng rác trên Google Flow canvas", "info", project_id=proj_id, subproject_id=sub_id)
 
@@ -12277,7 +12277,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 "targetNodeId": "*",
                 "post": found_post
             }
-            pending_commands.append(cmd)
+            pending_commands.insert(0, cmd)
             recent_issued_commands[cmd_id] = cmd
             push_log(f"Đã kích hoạt đăng ngay bài viết '{post_id}' cho '{found_sub['name']}'", "step", project_id=found_proj["id"], subproject_id=found_sub["id"])
             self._send_json(200, {
@@ -12395,7 +12395,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 "comments": comments,
                 "autoReactType": auto_react
             }
-            pending_commands.append(cmd)
+            pending_commands.insert(0, cmd)
             recent_issued_commands[cmd_id] = cmd
             push_log(f"API: Đã phát lệnh seeding {len(comments)} câu cho bài '{found_post['id']}'", "step", project_id=found_proj["id"], subproject_id=found_sub["id"])
             self._send_json(200, {
@@ -12451,7 +12451,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 "targetNodeId": "*",
                 "post": post_item
             }
-            pending_commands.append(cmd)
+            pending_commands.insert(0, cmd)
             recent_issued_commands[cmd_id] = cmd
             push_log(f"Đã phát lệnh đăng lại bài viết '{post_id}' cho '{target_sub['name']}'", "step", project_id=proj_id, subproject_id=sub_id)
             self._send_json(200, {"success": True, "cmdId": cmd_id, "post": post_item})
@@ -12507,7 +12507,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 "comments": comments,
                 "autoReactType": auto_react
             }
-            pending_commands.append(cmd)
+            pending_commands.insert(0, cmd)
             recent_issued_commands[cmd_id] = cmd
             push_log(f"Đã phát lệnh seeding thêm {len(comments)} câu cho bài '{post_id}' của '{target_sub['name']}'", "step", project_id=proj_id, subproject_id=sub_id)
             self._send_json(200, {"success": True, "cmdId": cmd_id})
@@ -12636,6 +12636,9 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 return
 
             node_id = body.get("nodeId")
+            busy_subprojects = set(body.get("busySubProjects", []))
+            is_flow_busy = bool(body.get("isFlowBusy", False))
+            is_fb_busy = bool(body.get("isFbBusy", False))
             if node_id:
                 connected_nodes[node_id] = {
                     "nodeId": node_id,
@@ -12649,14 +12652,26 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     "browserFlowEmail": body.get("browserFlowEmail", ""),
                     "browserFlowProjectId": body.get("browserFlowProjectId", ""),
                     "browserFlowLoggedIn": body.get("browserFlowLoggedIn", False),
+                    "isFlowBusy": is_flow_busy,
+                    "isFbBusy": is_fb_busy,
+                    "busySubProjects": list(busy_subprojects),
                     "lastSeen": int(time.time() * 1000)
                 }
 
-            has_pending = any(
-                (c.get("targetNodeId") == node_id or c.get("targetNodeId") == "*") and
-                (not c.get("targetProjectId") or c.get("targetProjectId") == proj["id"])
-                for c in pending_commands
-            )
+            has_pending = False
+            for c in pending_commands:
+                t_node = c.get("targetNodeId")
+                t_proj = c.get("targetProjectId")
+                t_sub = c.get("targetSubProjectId")
+                node_match = (not t_node) or (t_node == "*") or (t_node == node_id)
+                proj_match = (not t_proj) or (t_proj == "*") or (t_proj == proj["id"])
+                if node_match and proj_match:
+                    # Tách biệt hoàn toàn theo từng project con:
+                    # Nếu project con đang chạy tác vụ khác trên node thì bỏ qua lệnh này
+                    if t_sub and t_sub in busy_subprojects:
+                        continue
+                    has_pending = True
+                    break
 
             reload_req = False
             if node_id and (node_id in pending_extension_reloads or "*" in pending_extension_reloads):
@@ -12687,6 +12702,15 @@ class BridgeHandler(BaseHTTPRequestHandler):
             node = connected_nodes.get(node_id, {})
             node_proj_id = node.get("projectId")
 
+            # Cập nhật danh sách busySubProjects của node từ poll request nếu có
+            req_busy_subs = body.get("busySubProjects")
+            if req_busy_subs is not None:
+                busy_subprojects = set(req_busy_subs)
+                if node_id and node_id in connected_nodes:
+                    connected_nodes[node_id]["busySubProjects"] = list(busy_subprojects)
+            else:
+                busy_subprojects = set(node.get("busySubProjects", []))
+
             # Xóa các lệnh FLOW_LIST_PROJECTS thừa thãi trong hàng đợi, chỉ giữ tối đa 1 lệnh
             seen_list = False
             filtered_pending = []
@@ -12700,38 +12724,63 @@ class BridgeHandler(BaseHTTPRequestHandler):
             pending_commands[:] = filtered_pending
 
             matched_idx = -1
-            # Ưu tiên 1: Các lệnh tương tác trực tiếp của người dùng
+            # Ưu tiên 1: Các lệnh đăng bài Facebook (nhanh, tức thời) và tương tác người dùng
             high_priority_actions = (
+                "POST_FEED", "POST_REEL", "POST_STORY", "SHARE_TO_STORY", "SEEDING",
                 "FLOW_GENERATE_IMAGE", "FLOW_DELETE_IMAGE", "FLOW_DELETE_PROJECT",
-                "FLOW_CREATE_PROJECT", "FLOW_RENAME_PROJECT", "FLOW_FOCUS_PROJECT",
-                "POST_FEED", "POST_REEL", "POST_STORY"
+                "FLOW_CREATE_PROJECT", "FLOW_RENAME_PROJECT", "FLOW_FOCUS_PROJECT"
             )
             for idx, c in enumerate(pending_commands):
                 t_node = c.get("targetNodeId")
                 t_proj = c.get("targetProjectId")
+                t_sub = c.get("targetSubProjectId")
+                act = c.get("action", "")
                 node_match = (not t_node) or (t_node == "*") or (t_node == node_id)
                 proj_match = (not t_proj) or (t_proj == "*") or (t_proj == node_proj_id)
-                if node_match and proj_match and c.get("action") in high_priority_actions:
+                if node_match and proj_match and act in high_priority_actions:
+                    if t_sub and t_sub in busy_subprojects:
+                        continue
                     matched_idx = idx
                     break
 
-            # Ưu tiên 2: Nếu không có lệnh ưu tiên, lấy lệnh tiếp theo hợp lệ
+            # Ưu tiên 2: Nếu không có lệnh ưu tiên, lấy lệnh tiếp theo hợp lệ của project con đang rảnh
             if matched_idx == -1:
                 for idx, c in enumerate(pending_commands):
                     t_node = c.get("targetNodeId")
                     t_proj = c.get("targetProjectId")
+                    t_sub = c.get("targetSubProjectId")
                     node_match = (not t_node) or (t_node == "*") or (t_node == node_id)
                     proj_match = (not t_proj) or (t_proj == "*") or (t_proj == node_proj_id)
                     if node_match and proj_match:
+                        if t_sub and t_sub in busy_subprojects:
+                            continue
                         matched_idx = idx
                         break
 
+            has_more_pending = False
             if matched_idx >= 0:
                 cmd = pending_commands.pop(matched_idx)
-                print(f"[Python Server] Gửi lệnh '{cmd.get('action')}' tới {node_id}")
-                self._send_json(200, {"success": True, "command": cmd})
+                cmd_sub = cmd.get("targetSubProjectId")
+                temp_busy = set(busy_subprojects)
+                if cmd_sub:
+                    temp_busy.add(cmd_sub)
+
+                for c in pending_commands:
+                    t_node = c.get("targetNodeId")
+                    t_proj = c.get("targetProjectId")
+                    t_sub = c.get("targetSubProjectId")
+                    node_match = (not t_node) or (t_node == "*") or (t_node == node_id)
+                    proj_match = (not t_proj) or (t_proj == "*") or (t_proj == node_proj_id)
+                    if node_match and proj_match:
+                        if t_sub and t_sub in temp_busy:
+                            continue
+                        has_more_pending = True
+                        break
+
+                print(f"[Python Server] Gửi lệnh '{cmd.get('action')}' (Sub: {cmd_sub}) tới {node_id}. Còn lệnh chờ khác: {has_more_pending}")
+                self._send_json(200, {"success": True, "command": cmd, "hasMorePending": has_more_pending})
             else:
-                self._send_json(200, {"success": True, "command": None})
+                self._send_json(200, {"success": True, "command": None, "hasMorePending": False})
             return
 
         # 9. Result (Xử lý toàn bộ thông tin Facebook)

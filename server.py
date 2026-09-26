@@ -1964,7 +1964,7 @@ HTML_DASHBOARD = """<!DOCTYPE html>
             <div class="header-actions">
                 <div class="status-pill">
                     <span class="dot" id="headerDot"></span>
-                    <span id="headerStatusText">Chưa có kết nối</span>
+                    <span id="headerStatusText">Đang kiểm tra kết nối...</span>
                 </div>
                 <div class="port-badge">PORT 9999</div>
                 <button class="btn-sm" onclick="fetchStatus()">🔄 Làm mới</button>
@@ -5412,6 +5412,7 @@ async function triggerRunNow(postId) {
 
             switchHubRoute("hub-projects", updateHash);
             fetchProjects();
+            fetchStatus();
         }
 
         function enterSubProject(subId, targetMenu = "sub-account-info", updateHash = true) {
@@ -5712,12 +5713,20 @@ async function triggerRunNow(postId) {
 
                 const sbDot = document.getElementById("sidebarParentDot");
                 const sbStatus = document.getElementById("sidebarParentMachineStatus");
+                const headerDot = document.getElementById("headerDot");
+                const headerStatusText = document.getElementById("headerStatusText");
+
                 if (isOnline) {
+                    const nodeLabel = (node && node.nodeName) ? node.nodeName : "Chrome";
                     if (sbDot) sbDot.className = "dot online";
-                    if (sbStatus) sbStatus.textContent = (node.nodeName || "Chrome") + " (Online)";
+                    if (sbStatus) sbStatus.textContent = nodeLabel + " (Online)";
+                    if (headerDot) headerDot.className = "dot online";
+                    if (headerStatusText) headerStatusText.textContent = nodeLabel + " (Online)";
                 } else {
                     if (sbDot) sbDot.className = "dot";
                     if (sbStatus) sbStatus.textContent = "Chờ máy kết nối...";
+                    if (headerDot) headerDot.className = "dot";
+                    if (headerStatusText) headerStatusText.textContent = "Chờ Extension kết nối...";
                 }
 
                 renderFolderCards(subProjects);
@@ -10659,7 +10668,7 @@ async function triggerRunNow(postId) {
         async function fetchStatus() {
             try {
                 const data = await safeFetchJson("/api/bridge/status");
-                if (!data || !data.success) return;
+                if (!data) return;
 
                 const dot = document.getElementById("headerDot");
                 const statusText = document.getElementById("headerStatusText");
@@ -10668,8 +10677,19 @@ async function triggerRunNow(postId) {
                 const nodes = data.nodes || [];
                 const isOnline = nodes.length > 0;
 
-                if (dot) dot.className = "dot " + (isOnline ? "online" : "");
-                if (statusText) statusText.textContent = isOnline ? (nodes.length + " Máy Đang Online") : "Chờ Extension...";
+                // Chỉ ghi đè headerStatusText từ status chung nếu đang ở sảnh ngoài (hub) hoặc chưa chọn project
+                if (currentLevel === "hub" || !currentProjectId) {
+                    if (dot) dot.className = "dot " + (isOnline ? "online" : "");
+                    if (statusText) {
+                        if (isOnline) {
+                            const first = nodes[0];
+                            const name = first ? (first.nodeName || "Chrome") : "Chrome";
+                            statusText.textContent = nodes.length > 1 ? `${nodes.length} Máy Đang Online` : `${name} (Online)`;
+                        } else {
+                            statusText.textContent = "Chờ Extension kết nối...";
+                        }
+                    }
+                }
 
                 if (data.uptimeSec && sbUptime) {
                     const m = Math.floor(data.uptimeSec / 60);
@@ -11213,12 +11233,13 @@ class BridgeHandler(BaseHTTPRequestHandler):
             now = int(time.time() * 1000)
             active_nodes = []
             for node_id, node in list(connected_nodes.items()):
-                if now - node.get("lastSeen", 0) < 15000:
+                if now - node.get("lastSeen", 0) < 25000:
                     active_nodes.append(node)
             
             uptime_sec = int(time.time() - SERVER_START_TIME)
             projs = get_projects()
             self._send_json(200, {
+                "success": True,
                 "nodes": active_nodes,
                 "projectCount": len(projs),
                 "pendingCount": len(pending_commands),

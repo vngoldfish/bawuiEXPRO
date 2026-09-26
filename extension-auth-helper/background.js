@@ -4668,6 +4668,24 @@ chrome.runtime.onInstalled?.addListener(() => {
     scheduleNextHeartbeat(2000);
 });
 
+// Tự động kích hoạt Heartbeat ngay khi người dùng thao tác trên Chrome (đổi tab, mở tab, chuyển cửa sổ)
+chrome.tabs?.onActivated?.addListener(() => {
+    sendHeartbeat();
+    scheduleNextHeartbeat(2500);
+});
+
+chrome.tabs?.onCreated?.addListener(() => {
+    sendHeartbeat();
+    scheduleNextHeartbeat(2500);
+});
+
+chrome.windows?.onFocusChanged?.addListener((winId) => {
+    if (winId !== (chrome.windows.WINDOW_ID_NONE || -1)) {
+        sendHeartbeat();
+        scheduleNextHeartbeat(2500);
+    }
+});
+
 // Khởi chạy vòng lặp ban đầu
 scheduleNextHeartbeat(1000);
 

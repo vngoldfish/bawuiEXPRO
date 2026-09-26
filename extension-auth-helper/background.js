@@ -1462,6 +1462,369 @@ async function _executeFbPost(payload, updateStep) {
     }
 }
 
+// ==========================================
+// 🚀 X (TWITTER) AUTOMATION ENGINE
+// ==========================================
+
+async function _uploadXMedia(mediaItem, updateStep, ct0) {
+    try {
+        let blob;
+        let mediaType = "image/jpeg";
+        let mediaCategory = "tweet_image";
+
+        if (typeof mediaItem === "string" && mediaItem.startsWith("data:")) {
+            const parts = mediaItem.split(",");
+            const mimeMatch = parts[0].match(/:(.*?);/);
+            if (mimeMatch) mediaType = mimeMatch[1];
+            const byteString = atob(parts[1]);
+            const ab = new ArrayBuffer(byteString.length);
+            const ia = new Uint8Array(ab);
+            for (let i = 0; i < byteString.length; i++) {
+                ia[i] = byteString.charCodeAt(i);
+            }
+            blob = new Blob([ab], { type: mediaType });
+        } else {
+            const rawUrl = typeof mediaItem === "string" ? mediaItem : (mediaItem.url || mediaItem.originalUrl || "");
+            if (!rawUrl) throw new Error("URL media không hợp lệ");
+            const fetchRes = await fetch(rawUrl);
+            blob = await fetchRes.blob();
+            if (blob.type) mediaType = blob.type;
+        }
+
+        if (mediaType.startsWith("video/") || (typeof mediaItem === "object" && mediaItem.type === "video")) {
+            mediaCategory = "tweet_video";
+        } else if (mediaType.includes("gif")) {
+            mediaCategory = "tweet_gif";
+        } else {
+            mediaCategory = "tweet_image";
+        }
+
+        // B1: INIT
+        const initUrl = `https://upload.x.com/i/media/upload.json?command=INIT&total_bytes=${blob.size}&media_type=${encodeURIComponent(mediaType)}&media_category=${mediaCategory}`;
+        const initRes = await fetch(initUrl, {
+            method: "POST",
+            headers: {
+                "x-csrf-token": ct0,
+                "x-twitter-auth-type": "OAuth2Session"
+            },
+            credentials: "include"
+        });
+
+        if (!initRes.ok) {
+            const errTxt = await initRes.text();
+            throw new Error(`Upload INIT thất bại (${initRes.status}): ${errTxt}`);
+        }
+
+        const initData = await initRes.json();
+        const mediaId = initData.media_id_string || String(initData.media_id);
+
+        // B2: APPEND
+        const chunkSize = 4 * 1024 * 1024; // 4MB chunks
+        const totalSegments = Math.ceil(blob.size / chunkSize);
+        for (let seg = 0; seg < totalSegments; seg++) {
+            const start = seg * chunkSize;
+            const end = Math.min(start + chunkSize, blob.size);
+            const chunkBlob = blob.slice(start, end);
+
+            const fd = new FormData();
+            fd.append("media", chunkBlob, "blob");
+
+            const appendUrl = `https://upload.x.com/i/media/upload.json?command=APPEND&media_id=${mediaId}&segment_index=${seg}`;
+            const appendRes = await fetch(appendUrl, {
+                method: "POST",
+                headers: {
+                    "x-csrf-token": ct0,
+                    "x-twitter-auth-type": "OAuth2Session"
+                },
+                credentials: "include",
+                body: fd
+            });
+
+            if (!appendRes.ok) {
+                throw new Error(`Upload APPEND segment ${seg} thất bại (${appendRes.status})`);
+            }
+        }
+
+        // B3: FINALIZE
+        const finUrl = `https://upload.x.com/i/media/upload.json?command=FINALIZE&media_id=${mediaId}&allow_async=true`;
+        const finRes = await fetch(finUrl, {
+            method: "POST",
+            headers: {
+                "x-csrf-token": ct0,
+                "x-twitter-auth-type": "OAuth2Session"
+            },
+            credentials: "include"
+        });
+
+        if (!finRes.ok) {
+            const errTxt = await finRes.text();
+            throw new Error(`Upload FINALIZE thất bại (${finRes.status}): ${errTxt}`);
+        }
+
+        const finData = await finRes.json();
+
+        // B4: STATUS (nếu media đang xử lý ngầm, đặc biệt là video)
+        if (finData.processing_info) {
+            let state = finData.processing_info.state;
+            let checkSecs = finData.processing_info.check_after_secs || 1;
+            let attempts = 0;
+            while (state !== "succeeded" && attempts < 40) {
+                attempts++;
+                if (state === "failed") {
+                    throw new Error(`Xử lý media trên X thất bại: ${JSON.stringify(finData.processing_info.error || {})}`);
+                }
+                await new Promise(r => setTimeout(r, checkSecs * 1000));
+                const statusUrl = `https://upload.x.com/i/media/upload.json?command=STATUS&media_id=${mediaId}`;
+                const sRes = await fetch(statusUrl, {
+                    headers: {
+                        "x-csrf-token": ct0,
+                        "x-twitter-auth-type": "OAuth2Session"
+                    },
+                    credentials: "include"
+                });
+                if (sRes.ok) {
+                    const sData = await sRes.json();
+                    if (sData.processing_info) {
+                        state = sData.processing_info.state;
+                        checkSecs = sData.processing_info.check_after_secs || 1;
+                        if (updateStep && sData.processing_info.progress_percent !== undefined) {
+                            await updateStep(`⏳ Đang mã hóa media trên X (${sData.processing_info.progress_percent}%)...`);
+                        }
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+
+        return mediaId;
+    } catch(e) {
+        console.error("[X Media Upload Error]:", e);
+        throw e;
+    }
+}
+
+async function _executeXTweet(payload, updateStep) {
+    try {
+        await updateStep("🔍 1/3: Đang kiểm tra phiên đăng nhập X (Twitter)...");
+
+        const tweetText = (payload.content || payload.message || payload.title || payload.caption || payload.text || "").trim();
+
+        // Thu thập Media (ảnh/video)
+        let mediaList = [];
+        if (Array.isArray(payload.images)) mediaList.push(...payload.images);
+        if (payload.image) mediaList.push(payload.image);
+        if (payload.videoUrl) mediaList.push({ url: payload.videoUrl, type: "video" });
+        if (payload.videoFile) mediaList.push({ url: payload.videoFile, type: "video" });
+        if (payload.mediaUrl) mediaList.push(payload.mediaUrl);
+        mediaList = mediaList.filter(Boolean);
+
+        // Lấy cookies X
+        const allCookies = await new Promise(resolve => {
+            chrome.cookies.getAll({}, (c) => resolve(c || []));
+        });
+        const xCookies = allCookies.filter(c => c.domain.includes("x.com") || c.domain.includes("twitter.com"));
+        const authToken = xCookies.find(c => c.name === "auth_token")?.value;
+        const ct0 = xCookies.find(c => c.name === "ct0")?.value;
+
+        if (!authToken || !ct0) {
+            return {
+                success: false,
+                error: "Chưa đăng nhập X (Twitter) trên Chrome. Vui lòng mở x.com đăng nhập trước khi đăng bài!"
+            };
+        }
+
+        // Tải media lên X nếu có
+        const mediaIds = [];
+        if (mediaList.length > 0) {
+            for (let i = 0; i < mediaList.length; i++) {
+                await updateStep(`⏳ 1/3: Đang tải tệp đính kèm (${i + 1}/${mediaList.length}) lên X...`);
+                const mid = await _uploadXMedia(mediaList[i], updateStep, ct0);
+                if (mid) mediaIds.push(mid);
+            }
+        }
+
+        await updateStep("🚀 2/3: Đang gửi yêu cầu xuất bản Tweet lên X...");
+
+        // Chuẩn bị payload GraphQL CreateTweet chuẩn như file x.com.har
+        const queryId = "GYdIGqVWfZNho79bQ2XDoA";
+        const variables = {
+            tweet_text: tweetText,
+            media: {
+                media_entities: mediaIds.map(id => ({ media_id: id, tagged_users: [] })),
+                possibly_sensitive: false
+            },
+            semantic_annotation_ids: [],
+            disallowed_reply_options: null,
+            semantic_annotation_options: { source: "Htl" }
+        };
+
+        const features = {
+            "communities_web_enable_tweet_community_results_fetch": true,
+            "c9s_tweet_anatomy_moderator_badge_enabled": true,
+            "responsive_web_edit_tweet_api_enabled": true,
+            "graphql_is_translatable_rweb_tweet_is_translatable_enabled": true,
+            "view_counts_everywhere_api_enabled": true,
+            "longform_notetweets_consumption_enabled": true,
+            "tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled": true,
+            "responsive_web_graphql_timeline_navigation_enabled": true
+        };
+
+        const payloadGql = {
+            variables,
+            features,
+            queryId
+        };
+
+        // Tìm hoặc mở tab x.com ngầm để thực thi request trong môi trường Same-Origin của x.com
+        const tabs = await chrome.tabs.query({});
+        let targetTab = tabs.find(t => t.url && (t.url.includes("x.com") || t.url.includes("twitter.com")));
+        let createdTab = false;
+
+        if (!targetTab) {
+            targetTab = await chrome.tabs.create({ url: "https://x.com/home", active: false });
+            createdTab = true;
+            await ensureTabLoaded(targetTab.id, 8000);
+            await new Promise(r => setTimeout(r, 1000));
+        }
+
+        // TẦNG 1: Gửi GraphQL CreateTweet trực tiếp từ context trang x.com (MAIN world)
+        const execRes = await chrome.scripting.executeScript({
+            target: { tabId: targetTab.id },
+            world: "MAIN",
+            func: async (payloadGql, ct0) => {
+                try {
+                    const res = await fetch(`https://x.com/i/api/graphql/${payloadGql.queryId}/CreateTweet`, {
+                        method: "POST",
+                        headers: {
+                            "content-type": "application/json",
+                            "x-csrf-token": ct0,
+                            "x-twitter-active-user": "yes",
+                            "x-twitter-auth-type": "OAuth2Session"
+                        },
+                        credentials: "include",
+                        body: JSON.stringify(payloadGql)
+                    });
+                    const txt = await res.text();
+                    try {
+                        return { ok: res.ok, status: res.status, data: JSON.parse(txt) };
+                    } catch(e) {
+                        return { ok: res.ok, status: res.status, rawText: txt };
+                    }
+                } catch(err) {
+                    return { ok: false, error: err.message };
+                }
+            },
+            args: [payloadGql, ct0]
+        });
+
+        const apiResult = execRes?.[0]?.result;
+        let restId = apiResult?.data?.data?.create_tweet?.tweet_results?.result?.rest_id;
+        let screenName = apiResult?.data?.data?.create_tweet?.tweet_results?.result?.core?.user_results?.result?.core?.screen_name;
+
+        // Nếu tạo thành công qua GraphQL API
+        if (apiResult?.ok && restId) {
+            if (createdTab) {
+                try { chrome.tabs.remove(targetTab.id); } catch(e) {}
+            }
+            const sName = screenName || "i";
+            const tweetUrl = `https://x.com/${sName}/status/${restId}`;
+            await updateStep(`✅ 3/3: Đã xuất bản thành công lên X! (Tweet ID: ${restId})`);
+            return {
+                success: true,
+                tweetId: restId,
+                tweetUrl: tweetUrl,
+                fbPostId: restId,
+                fbPostUrl: tweetUrl,
+                publishedAt: Date.now(),
+                progressStep: `✅ Đã đăng thành công lên X (Tweet: ${restId})`
+            };
+        }
+
+        // TẦNG 2 (FALLBACK): Nếu API bị hạn chế (vd do kiểm tra transaction id), dùng Native Composer
+        await updateStep("⚠️ API trực tiếp yêu cầu xác thực phiên, đang chuyển sang Trình soạn thảo X Composer...");
+
+        // Điều hướng tab tới compose page
+        await chrome.tabs.update(targetTab.id, { url: "https://x.com/compose/post" });
+        await ensureTabLoaded(targetTab.id, 8000);
+        await new Promise(r => setTimeout(r, 2000));
+
+        const composerRes = await chrome.scripting.executeScript({
+            target: { tabId: targetTab.id },
+            world: "MAIN",
+            func: async (textToPost) => {
+                try {
+                    // 1. Tìm ô soạn thảo
+                    const editor = document.querySelector('div[data-testid="tweetTextarea_0"]') || document.querySelector('div[role="textbox"]');
+                    if (!editor) {
+                        return { success: false, error: "Không tìm thấy ô soạn thảo Tweet trên x.com" };
+                    }
+                    editor.focus();
+
+                    // Điền văn bản
+                    document.execCommand("insertText", false, textToPost);
+                    editor.dispatchEvent(new Event("input", { bubbles: true }));
+                    editor.dispatchEvent(new Event("change", { bubbles: true }));
+                    await new Promise(r => setTimeout(r, 800));
+
+                    // 2. Tìm nút Đăng (Post / Tweet)
+                    const postBtn = document.querySelector('button[data-testid="tweetButton"]') 
+                                 || document.querySelector('button[data-testid="tweetButtonInline"]')
+                                 || document.querySelector('button[aria-label*="Post" i]')
+                                 || document.querySelector('button[aria-label*="Đăng" i]');
+                    if (!postBtn) {
+                        return { success: false, error: "Không tìm thấy nút Post trên x.com" };
+                    }
+
+                    if (postBtn.disabled) {
+                        return { success: false, error: "Nút Đăng Tweet đang bị vô hiệu hóa (disabled)" };
+                    }
+
+                    postBtn.click();
+                    await new Promise(r => setTimeout(r, 2000));
+
+                    return { success: true };
+                } catch(e) {
+                    return { success: false, error: e.message };
+                }
+            },
+            args: [tweetText]
+        });
+
+        if (createdTab) {
+            // Giữ tab thêm 3s rồi đóng ngầm
+            setTimeout(() => { try { chrome.tabs.remove(targetTab.id); } catch(e) {} }, 3500);
+        }
+
+        const compResult = composerRes?.[0]?.result;
+        if (compResult?.success) {
+            const fallbackTweetId = `x_tweet_${Date.now()}`;
+            const fallbackUrl = `https://x.com/home`;
+            await updateStep("✅ 3/3: Đã xuất bản thành công qua X Composer!");
+            return {
+                success: true,
+                tweetId: fallbackTweetId,
+                tweetUrl: fallbackUrl,
+                fbPostId: fallbackTweetId,
+                fbPostUrl: fallbackUrl,
+                publishedAt: Date.now(),
+                progressStep: "✅ Đã đăng thành công qua X Composer"
+            };
+        } else {
+            const errMsg = compResult?.error || apiResult?.rawText || "Lỗi xuất bản Tweet";
+            throw new Error(errMsg);
+        }
+
+    } catch(err) {
+        console.error("[_executeXTweet Error]:", err);
+        await updateStep(`❌ Lỗi đăng bài X: ${err.message}`);
+        return {
+            success: false,
+            error: err.message
+        };
+    }
+}
+
 async function _executeFbSeeding(tabId, postId, knownFeedbackId, comments, fallbackActorId) {
     try {
         const seedingResults = await chrome.scripting.executeScript({
@@ -3231,6 +3594,35 @@ async function _executeCommandAsync(cmd) {
                     };
                     if (!postRes || !postRes.success) {
                         await updateStep(`❌ Đăng bài thất bại: ${postRes?.error || "Lỗi không xác định"}`);
+                    }
+                    break;
+                }
+
+                case "POST_TWEET": {
+                    const updateStep = async (stepText) => {
+                        try {
+                            await fetch(`${BACKEND_URL}/api/bridge/progress`, {
+                                method: "POST",
+                                headers: getHeaders(),
+                                body: JSON.stringify({
+                                    commandId: cmd.id,
+                                    targetProjectId: cmd.targetProjectId,
+                                    targetSubProjectId: cmd.targetSubProjectId,
+                                    postId: cmd.post ? cmd.post.id : cmd.postId,
+                                    step: stepText
+                                })
+                            }).catch(() => {});
+                        } catch(e) {}
+                    };
+
+                    const postPayload = cmd.post || cmd.payload || {};
+                    const postRes = await _executeXTweet(postPayload, updateStep);
+                    cmdResult = {
+                        ...postRes,
+                        postId: postPayload.id
+                    };
+                    if (!postRes || !postRes.success) {
+                        await updateStep(`❌ Đăng bài X thất bại: ${postRes?.error || "Lỗi không xác định"}`);
                     }
                     break;
                 }

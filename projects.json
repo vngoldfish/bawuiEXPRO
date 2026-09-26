@@ -3115,10 +3115,12 @@
               "aspectRatio": "3:4",
               "flowProjectId": "d7be0595-14b8-4052-8803-b668f1a9c4e7",
               "flowChildId": "fchild_1790313899_43fd",
-              "status": "pending",
+              "status": "failed",
               "images": [],
               "createdAt": 1790323442924,
-              "runNow": true
+              "runNow": true,
+              "lastError": "Timeout: Quá trình tạo ảnh vượt quá 90s không nhận được phản hồi từ Google Flow",
+              "progressStep": "❌ Quá hạn (Timeout 90s) — Google Flow không phản hồi"
             },
             {
               "id": "flowimg_1790413123639_2446",

@@ -564,12 +564,14 @@ def start_post_scheduler():
                     proj_id = p.get("id")
                     for s in p.get("subProjects", []):
                         sub_id = s.get("id")
+                        # 1. Quét hẹn giờ đăng bài
                         for post in s.get("postQueue", []):
                             if post.get("status") == "scheduled":
                                 sched_time = post.get("scheduledTime", 0)
                                 if sched_time and sched_time <= now_ms:
                                     post["status"] = "in_progress"
                                     post["progressStep"] = "⏰ Đến giờ hẹn! Đang chuyển lệnh đăng sang Extension..."
+                                    post["updatedAt"] = now_ms
                                     modified = True
                                     cmd_id = f"cmd_{int(time.time())}_{uuid.uuid4().hex[:6]}"
                                     cmd = {
@@ -584,6 +586,39 @@ def start_post_scheduler():
                                     recent_issued_commands[cmd_id] = cmd
                                     post_title = post.get("title") or post.get("id")
                                     push_log(f"⏰ ĐẾN GIỜ HẸN: Tự động kích hoạt đăng bài '{post_title}' lên Facebook cho '{s.get('name')}'", "success", project_id=proj_id, subproject_id=sub_id)
+
+                        # 2. WATCHDOG CHỐNG TREO BÀI VIẾT (>90s in_progress)
+                        for post in s.get("postQueue", []):
+                            if post.get("status") == "in_progress":
+                                post_started = post.get("updatedAt") or post.get("publishedAt") or post.get("createdAt") or now_ms
+                                if now_ms - post_started > 90 * 1000:
+                                    post["status"] = "failed"
+                                    post["lastError"] = "Timeout: Quá 90s không nhận được phản hồi từ Extension hoặc Facebook"
+                                    post["progressStep"] = "❌ Quá hạn (Timeout 90s) — Vui lòng kiểm tra tab Facebook hoặc bấm Thử lại"
+                                    modified = True
+                                    post_title = post.get("title") or post.get("id")
+                                    push_log(f"❌ TIMEOUT: Bài viết '{post_title}' bị treo quá 90s. Đã đánh dấu thất bại.", "err", project_id=proj_id, subproject_id=sub_id)
+
+                        # 3. WATCHDOG CHỐNG TREO TẠO ẢNH GOOGLE FLOW (>90s pending/in_progress)
+                        for img in s.get("imageQueue", []):
+                            if img.get("status") in ("pending", "in_progress"):
+                                img_started = img.get("createdAt", now_ms)
+                                if now_ms - img_started > 90 * 1000:
+                                    img["status"] = "failed"
+                                    img["lastError"] = "Timeout: Quá trình tạo ảnh vượt quá 90s không nhận được phản hồi từ Google Flow"
+                                    img["progressStep"] = "❌ Quá hạn (Timeout 90s) — Google Flow không phản hồi"
+                                    modified = True
+                                    push_log(f"❌ TIMEOUT: Yêu cầu tạo ảnh AI '{img.get('prompt', '')[:40]}...' vượt quá 90s. Đã đánh dấu thất bại.", "err", project_id=proj_id, subproject_id=sub_id)
+
+                        # 4. WATCHDOG CHỐNG TREO TẠO PROJECT CON FLOW (>60s creating)
+                        for child in s.get("flowChildProjects", []):
+                            if child.get("status") == "creating":
+                                child_started = child.get("createdAt", now_ms)
+                                if now_ms - child_started > 60 * 1000:
+                                    child["status"] = "failed"
+                                    child["lastError"] = "Timeout: Quá 60s không tạo được Project trên Google Flow"
+                                    modified = True
+                                    push_log(f"❌ LỖI: Tạo dự án con Flow '{child.get('name')}' thất bại do quá hạn 60s", "err", project_id=proj_id, subproject_id=sub_id)
                 if modified:
                     save_projects(projs)
             except Exception as e:
@@ -4568,6 +4603,47 @@ Sản phẩm tuyệt vời quá</textarea>
             try { return JSON.stringify(err); } catch(e) { return fallback || "Lỗi không xác định"; }
         }
 
+        // Global Toast Notification Helper
+        function showToast(message, type = 'info', duration = 5000) {
+            let container = document.getElementById('toastNotificationContainer');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'toastNotificationContainer';
+                container.style.cssText = 'position:fixed; top:20px; right:20px; z-index:999999; display:flex; flex-direction:column; gap:10px; max-width:420px; pointer-events:none;';
+                document.body.appendChild(container);
+            }
+            const toast = document.createElement('div');
+            toast.style.cssText = 'pointer-events:auto; padding:12px 18px; border-radius:10px; font-size:13px; font-weight:600; line-height:1.5; color:#fff; display:flex; align-items:center; gap:10px; box-shadow:0 10px 25px rgba(0,0,0,0.5); backdrop-filter:blur(8px); transform:translateX(80px); opacity:0; transition:all 0.3s cubic-bezier(0.16, 1, 0.3, 1); word-break:break-word;';
+            
+            if (type === 'success') {
+                toast.style.background = 'linear-gradient(135deg, rgba(16, 185, 129, 0.95), rgba(5, 150, 105, 0.95))';
+                toast.style.border = '1px solid #34d399';
+            } else if (type === 'error') {
+                toast.style.background = 'linear-gradient(135deg, rgba(239, 68, 68, 0.95), rgba(185, 28, 28, 0.95))';
+                toast.style.border = '1px solid #f87171';
+            } else if (type === 'warn' || type === 'warning') {
+                toast.style.background = 'linear-gradient(135deg, rgba(245, 158, 11, 0.95), rgba(217, 119, 6, 0.95))';
+                toast.style.border = '1px solid #fbbf24';
+            } else {
+                toast.style.background = 'linear-gradient(135deg, rgba(59, 130, 246, 0.95), rgba(37, 99, 235, 0.95))';
+                toast.style.border = '1px solid #60a5fa';
+            }
+            
+            toast.innerHTML = `<span style="flex:1;">${message}</span><button onclick="this.parentElement.remove()" style="background:none;border:none;color:#fff;font-size:16px;cursor:pointer;opacity:0.7;padding:0 0 0 8px;">✕</button>`;
+            container.appendChild(toast);
+            
+            requestAnimationFrame(() => {
+                toast.style.transform = 'translateX(0)';
+                toast.style.opacity = '1';
+            });
+            
+            setTimeout(() => {
+                toast.style.transform = 'translateX(80px)';
+                toast.style.opacity = '0';
+                setTimeout(() => toast.remove(), 350);
+            }, duration);
+        }
+
         function toggleMobileSidebar() {
             document.body.classList.toggle('sidebar-open');
             const overlay = document.querySelector('.sidebar-overlay');
@@ -5553,6 +5629,7 @@ async function triggerRunNow(postId) {
             } catch(e) {}
         }
 
+        const _seenFailedTaskIds = new Set();
         async function fetchParentProjectData(projId) {
             if (!projId) return;
             try {
@@ -5567,6 +5644,24 @@ async function triggerRunNow(postId) {
                 const project = data.project || {};
                 const subProjects = project.subProjects || [];
                 const results = data.results || {};
+
+                // Cảnh báo ngay lập tức qua Toast nếu phát hiện tác vụ thất bại
+                subProjects.forEach(sub => {
+                    (sub.postQueue || []).forEach(post => {
+                        if (post.status === 'failed' && !_seenFailedTaskIds.has(post.id)) {
+                            _seenFailedTaskIds.add(post.id);
+                            const errMsg = post.lastError || post.progressStep || "Thao tác thất bại";
+                            showToast(`❌ Bài đăng [${post.platform || 'FB'}]: ${errMsg}`, 'error', 7000);
+                        }
+                    });
+                    (sub.imageQueue || []).forEach(img => {
+                        if (img.status === 'failed' && !_seenFailedTaskIds.has(img.id)) {
+                            _seenFailedTaskIds.add(img.id);
+                            const errMsg = img.lastError || img.progressStep || "Tạo ảnh thất bại";
+                            showToast(`❌ Tạo ảnh AI: ${errMsg}`, 'error', 7000);
+                        }
+                    });
+                });
 
                 if (data.project && data.project.id) {
                     const pIdx = allProjects.findIndex(p => p.id === data.project.id);
@@ -8030,7 +8125,7 @@ async function triggerRunNow(postId) {
                 `<span class="badge-folder" style="background:rgba(14,165,233,0.2); color:#38bdf8; border:1px solid rgba(14,165,233,0.4); font-weight:700;">⏰ Hẹn Lúc: ${escapeHtml(p.scheduledTimeStr)}</span>` : '';
 
             return `
-                <div class="smart-post-card" style="${isInProgress ? 'border-color: #38bdf8; box-shadow: 0 0 15px rgba(56,189,248,0.2);' : (isCompleted ? 'border-color: rgba(52,211,153,0.3);' : (isScheduled ? 'border-color: rgba(14,165,233,0.4); box-shadow: 0 0 12px rgba(14,165,233,0.15);' : ''))}">
+                <div class="smart-post-card" style="${isFailed ? 'border-color: rgba(239,68,68,0.5); box-shadow: 0 0 15px rgba(239,68,68,0.15);' : (isInProgress ? 'border-color: #38bdf8; box-shadow: 0 0 15px rgba(56,189,248,0.2);' : (isCompleted ? 'border-color: rgba(52,211,153,0.3);' : (isScheduled ? 'border-color: rgba(14,165,233,0.4); box-shadow: 0 0 12px rgba(14,165,233,0.15);' : '')))}">
                     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
                         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
                             <span class="badge-folder" style="background:rgba(168,85,247,0.2); color:#c084fc; border:1px solid rgba(168,85,247,0.4);">${typeBadge}</span>
@@ -8054,8 +8149,8 @@ async function triggerRunNow(postId) {
                     </div>
 
                     ${p.progressStep ? `
-                        <div style="margin-top:10px; padding:10px 14px; border-radius:10px; font-size:12px; font-weight:600; background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.3); color:#38bdf8; display:flex; align-items:center; gap:8px;">
-                            ${isInProgress ? '<div class="pulse-spinner"></div>' : '✓'}
+                        <div style="margin-top:10px; padding:10px 14px; border-radius:10px; font-size:12px; font-weight:600; ${isFailed || (p.progressStep && p.progressStep.startsWith('❌')) ? 'background:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.35); color:#fca5a5;' : 'background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.3); color:#38bdf8;'} display:flex; align-items:center; gap:8px;">
+                            ${isInProgress ? '<div class="pulse-spinner"></div>' : (isFailed ? '⚠️' : '✓')}
                             <span>${escapeHtml(p.progressStep)}</span>
                         </div>
                     ` : ''}
@@ -8092,8 +8187,8 @@ async function triggerRunNow(postId) {
                             <button type="button" class="btn-sm" style="background:#1e293b; color:#38bdf8; border:1px solid rgba(56,189,248,0.4);" onclick="viewPostDataJson('${p.id}')" title="Xem Toàn Bộ Dữ Liệu Quản Lý JSON">
                                 📊 Dữ Liệu (JSON)
                             </button>
-                            <button type="button" class="btn-sm ${isCompleted ? 'btn-purple' : 'btn-green'}" onclick="runPostNow('${p.id}')">
-                                ${isCompleted ? '🔄 Đăng Lại' : (isScheduled ? '⚡ Đăng Ngay (Bỏ Hẹn)' : '⚡ Đăng Ngay')}
+                            <button type="button" class="btn-sm ${isFailed ? 'btn-danger' : (isCompleted ? 'btn-purple' : 'btn-green')}" onclick="runPostNow('${p.id}')">
+                                ${isFailed ? '🔄 Thử Lại Ngay' : (isCompleted ? '🔄 Đăng Lại' : (isScheduled ? '⚡ Đăng Ngay (Bỏ Hẹn)' : '⚡ Đăng Ngay'))}
                             </button>
                             ${isScheduled ? `
                             <button type="button" class="btn-sm" style="background:#0284c7; color:#fff;" onclick="openEditScheduleModal('${p.id}', ${p.scheduledTime || 0})">
@@ -9150,12 +9245,12 @@ async function triggerRunNow(postId) {
                 const statusBadge = status === 'completed'
                     ? '<span style="color:#34d399; font-size:11px; font-weight:700;">✅ Hoàn thành</span>'
                     : status === 'failed'
-                        ? '<span style="color:#f87171; font-size:11px; font-weight:700;">❌ Thất bại</span>'
+                        ? `<span style="color:#f87171; font-size:11px; font-weight:700;" title="${escapeHtml(item.lastError || '')}">❌ Thất bại: ${escapeHtml((item.lastError || 'Lỗi tạo ảnh').substring(0, 30))}...</span>`
                         : status === 'queued'
                             ? '<span style="color:#a78bfa; font-size:11px; font-weight:700;">📋 Trong hàng đợi</span>'
-                            : '<span style="color:#fbbf24; font-size:11px; font-weight:700;">⏳ Đang chờ Extension xử lý...</span>';
+                            : `<span style="color:#fbbf24; font-size:11px; font-weight:700;">${escapeHtml(item.progressStep || '⏳ Đang chờ Extension xử lý...')}</span>`;
 
-                html += `<div style="background:#0d1425; border:1px solid #1e293b; border-radius:12px; overflow:hidden;">`;
+                html += `<div style="background:#0d1425; border:1px solid ${status === 'failed' ? 'rgba(239,68,68,0.4)' : '#1e293b'}; border-radius:12px; overflow:hidden;">`;
 
                 if (images.length > 0) {
                     const gridCols = images.length === 1 ? '1fr' : 'repeat(2, 1fr)';
@@ -9168,23 +9263,27 @@ async function triggerRunNow(postId) {
                     });
                     html += `</div>`;
                 } else {
-                    html += `<div style="display:flex; align-items:center; justify-content:center; padding:32px 16px; background:linear-gradient(135deg,#0f172a,#1e293b); min-height:140px;">`;
-                    if (status === 'pending') {
-                        html += `<div style="text-align:center;">`;
+                    html += `<div style="display:flex; align-items:center; justify-content:center; padding:24px 16px; background:linear-gradient(135deg,#0f172a,#1e293b); min-height:140px;">`;
+                    if (status === 'pending' || (status && status.includes('Đang'))) {
+                        html += `<div style="text-align:center; padding:10px;">`;
                         html += `<div style="font-size:36px; animation:pulse 2s infinite;">🎨</div>`;
-                        html += `<div style="color:#fbbf24; font-size:12px; font-weight:700; margin-top:8px;">Đang chờ Extension tạo ${count} ảnh...</div>`;
+                        html += `<div style="color:#fbbf24; font-size:12px; font-weight:700; margin-top:8px;">${escapeHtml(item.progressStep || `Đang chờ Extension tạo ${count} ảnh...`)}</div>`;
                         html += `<div style="color:#64748b; font-size:11px; margin-top:4px;">Model: ${model} | Tỷ lệ: ${ratio}</div>`;
                         html += `</div>`;
                     } else if (status === 'queued') {
-                        html += `<div style="text-align:center;">`;
+                        html += `<div style="text-align:center; padding:10px;">`;
                         html += `<div style="font-size:36px;">📋</div>`;
                         html += `<div style="color:#a78bfa; font-size:12px; font-weight:700; margin-top:8px;">Đã lưu vào hàng đợi (${count} ảnh)</div>`;
                         html += `<div style="color:#64748b; font-size:11px; margin-top:4px;">Model: ${model} | Tỷ lệ: ${ratio}</div>`;
                         html += `</div>`;
                     } else {
-                        html += `<div style="text-align:center;">`;
-                        html += `<div style="font-size:36px;">❌</div>`;
-                        html += `<div style="color:#f87171; font-size:12px; font-weight:700; margin-top:8px;">Tạo ảnh thất bại</div>`;
+                        html += `<div style="text-align:center; padding:14px 10px; width:100%;">`;
+                        html += `<div style="font-size:32px;">❌</div>`;
+                        html += `<div style="color:#f87171; font-size:13px; font-weight:700; margin-top:6px;">Tạo ảnh thất bại</div>`;
+                        if (item.lastError) {
+                            html += `<div style="color:#fca5a5; font-size:11px; margin:8px auto; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.3); border-radius:6px; padding:6px 10px; max-width:92%; word-break:break-word; line-height:1.4; text-align:left;">⚠️ ${escapeHtml(item.lastError)}</div>`;
+                        }
+                        html += `<button type="button" onclick="retryFlowImage('${item.id}', event)" style="margin-top:6px; background:linear-gradient(135deg,rgba(45,212,191,0.25),rgba(20,184,166,0.35)); border:1px solid #2dd4bf; color:#5eead4; font-size:11px; padding:4px 12px; border-radius:6px; cursor:pointer; font-weight:700; display:inline-flex; align-items:center; gap:4px;"><span>🔄</span> <span>Thử lại ngay</span></button>`;
                         html += `</div>`;
                     }
                     html += `</div>`;
@@ -9209,12 +9308,35 @@ async function triggerRunNow(postId) {
                     const firstImg = (typeof images[0] === 'object' && images[0].url) ? images[0].url : images[0];
                     html += `<a href="${firstImg}" download="flow_${item.id}.jpg" style="color:#5eead4; font-size:12px; text-decoration:none; padding:1px 4px;" title="Tải ảnh về máy">⬇️</a>`;
                 }
+                if (status === 'failed') {
+                    html += `<button type="button" onclick="retryFlowImage('${item.id}', event)" style="background:rgba(45,212,191,0.15); border:1px solid rgba(45,212,191,0.3); color:#5eead4; font-size:11px; padding:2px 7px; border-radius:4px; cursor:pointer; display:inline-flex; align-items:center; gap:3px;" title="Tạo lại ảnh với cùng prompt"><span>🔄</span> <span>Thử lại</span></button>`;
+                }
                 html += `<button type="button" onclick="deleteFlowImage('${item.id}', '${itemFlowProjId}', event)" style="background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.3); color:#fca5a5; font-size:11px; padding:2px 7px; border-radius:4px; cursor:pointer; display:inline-flex; align-items:center; gap:3px;" title="Xóa ảnh khỏi Dashboard và chuyển vào thùng rác trên Google Flow Canvas"><span>🗑️</span> <span>Xóa</span></button>`;
                 html += `</div></div>`;
                 html += `</div></div>`;
             });
             html += '</div>';
             container.innerHTML = html;
+        }
+
+        async function retryFlowImage(imageId, event) {
+            if (event) event.stopPropagation();
+            const projObj = allProjects.find(p => p.id === currentProjectId);
+            const subObj = projObj ? (projObj.subProjects || []).find(s => s.id === currentSubProjectId) : null;
+            const item = (subObj?.imageQueue || []).find(q => q.id === imageId);
+            if (!item) return;
+
+            const pInput = document.getElementById('flowImagePromptInput');
+            if (pInput) pInput.value = item.prompt || '';
+            const mSel = document.getElementById('flowImageModelSelect');
+            if (mSel && item.model) mSel.value = item.model;
+            const cSel = document.getElementById('flowImageCountSelect');
+            if (cSel && item.imageCount) cSel.value = String(item.imageCount);
+            const rSel = document.getElementById('flowImageRatioSelect');
+            if (rSel && item.aspectRatio) rSel.value = item.aspectRatio;
+
+            showToast(`🔄 Đang thử lại tạo ảnh cho: "${(item.prompt || '').substring(0, 30)}..."`, "info");
+            await submitFlowImageGenerate();
         }
 
         async function deleteFlowImage(imageId, flowProjId, event) {
@@ -10373,18 +10495,24 @@ async function triggerRunNow(postId) {
         }
 
         function renderParentLogs(logs) {
-            const box = document.getElementById("parentLogBox");
-            if (!box) return;
+            const boxes = [
+                document.getElementById("parentLogBox"),
+                document.getElementById("subLogBox")
+            ].filter(Boolean);
+            if (boxes.length === 0) return;
             if (!logs || logs.length === 0) {
-                box.innerHTML = "Chưa có nhật ký hoạt động nào...";
+                boxes.forEach(b => b.innerHTML = "Chưa có nhật ký hoạt động nào...");
                 return;
             }
-            box.innerHTML = logs.map(l => `
+            const html = logs.map(l => `
                 <div class="log-line ${l.type ? 'log-' + l.type : ''}">
                     [${new Date(l.time).toLocaleTimeString()}] ${l.message}
                 </div>
             `).join('');
-            box.scrollTop = box.scrollHeight;
+            boxes.forEach(b => {
+                b.innerHTML = html;
+                b.scrollTop = b.scrollHeight;
+            });
         }
 
         // =========================================================
@@ -10983,7 +11111,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 n for n in connected_nodes.values()
                 if n.get("projectId") == proj_id and (now - n.get("lastSeen", 0) < 15000)
             ]
-            p_logs = [l for l in live_logs if l.get("projectId") == proj_id]
+            p_logs = [l for l in live_logs if l.get("projectId") == proj_id or l.get("projectId") is None]
 
             self._send_json(200, {
                 "success": True,
@@ -12533,13 +12661,23 @@ class BridgeHandler(BaseHTTPRequestHandler):
                                     for post_item in s.get("postQueue", []):
                                         if post_item.get("id") == post_id:
                                             post_item["progressStep"] = step
-                                            post_item["status"] = "in_progress"
+                                            if step.startswith("❌"):
+                                                post_item["status"] = "failed"
+                                                post_item["lastError"] = step
+                                                push_log(f"Lỗi đăng bài ({post_item.get('title') or post_item.get('id')}): {step}", "err", project_id=proj_id, subproject_id=sub_id)
+                                            else:
+                                                post_item["status"] = "in_progress"
+                                                post_item["updatedAt"] = int(time.time() * 1000)
                                             save_projects(projs)
                                             break
                                 if img_req_id:
                                     for img_item in s.get("imageQueue", []):
                                         if img_item.get("id") == img_req_id:
                                             img_item["progressStep"] = step
+                                            if step.startswith("❌"):
+                                                img_item["status"] = "failed"
+                                                img_item["lastError"] = step
+                                                push_log(f"Lỗi tạo ảnh AI Flow: {step}", "err", project_id=proj_id, subproject_id=sub_id)
                                             save_projects(projs)
                                             break
                                 break
@@ -12962,6 +13100,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                                             p_item["status"] = "failed"
                                             p_item["lastError"] = body.get("error", "Lỗi không xác định")
                                             p_item["progressStep"] = f"❌ Thất bại: {p_item['lastError']}"
+                                            push_log(f"Lỗi xuất bản bài viết '{p_item.get('title') or p_item.get('id')}': {p_item['lastError']}", "err", project_id=proj_id, subproject_id=target_sub['id'])
                                         save_projects(projs)
 
                                         # Webhook callback notification (if configured)
@@ -13036,10 +13175,15 @@ class BridgeHandler(BaseHTTPRequestHandler):
                                         img_item["status"] = "completed"
                                         img_item["images"] = processed_imgs
                                         img_item["completedAt"] = int(time.time() * 1000)
+                                        img_item["progressStep"] = f"✅ Hoàn tất tạo {len(processed_imgs)} ảnh AI Flow thành công"
                                         img_item.pop("lastError", None)
+                                        push_log(f"Đã tạo {len(processed_imgs)} ảnh AI Flow thành công cho prompt: '{img_item.get('prompt', '')[:40]}...'", "success", project_id=proj_id, subproject_id=target_sub_id)
                                     else:
+                                        err_msg = body.get("error", "Extension không thể tạo ảnh")
                                         img_item["status"] = "failed"
-                                        img_item["lastError"] = body.get("error", "Extension không thể tạo ảnh")
+                                        img_item["lastError"] = err_msg
+                                        img_item["progressStep"] = f"❌ Thất bại: {err_msg}"
+                                        push_log(f"Lỗi tạo ảnh AI Flow: {err_msg} (Prompt: '{img_item.get('prompt', '')[:40]}...')", "err", project_id=proj_id, subproject_id=target_sub_id)
                                     save_projects(projs)
                                     found = True
                                     break
@@ -13199,13 +13343,66 @@ class BridgeHandler(BaseHTTPRequestHandler):
                             break
 
             # Xử lý kết quả tạo Project mới trên Flow qua RPC jHPbke
-            if action == "FLOW_CREATE_PROJECT" and success:
-                new_flow_id = body.get("flowProjectId")
-                pnm = body.get("name")
-                target_child_id = body.get("targetChildId")
-                if new_flow_id:
+            if action == "FLOW_CREATE_PROJECT":
+                if success:
+                    new_flow_id = body.get("flowProjectId")
+                    pnm = body.get("name")
+                    target_child_id = body.get("targetChildId")
+                    if new_flow_id:
+                        projs = get_projects()
+                        found = False
+                        for p in projs:
+                            if proj_id and p.get("id") != proj_id:
+                                continue
+                            for s in p.get("subProjects", []):
+                                if target_sub_id and s.get("id") != target_sub_id:
+                                    continue
+                                if s.get("type") != "flow":
+                                    continue
+
+                                target_child = None
+                                for c in s.get("flowChildProjects", []):
+                                    if target_child_id and c.get("id") == target_child_id:
+                                        target_child = c
+                                        break
+                                    elif not c.get("flowProjectId") and c.get("status") == "creating":
+                                        target_child = c
+                                        break
+
+                                if target_child:
+                                    target_child["flowProjectId"] = new_flow_id
+                                    target_child["url"] = f"https://flow.google.com/project/{new_flow_id}"
+                                    target_child["status"] = "ready"
+                                    if pnm and not target_child.get("name"):
+                                        target_child["name"] = pnm
+                                    s["activeFlowChildId"] = target_child["id"]
+                                    s["flowProjectId"] = new_flow_id
+                                    s["profileUrl"] = target_child["url"]
+                                else:
+                                    new_c = {
+                                        "id": f"fchild_{int(time.time())}_{uuid.uuid4().hex[:4]}",
+                                        "name": pnm or f"Flow Project {new_flow_id[:8]}",
+                                        "flowProjectId": new_flow_id,
+                                        "url": f"https://flow.google.com/project/{new_flow_id}",
+                                        "description": "Tạo trực tiếp trên Google Flow",
+                                        "status": "ready",
+                                        "createdAt": int(time.time() * 1000)
+                                    }
+                                    s.setdefault("flowChildProjects", []).append(new_c)
+                                    s["activeFlowChildId"] = new_c["id"]
+                                    s["flowProjectId"] = new_flow_id
+                                    s["profileUrl"] = new_c["url"]
+
+                                save_projects(projs)
+                                push_log(f"🎉 Đã kích hoạt Project '{pnm or new_flow_id[:8]}' trên Flow (UUID: {new_flow_id})", "success", project_id=proj_id, subproject_id=target_sub_id)
+                                found = True
+                                break
+                            if found:
+                                break
+                else:
+                    err_msg = body.get("error", "Không thể tạo dự án trên Google Flow")
+                    target_child_id = body.get("targetChildId")
                     projs = get_projects()
-                    found = False
                     for p in projs:
                         if proj_id and p.get("id") != proj_id:
                             continue
@@ -13214,73 +13411,44 @@ class BridgeHandler(BaseHTTPRequestHandler):
                                 continue
                             if s.get("type") != "flow":
                                 continue
-
-                            target_child = None
                             for c in s.get("flowChildProjects", []):
-                                if target_child_id and c.get("id") == target_child_id:
-                                    target_child = c
-                                    break
-                                elif not c.get("flowProjectId") and c.get("status") == "creating":
-                                    target_child = c
-                                    break
-
-                            if target_child:
-                                target_child["flowProjectId"] = new_flow_id
-                                target_child["url"] = f"https://flow.google.com/project/{new_flow_id}"
-                                target_child["status"] = "ready"
-                                if pnm and not target_child.get("name"):
-                                    target_child["name"] = pnm
-                                s["activeFlowChildId"] = target_child["id"]
-                                s["flowProjectId"] = new_flow_id
-                                s["profileUrl"] = target_child["url"]
-                            else:
-                                new_c = {
-                                    "id": f"fchild_{int(time.time())}_{uuid.uuid4().hex[:4]}",
-                                    "name": pnm or f"Flow Project {new_flow_id[:8]}",
-                                    "flowProjectId": new_flow_id,
-                                    "url": f"https://flow.google.com/project/{new_flow_id}",
-                                    "description": "Tạo trực tiếp trên Google Flow",
-                                    "status": "ready",
-                                    "createdAt": int(time.time() * 1000)
-                                }
-                                s.setdefault("flowChildProjects", []).append(new_c)
-                                s["activeFlowChildId"] = new_c["id"]
-                                s["flowProjectId"] = new_flow_id
-                                s["profileUrl"] = new_c["url"]
-
+                                if (target_child_id and c.get("id") == target_child_id) or (c.get("status") == "creating" and not c.get("flowProjectId")):
+                                    c["status"] = "failed"
+                                    c["lastError"] = err_msg
                             save_projects(projs)
-                            push_log(f"🎉 Đã kích hoạt Project '{pnm or new_flow_id[:8]}' trên Flow (UUID: {new_flow_id})", "success", project_id=proj_id, subproject_id=target_sub_id)
-                            found = True
-                            break
-                        if found:
+                            push_log(f"❌ Lỗi tạo Project mới trên Flow: {err_msg}", "err", project_id=proj_id, subproject_id=target_sub_id)
                             break
 
             # Xử lý kết quả đổi tên Project trên Flow qua RPC o8DA4
-            if action == "FLOW_RENAME_PROJECT" and success:
-                new_name = body.get("newName")
-                flow_pid = body.get("flowProjectId")
-                if new_name and flow_pid:
-                    projs = get_projects()
-                    found = False
-                    for p in projs:
-                        if proj_id and p.get("id") != proj_id:
-                            continue
-                        for s in p.get("subProjects", []):
-                            if target_sub_id and s.get("id") != target_sub_id:
+            if action == "FLOW_RENAME_PROJECT":
+                if success:
+                    new_name = body.get("newName")
+                    flow_pid = body.get("flowProjectId")
+                    if new_name and flow_pid:
+                        projs = get_projects()
+                        found = False
+                        for p in projs:
+                            if proj_id and p.get("id") != proj_id:
                                 continue
-                            if s.get("type") != "flow":
-                                continue
-                            for c in s.get("flowChildProjects", []):
-                                if c.get("flowProjectId") == flow_pid:
-                                    c["name"] = new_name
-                                    found = True
+                            for s in p.get("subProjects", []):
+                                if target_sub_id and s.get("id") != target_sub_id:
+                                    continue
+                                if s.get("type") != "flow":
+                                    continue
+                                for c in s.get("flowChildProjects", []):
+                                    if c.get("flowProjectId") == flow_pid:
+                                        c["name"] = new_name
+                                        found = True
+                                        break
+                                if found:
+                                    save_projects(projs)
+                                    push_log(f"✏️ Đã đồng bộ tên mới '{new_name}' cho Project Flow ({flow_pid[:8]})", "success", project_id=proj_id, subproject_id=target_sub_id)
                                     break
                             if found:
-                                save_projects(projs)
-                                push_log(f"✏️ Đã đồng bộ tên mới '{new_name}' cho Project Flow ({flow_pid[:8]})", "success", project_id=proj_id, subproject_id=target_sub_id)
                                 break
-                        if found:
-                            break
+                else:
+                    err_msg = body.get("error", "Không thể đổi tên project trên Google Flow")
+                    push_log(f"❌ Lỗi đổi tên Project Flow: {err_msg}", "err", project_id=proj_id, subproject_id=target_sub_id)
 
             # Xử lý kết quả kiểm tra sức khỏe và tự động dọn dẹp Project ma (Ghost Projects)
             if action == "FLOW_CHECK_PROJECTS_HEALTH":
@@ -13373,7 +13541,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
             else:
                 log_msg += "Thành công" if success else f"Lỗi: {body.get('error')}"
 
-            push_log(log_msg, "success" if success else "warn", project_id=proj_id, subproject_id=target_sub_id)
+            push_log(log_msg, "success" if success else "err", project_id=proj_id, subproject_id=target_sub_id)
             self._send_json(200, {"success": True})
             return
 

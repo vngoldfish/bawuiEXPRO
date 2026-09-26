@@ -820,7 +820,9 @@ async function _executeFbPost(payload, updateStep) {
         }
 
         if (!targetTab || !targetTab.id) {
-            return { success: false, error: "Không thể mở hoặc kết nối tới tab Facebook" };
+            const err = "Không thể mở hoặc kết nối tới tab Facebook";
+            await updateStep(`❌ Lỗi: ${err}`);
+            return { success: false, error: err };
         }
 
         await ensureTabLoaded(targetTab.id);
@@ -1301,7 +1303,9 @@ async function _executeFbPost(payload, updateStep) {
 
         const gqlRes = graphqlResults?.[0]?.result;
         if (!gqlRes || !gqlRes.success) {
-            return { success: false, error: gqlRes?.error || "Không thể tạo bài viết trên Facebook" };
+            const err = gqlRes?.error || "Không thể tạo bài viết trên Facebook";
+            await updateStep(`❌ Lỗi: ${err}`);
+            return { success: false, error: err };
         }
 
         const fbPostId = gqlRes.fbPostId || uploadedMediaId;
@@ -1395,6 +1399,7 @@ async function _executeFbPost(payload, updateStep) {
         };
 
     } catch(err) {
+        await updateStep(`❌ Lỗi ngoại lệ: ${err.message}`);
         return { success: false, error: err.message };
     }
 }
@@ -2934,6 +2939,9 @@ async function _executeCommandAsync(cmd) {
                         ...postRes,
                         postId: postPayload.id
                     };
+                    if (!postRes || !postRes.success) {
+                        await updateStep(`❌ Đăng bài thất bại: ${postRes?.error || "Lỗi không xác định"}`);
+                    }
                     break;
                 }
 
@@ -2979,6 +2987,9 @@ async function _executeCommandAsync(cmd) {
                         error: shareRes.error,
                         progressStep: shareRes.success ? "✅ Đã chia sẻ thành công lên Tin (Story)" : `❌ Lỗi chia sẻ Tin: ${shareRes.error}`
                     };
+                    if (!shareRes.success) {
+                        await updateStep(`❌ Lỗi chia sẻ Tin: ${shareRes.error || "Thất bại"}`);
+                    }
                     break;
                 }
 
@@ -3025,6 +3036,9 @@ async function _executeCommandAsync(cmd) {
                         error: seedRes.error,
                         progressStep: seedRes.success ? `✅ Đã seeding xong ${seedRes.count || comments.length} bình luận` : `❌ Lỗi seeding: ${seedRes.error}`
                     };
+                    if (!seedRes.success) {
+                        await updateStep(`❌ Lỗi seeding: ${seedRes.error || "Thất bại"}`);
+                    }
                     break;
                 }
 
@@ -3291,7 +3305,9 @@ async function _executeCommandAsync(cmd) {
                         }
 
                         if (!editorReady) {
-                            cmdResult = { success: false, error: "Không tìm thấy khung nhập Prompt (.ProseMirror) trên Google Flow. Hãy mở một project trên Flow trước!", imageRequestId };
+                            const err = "Không tìm thấy khung nhập Prompt (.ProseMirror) trên Google Flow. Hãy mở một project trên Flow trước!";
+                            await updateStep("❌ Lỗi: " + err);
+                            cmdResult = { success: false, error: err, imageRequestId };
                             break;
                         }
 
@@ -3390,6 +3406,7 @@ async function _executeCommandAsync(cmd) {
 
                         const prepData = prepRes?.[0]?.result || {};
                         if (prepData.error) {
+                            await updateStep("❌ Lỗi: " + prepData.error);
                             cmdResult = { success: false, error: prepData.error, imageRequestId };
                             break;
                         }
@@ -3413,7 +3430,9 @@ async function _executeCommandAsync(cmd) {
 
                         const edRect = initEdRes?.[0]?.result;
                         if (!edRect) {
-                            cmdResult = { success: false, error: "Không tìm thấy toạ độ khung soạn thảo ProseMirror trên Flow", imageRequestId };
+                            const err = "Không tìm thấy toạ độ khung soạn thảo ProseMirror trên Flow";
+                            await updateStep("❌ Lỗi: " + err);
+                            cmdResult = { success: false, error: err, imageRequestId };
                             break;
                         }
 
@@ -3429,7 +3448,9 @@ async function _executeCommandAsync(cmd) {
                         }
 
                         if (!dbgAttached) {
-                            cmdResult = { success: false, error: "Không thể kết nối Chrome Debugger để điều khiển tab ngầm", imageRequestId };
+                            const err = "Không thể kết nối Chrome Debugger để điều khiển tab ngầm";
+                            await updateStep("❌ Lỗi: " + err);
+                            cmdResult = { success: false, error: err, imageRequestId };
                             break;
                         }
 
@@ -3565,6 +3586,15 @@ async function _executeCommandAsync(cmd) {
                                 target: { tabId: targetTab.id },
                                 world: "MAIN",
                                 func: () => {
+                                    // Kiểm tra xem trên trang có banner thông báo lỗi (snackbar, alert) hay không
+                                    const snackbars = document.querySelectorAll("mat-snack-bar-container, [role='alert'], .mat-mdc-snack-bar-container, .error-message, .alert-danger");
+                                    for (const sb of snackbars) {
+                                        const txt = (sb.innerText || "").trim();
+                                        if (txt && (txt.includes("error") || txt.includes("lỗi") || txt.includes("policy") || txt.includes("chính sách") || txt.includes("quota") || txt.includes("giới hạn") || txt.includes("blocked") || txt.includes("chặn") || txt.includes("failed"))) {
+                                            return { error: txt };
+                                        }
+                                    }
+
                                     // A. Kiểm tra từ interceptor mạng (bắt response batchexecute của lượt này)
                                     if (window.__capturedImages && window.__capturedImages.length > 0) {
                                         return { images: window.__capturedImages, source: "interceptor" };
@@ -3589,6 +3619,15 @@ async function _executeCommandAsync(cmd) {
                                 }
                             });
 
+                            if (checkRes?.[0]?.result?.error) {
+                                const onScreenErr = checkRes[0].result.error;
+                                console.warn("[Flow Bridge] Phát hiện thông báo lỗi trên màn hình Flow:", onScreenErr);
+                                const err = `Google Flow báo lỗi: "${onScreenErr}"`;
+                                await updateStep("❌ Lỗi: " + err);
+                                cmdResult = { success: false, error: err, imageRequestId };
+                                break;
+                            }
+
                             const imgs = checkRes?.[0]?.result?.images || [];
                             if (imgs.length > 0) {
                                 capturedImages = imgs;
@@ -3600,9 +3639,11 @@ async function _executeCommandAsync(cmd) {
                         // TUYỆT ĐỐI KHÔNG DÙNG FALLBACK LẤY ẢNH CŨ TRÊN CANVAS!
                         // Báo lỗi rõ ràng nếu không có ảnh MỚI nào được sinh ra cho prompt này
                         if (capturedImages.length === 0) {
+                            const err = "Google Flow không tạo ảnh mới cho prompt này sau 60s (có thể prompt bị bộ lọc an toàn của Google chặn hoặc hết quota)";
+                            await updateStep("❌ Lỗi: " + err);
                             cmdResult = {
                                 success: false,
-                                error: "Google Flow không tạo ảnh mới cho prompt này sau 60s (có thể prompt bị bộ lọc an toàn của Google chặn hoặc hết quota)",
+                                error: err,
                                 imageRequestId
                             };
                             break;
@@ -3706,6 +3747,7 @@ async function _executeCommandAsync(cmd) {
 
                     } catch(flowErr) {
                         console.error("[Flow Bridge] Fatal error:", flowErr);
+                        await updateStep("❌ Lỗi: " + flowErr.message);
                         cmdResult = { success: false, error: flowErr.message, imageRequestId };
                     } finally {
                         if (targetTab && targetTab.id) {
@@ -4554,22 +4596,28 @@ async function _executeCommandAsync(cmd) {
             if (isFbAction) activeFbCount = Math.max(0, activeFbCount - 1);
         }
 
-        // 4. Trả kết quả lệnh về Backend VPS
-        try {
-            await fetch(`${BACKEND_URL}/api/bridge/result`, {
-                method: "POST",
-                headers: getHeaders(),
-                body: JSON.stringify({
-                    nodeId: NODE_ID,
-                    commandId: cmd.id,
-                    action: cmd.action,
-                    targetProjectId: cmd.targetProjectId,
-                    targetSubProjectId: cmd.targetSubProjectId,
-                    ...cmdResult,
-                    timestamp: Date.now()
-                })
-            });
-        } catch(e) {}
+        // 4. Trả kết quả lệnh về Backend VPS (kèm cơ chế thử lại nếu mạng chập chờn)
+        for (let retry = 0; retry < 3; retry++) {
+            try {
+                const res = await fetch(`${BACKEND_URL}/api/bridge/result`, {
+                    method: "POST",
+                    headers: getHeaders(),
+                    body: JSON.stringify({
+                        nodeId: NODE_ID,
+                        commandId: cmd.id,
+                        action: cmd.action,
+                        targetProjectId: cmd.targetProjectId,
+                        targetSubProjectId: cmd.targetSubProjectId,
+                        ...cmdResult,
+                        timestamp: Date.now()
+                    })
+                });
+                if (res.ok) break;
+            } catch(e) {
+                console.warn(`[Bridge] Lỗi gửi kết quả lần ${retry + 1}/3:`, e);
+            }
+            await new Promise(r => setTimeout(r, 600 * (retry + 1)));
+        }
 
         // Kích hoạt ngay nhịp heartbeat và polling tiếp theo để kéo lệnh kế tiếp của project con này hoặc các project khác
         scheduleNextHeartbeat(300);

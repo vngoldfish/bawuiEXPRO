@@ -512,4 +512,11 @@ def _sync_lightweight_json(projects_list):
         json.dump({"projects": clean_list}, f, ensure_ascii=False, indent=2)
         f.flush()
         os.fsync(f.fileno())
-    os.replace(tmp_path, JSON_PATH)
+    try:
+        os.replace(tmp_path, JSON_PATH)
+    except OSError:
+        shutil.copyfile(tmp_path, JSON_PATH)
+        try:
+            os.remove(tmp_path)
+        except Exception:
+            pass

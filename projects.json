@@ -1196,6 +1196,65 @@
           "createdAt": 1790224471866,
           "postQueue": [
             {
+              "id": "post_1790444913_bbb2",
+              "title": "",
+              "content": "321",
+              "postType": "post",
+              "targetType": "profile",
+              "targetId": "",
+              "targetUrl": "https://www.facebook.com",
+              "shareToFeed": true,
+              "mediaUrl": "",
+              "mediaData": null,
+              "seedingComments": [
+                "1",
+                "2",
+                "3"
+              ],
+              "autoReactType": "LIKE",
+              "status": "completed",
+              "progressStep": "✅ Đã đăng thành công lên Facebook (ID: 1073062945511955)",
+              "fbPostId": "1073062945511955",
+              "fbPostUrl": "https://www.facebook.com/permalink.php?story_fbid=1073062945511955&id=100084247794160",
+              "scheduledTime": 0,
+              "scheduledTimeStr": "",
+              "scheduledAt": "",
+              "lastError": "",
+              "createdAt": 1790444913998,
+              "callbackUrl": "",
+              "source": "api",
+              "updatedAt": 1790444949750,
+              "fbFeedbackId": "ZmVlZGJhY2s6MTA3MzA2Mjk0NTUxMTk1NQ==",
+              "seedingIds": [
+                "1714169673024501",
+                "963158992823612",
+                "1727372938368409"
+              ],
+              "seedingDetails": [
+                {
+                  "id": "1714169673024501",
+                  "status": "success",
+                  "text": "1",
+                  "timestamp": 1790444938655
+                },
+                {
+                  "id": "963158992823612",
+                  "status": "success",
+                  "text": "2",
+                  "timestamp": 1790444944064
+                },
+                {
+                  "id": "1727372938368409",
+                  "status": "success",
+                  "text": "3",
+                  "timestamp": 1790444948940
+                }
+              ],
+              "shareToStorySuccess": true,
+              "publishedAt": 1790444949815,
+              "publishedAtStr": "02:49:09 27/09/2026"
+            },
+            {
               "id": "post_1790225355_ca0d",
               "title": "",
               "content": "w",

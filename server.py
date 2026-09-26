@@ -235,7 +235,7 @@ def save_projects(projects_list):
                 except Exception as bak_err:
                     print(f"[Backup Warning] Không thể sao lưu file dự án: {bak_err}")
 
-            # 2. Ghi ra tệp tạm trên cùng thư mục để đảm bảo atomic replace trên cùng filesystem
+            # 2. Ghi ra tệp tạm trên cùng thư mục để đảm bảo an toàn dữ liệu
             tmp_path = PROJECTS_PATH + f".tmp.{os.getpid()}_{uuid.uuid4().hex[:6]}"
             with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump({"projects": projects_list}, f, ensure_ascii=False, indent=2)
@@ -243,31 +243,33 @@ def save_projects(projects_list):
                 os.fsync(f.fileno())
 
             # 3. Thay thế nguyên tử (atomic replace)
-            os.replace(tmp_path, PROJECTS_PATH)
-        except Exception as e:
-            print(f"[Save Projects Error] {e}")
-            if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.replace(tmp_path, PROJECTS_PATH)
+            except OSError as replace_err:
+                # [Errno 16] Device or resource busy: xảy ra khi file bị Docker bind-mount trên Linux VPS (-v projects.json:/app/projects.json)
+                # hoặc [Errno 18] EXDEV (khác phân vùng mount)
+                # Giải pháp: Ghi đè trực tiếp qua shutil.copyfile để bảo toàn inode của mount point Linux
+                shutil.copyfile(tmp_path, PROJECTS_PATH)
                 try:
                     os.remove(tmp_path)
                 except Exception:
                     pass
-
-            # 2. Ghi ra tệp tạm trên cùng thư mục để đảm bảo atomic replace trên cùng filesystem
-            tmp_path = PROJECTS_PATH + f".tmp.{os.getpid()}_{uuid.uuid4().hex[:6]}"
-            with open(tmp_path, "w", encoding="utf-8") as f:
-                json.dump({"projects": projects_list}, f, ensure_ascii=False, indent=2)
-                f.flush()
-                os.fsync(f.fileno())
-
-            # 3. Thay thế nguyên tử (atomic replace)
-            os.replace(tmp_path, PROJECTS_PATH)
         except Exception as e:
-            print(f"[Save Projects Error] {e}")
-            if tmp_path and os.path.exists(tmp_path):
-                try:
-                    os.remove(tmp_path)
-                except Exception:
-                    pass
+            print(f"[Save Projects Fallback Error] {e}")
+            try:
+                # Fallback trực tiếp vào PROJECTS_PATH
+                with open(PROJECTS_PATH, "w", encoding="utf-8") as f:
+                    json.dump({"projects": projects_list}, f, ensure_ascii=False, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
+            except Exception as final_e:
+                print(f"[Save Projects Critical Error] Không thể lưu projects.json: {final_e}")
+            finally:
+                if tmp_path and os.path.exists(tmp_path):
+                    try:
+                        os.remove(tmp_path)
+                    except Exception:
+                        pass
 
 def find_project_by_token(token):
     if not token:

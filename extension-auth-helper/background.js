@@ -4527,9 +4527,10 @@ async function pollAndExecuteCommand() {
                 ...cmdResult,
                 timestamp: Date.now()
             })
-            // Kích hoạt ngay nhịp heartbeat tiếp theo để kéo lệnh kế tiếp nếu có
-            scheduleNextHeartbeat(1500);
         }).catch(() => {});
+
+        // Kích hoạt ngay nhịp heartbeat tiếp theo để kéo lệnh kế tiếp nếu có
+        scheduleNextHeartbeat(1500);
 
     } catch (e) {
         console.warn("[Bridge] Lỗi polling:", e.message);

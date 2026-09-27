@@ -5599,6 +5599,16 @@ async function triggerRunNow(postId) {
                 const postMgrBannerDesc = document.getElementById("postMgrBannerDesc");
                 if (postMgrBannerDesc) postMgrBannerDesc.textContent = "Theo dõi và quản lý tất cả bài viết đã đăng thành công, đã lên lịch, đang chờ, hoặc thất bại. Bao gồm tất cả loại bài: Bài viết thường, Video Watch, Reels, và Story.";
 
+                // Filter tabs in Post Manager FB
+                const mgrFilterBtnPost = document.getElementById("mgrFilterBtnPost");
+                if (mgrFilterBtnPost) mgrFilterBtnPost.innerHTML = "📝 Bài Viết Thường";
+                const mgrFilterBtnVideo = document.getElementById("mgrFilterBtnVideo");
+                if (mgrFilterBtnVideo) mgrFilterBtnVideo.style.display = "inline-flex";
+                const mgrFilterBtnReels = document.getElementById("mgrFilterBtnReels");
+                if (mgrFilterBtnReels) mgrFilterBtnReels.style.display = "inline-flex";
+                const mgrFilterBtnStory = document.getElementById("mgrFilterBtnStory");
+                if (mgrFilterBtnStory) mgrFilterBtnStory.style.display = "inline-flex";
+
             } else if (isX) {
                 // X (TWITTER): BẬT CÔNG CỤ SOẠN & ĐĂNG TWEET X
                 if (autoLabel) { autoLabel.textContent = "Chức Năng X (Twitter)"; autoLabel.style.display = "flex"; }
@@ -5680,6 +5690,16 @@ async function triggerRunNow(postId) {
                 if (postMgrBannerTitle) postMgrBannerTitle.textContent = "Quản Lý Hàng Đợi & Lịch Sử Tweet Đã Đăng";
                 const postMgrBannerDesc = document.getElementById("postMgrBannerDesc");
                 if (postMgrBannerDesc) postMgrBannerDesc.textContent = "Theo dõi và quản lý tất cả Tweet đã đăng thành công lên X (Twitter), các bài viết đang chờ hoặc đã lên lịch hẹn giờ.";
+
+                // Filter tabs in Post Manager X
+                const mgrFilterBtnPost = document.getElementById("mgrFilterBtnPost");
+                if (mgrFilterBtnPost) mgrFilterBtnPost.innerHTML = "𝕏 Tweet";
+                const mgrFilterBtnVideo = document.getElementById("mgrFilterBtnVideo");
+                if (mgrFilterBtnVideo) mgrFilterBtnVideo.style.display = "none";
+                const mgrFilterBtnReels = document.getElementById("mgrFilterBtnReels");
+                if (mgrFilterBtnReels) mgrFilterBtnReels.style.display = "none";
+                const mgrFilterBtnStory = document.getElementById("mgrFilterBtnStory");
+                if (mgrFilterBtnStory) mgrFilterBtnStory.style.display = "none";
 
             } else {
                 // CÁC NỀN TẢNG KHÁC (TIKTOK, FLOW...): ẨN CÁC TOOL FB ĐỂ KHÔNG BỊ TRỘN LẪN
@@ -8647,20 +8667,24 @@ async function triggerRunNow(postId) {
                 statusBadgeHtml = `<span class="badge-folder" style="background:rgba(239,68,68,0.2); color:#ef4444; border:1px solid rgba(239,68,68,0.4);">❌ Thất Bại</span>`;
             }
 
-            const typeMap = { "post": "📝 Bài Viết", "video": "🎬 Video", "reel": "⚡ Reels", "story": "📖 Story" };
-            const targetMap = { "profile": "👤 Profile", "page": "🚩 Fanpage", "group": "👥 Group" };
-
-            const typeBadge = typeMap[p.postType || "post"] || "📝 Bài Viết";
-            const targetBadge = targetMap[p.targetType || "profile"] || "👤 Profile";
-
-            const fbPostId = p.fbPostId || "";
-            let fbPostUrl = p.fbPostUrl || "";
+            const currProj = (allProjects || []).find(pr => pr.id === currentProjectId);
+            const currSub = currProj ? (currProj.subProjects || []).find(s => s.id === currentSubProjectId) : null;
+            const fbPostId = p.fbPostId || p.tweetId || "";
+            let fbPostUrl = p.fbPostUrl || p.tweetUrl || "";
             if (!fbPostUrl && fbPostId) {
                 if (fbPostId.startsWith("pfbid")) fbPostUrl = `https://www.facebook.com/posts/${fbPostId}`;
                 else if (p.postType === "reel") fbPostUrl = `https://www.facebook.com/reel/${fbPostId}`;
                 else if (p.postType === "video") fbPostUrl = `https://www.facebook.com/watch/?v=${fbPostId}`;
+                else if (currSub && currSub.type === "x") fbPostUrl = `https://x.com/i/status/${fbPostId}`;
                 else fbPostUrl = `https://www.facebook.com/photo/?fbid=${fbPostId}`;
             }
+            const isXSub = (currSub && currSub.type === 'x') || !!p.tweetId || !!p.tweetUrl || (fbPostUrl && (fbPostUrl.includes('x.com') || fbPostUrl.includes('twitter.com')));
+
+            const typeMap = { "post": "📝 Bài Viết", "video": "🎬 Video", "reel": "⚡ Reels", "story": "📖 Story" };
+            const targetMap = { "profile": "👤 Profile", "page": "🚩 Fanpage", "group": "👥 Group" };
+
+            const typeBadge = isXSub ? "𝕏 Tweet" : (typeMap[p.postType || "post"] || "📝 Bài Viết");
+            const targetBadge = isXSub ? "𝕏 Tài Khoản" : (targetMap[p.targetType || "profile"] || "👤 Profile");
 
             const seedingCount = (p.seedingComments && Array.isArray(p.seedingComments)) ? p.seedingComments.length : 0;
             const timeStr = p.createdAt ? new Date(p.createdAt).toLocaleString("vi-VN") : "";
@@ -8673,7 +8697,7 @@ async function triggerRunNow(postId) {
                         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
                             <span class="badge-folder" style="background:rgba(168,85,247,0.2); color:#c084fc; border:1px solid rgba(168,85,247,0.4);">${typeBadge}</span>
                             <span class="badge-folder" style="background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3);">${targetBadge}</span>
-                            ${p.shareToFeed !== false ? '<span class="badge-folder" style="background:rgba(14,165,233,0.15); color:#38bdf8;" title="Chia sẻ lên Bảng tin & Tin (Story): BẬT">📰 Bảng tin / Tin: Bật</span>' : '<span class="badge-folder" style="background:rgba(148,163,184,0.15); color:#94a3b8;" title="Chia sẻ lên Bảng tin & Tin (Story): TẮT">📰 Bảng tin / Tin: Tắt</span>'}
+                            ${!isXSub ? (p.shareToFeed !== false ? '<span class="badge-folder" style="background:rgba(14,165,233,0.15); color:#38bdf8;" title="Chia sẻ lên Bảng tin & Tin (Story): BẬT">📰 Bảng tin / Tin: Bật</span>' : '<span class="badge-folder" style="background:rgba(148,163,184,0.15); color:#94a3b8;" title="Chia sẻ lên Bảng tin & Tin (Story): TẮT">📰 Bảng tin / Tin: Tắt</span>') : ''}
                             ${p.targetId ? `<span class="badge-folder" style="background:rgba(255,255,255,0.06); color:#cbd5e1;">Target ID: ${escapeHtml(p.targetId)}</span>` : ''}
                             ${scheduledBadge}
                             <span style="font-size:11px; color:var(--text-muted);">⏰ ${timeStr}</span>
@@ -8701,15 +8725,15 @@ async function triggerRunNow(postId) {
                     ${(fbPostUrl || fbPostId || p.tweetUrl || p.tweetId || (p.seedingIds && p.seedingIds.length > 0)) ? `
                         <div style="margin-top:10px; padding:10px 12px; background:rgba(15,23,42,0.6); border:1px solid rgba(56,189,248,0.25); border-radius:8px;">
                             <div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center;">
-                                ${fbPostId ? `<span class="badge-folder" style="background:rgba(56,189,248,0.2); color:#38bdf8; font-family:monospace; font-weight:700;">${((currentSubProject && currentSubProject.type === 'x') || p.tweetId || (fbPostUrl && (fbPostUrl.includes('x.com') || fbPostUrl.includes('twitter.com')))) ? '𝕏 Tweet' : '🆔 FB Post'}: ${escapeHtml(fbPostId)}</span>` : ''}
+                                ${fbPostId ? `<span class="badge-folder" style="background:rgba(56,189,248,0.2); color:#38bdf8; font-family:monospace; font-weight:700;">${isXSub ? '𝕏 Tweet ID' : '🆔 FB Post'}: ${escapeHtml(fbPostId)}</span>` : ''}
                                 ${p.fbFeedbackId ? `<span class="badge-folder" style="background:rgba(168,85,247,0.2); color:#c084fc; font-family:monospace;" title="${escapeHtml(p.fbFeedbackId)}">🎯 Feedback ID: ${escapeHtml(p.fbFeedbackId.length > 18 ? p.fbFeedbackId.slice(0, 16) + '...' : p.fbFeedbackId)}</span>` : ''}
                                 ${(p.seedingIds && p.seedingIds.length > 0) ? `<span class="badge-folder" style="background:rgba(52,211,153,0.2); color:#34d399; font-family:monospace;">💬 ${p.seedingIds.length} Comment IDs: ${escapeHtml(p.seedingIds.join(', '))}</span>` : ''}
                                 ${p.publishedAtStr ? `<span class="badge-folder" style="background:rgba(255,255,255,0.06); color:#cbd5e1;">⏱️ Đăng lúc: ${escapeHtml(p.publishedAtStr)}</span>` : ''}
                             </div>
                             ${fbPostUrl ? `
                                 <div style="margin-top:8px;">
-                                    <a href="${escapeHtml(fbPostUrl)}" target="_blank" rel="noopener" class="btn-sm btn-green" style="text-decoration:none; display:inline-flex; align-items:center; gap:6px; ${((currentSubProject && currentSubProject.type === 'x') || p.tweetId || fbPostUrl.includes('x.com')) ? 'background:#070d1e; border:1px solid #38bdf8; color:#38bdf8;' : ''}">
-                                        ${((currentSubProject && currentSubProject.type === 'x') || p.tweetId || fbPostUrl.includes('x.com')) ? '𝕏 Xem Tweet Trực Tiếp Trên X (Twitter)' : '🔗 Xem Bài Viết Trực Tiếp Trên Facebook'}
+                                    <a href="${escapeHtml(fbPostUrl)}" target="_blank" rel="noopener" class="btn-sm btn-green" style="text-decoration:none; display:inline-flex; align-items:center; gap:6px; ${isXSub ? 'background:#070d1e; border:1px solid #38bdf8; color:#38bdf8;' : ''}">
+                                        ${isXSub ? '𝕏 Xem Tweet Trực Tiếp Trên X (Twitter)' : '🔗 Xem Bài Viết Trực Tiếp Trên Facebook'}
                                     </a>
                                 </div>
                             ` : ''}
@@ -8881,23 +8905,26 @@ async function triggerRunNow(postId) {
                 return getTs(b) - getTs(a);
             });
 
-            // 2. Lọc theo trạng thái và từ khóa tìm kiếm
-            let filtered = sorted.filter(p => {
-                if (_currentPostFilter === "completed") return p.status === "completed";
-                if (_currentPostFilter === "scheduled") return p.status === "scheduled";
-                if (_currentPostFilter === "pending") return p.status === "in_progress" || p.status === "pending" || !p.status || p.status.includes("Chờ") || p.status.includes("Đang");
-                if (_currentPostFilter === "failed") return p.status === "failed";
-                return true;
-            });
+            // 2. Lọc theo trạng thái và từ khóa tìm kiếm (chỉ áp dụng bộ lọc studio nếu không phải trang Quản Lý Bài Viết toàn cục)
+            let filtered = sorted;
+            if (containerId !== "postManagerTableContainer") {
+                filtered = sorted.filter(p => {
+                    if (_currentPostFilter === "completed") return p.status === "completed";
+                    if (_currentPostFilter === "scheduled") return p.status === "scheduled";
+                    if (_currentPostFilter === "pending") return p.status === "in_progress" || p.status === "pending" || !p.status || p.status.includes("Chờ") || p.status.includes("Đang");
+                    if (_currentPostFilter === "failed") return p.status === "failed";
+                    return true;
+                });
 
-            if (_postSearchQuery) {
-                const q = _postSearchQuery.toLowerCase().trim();
-                filtered = filtered.filter(p => 
-                    (p.title || "").toLowerCase().includes(q) ||
-                    (p.content || "").toLowerCase().includes(q) ||
-                    (p.id || "").toLowerCase().includes(q) ||
-                    (p.fbPostId || "").toLowerCase().includes(q)
-                );
+                if (_postSearchQuery) {
+                    const q = _postSearchQuery.toLowerCase().trim();
+                    filtered = filtered.filter(p => 
+                        (p.title || "").toLowerCase().includes(q) ||
+                        (p.content || "").toLowerCase().includes(q) ||
+                        (p.id || "").toLowerCase().includes(q) ||
+                        (p.fbPostId || "").toLowerCase().includes(q)
+                    );
+                }
             }
 
             if (countBadge) {
@@ -9045,7 +9072,7 @@ async function triggerRunNow(postId) {
             // Filter by type and status
             let filtered = allPosts;
             if (_currentMgrFilter === "post") {
-                filtered = filtered.filter(p => !p.postType || p.postType === "post");
+                filtered = filtered.filter(p => !p.postType || p.postType === "post" || p.postType === "tweet");
             } else if (_currentMgrFilter === "video") {
                 filtered = filtered.filter(p => p.postType === "video");
             } else if (_currentMgrFilter === "reel") {

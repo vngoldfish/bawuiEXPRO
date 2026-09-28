@@ -8712,8 +8712,25 @@ async function triggerRunNow(postId) {
                         ${p.mediaData ? `<span class="badge-folder" style="background:rgba(168,85,247,0.15); color:#c084fc;">📎 Tệp: ${escapeHtml(p.mediaData.fileName || 'media')}</span>` : ''}
                         ${p.mediaUrl && !p.mediaData ? `<span class="badge-folder" style="background:rgba(56,189,248,0.15); color:#38bdf8; max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">🖼️ URL: ${escapeHtml(p.mediaUrl)}</span>` : ''}
                         ${seedingCount > 0 ? `<span class="badge-folder" style="background:rgba(52,211,153,0.15); color:#34d399;">💬 ${seedingCount} Seeding</span>` : ''}
-                        ${p.autoReactType && p.autoReactType !== "NONE" ? `<span class="badge-folder" style="background:rgba(239,68,68,0.15); color:#f87171;">❤️ React: ${escapeHtml(p.autoReactType)}${p.autoReactSuccess ? ' (✅ ' + (p.autoReactMethod || 'ok') + ')' : ''}</span>` : ''}
+                        ${p.autoReactType && p.autoReactType !== "NONE" ? (
+                            p.autoReactSuccess ? (
+                                (p.autoReactMethod && p.autoReactMethod.includes("dom"))
+                                    ? `<span class="badge-folder" style="background:rgba(245,158,11,0.18); color:#fbbf24; border:1px solid rgba(245,158,11,0.4);" title="Đã chuyển sang cơ chế dự phòng DOM">⚠️ React: ${escapeHtml(p.autoReactType)} [Dự phòng: ${p.autoReactMethod}]</span>`
+                                    : `<span class="badge-folder" style="background:rgba(52,211,153,0.15); color:#34d399;">❤️ React: ${escapeHtml(p.autoReactType)} (✅ GraphQL)</span>`
+                            ) : `<span class="badge-folder" style="background:rgba(239,68,68,0.2); color:#f87171; border:1px solid rgba(239,68,68,0.4);">❌ React: ${escapeHtml(p.autoReactType)} (Thất bại)</span>`
+                        ) : ''}
                     </div>
+
+                    ${(p.warnings && p.warnings.length > 0) ? `
+                        <div style="margin-top:10px; padding:10px 14px; border-radius:10px; font-size:12px; font-weight:600; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.4); color:#fbbf24;">
+                            <div style="display:flex; align-items:center; gap:6px; font-weight:700;">
+                                <span>⚠️ CẢNH BÁO LỖI / ĐÃ DÙNG CƠ CHẾ DỰ PHÒNG:</span>
+                            </div>
+                            <ul style="margin:6px 0 0 18px; padding:0; line-height:1.5;">
+                                ${p.warnings.map(w => `<li>${escapeHtml(w)}</li>`).join('')}
+                            </ul>
+                        </div>
+                    ` : ''}
 
                     ${p.progressStep ? `
                         <div style="margin-top:10px; padding:10px 14px; border-radius:10px; font-size:12px; font-weight:600; ${isFailed || (p.progressStep && p.progressStep.startsWith('❌')) ? 'background:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.35); color:#fca5a5;' : 'background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.3); color:#38bdf8;'} display:flex; align-items:center; gap:8px;">
@@ -13408,6 +13425,10 @@ class BridgeHandler(BaseHTTPRequestHandler):
                                                 post_item["status"] = "failed"
                                                 post_item["lastError"] = step
                                                 push_log(f"Lỗi đăng bài ({post_item.get('title') or post_item.get('id')}): {step}", "err", project_id=proj_id, subproject_id=sub_id)
+                                            elif step.startswith("⚠️"):
+                                                post_item.setdefault("warnings", []).append(step)
+                                                push_log(f"Cảnh báo đăng bài ({post_item.get('title') or post_item.get('id')}): {step}", "warn", project_id=proj_id, subproject_id=sub_id)
+                                                post_item["updatedAt"] = int(time.time() * 1000)
                                             else:
                                                 post_item["status"] = "in_progress"
                                                 post_item["updatedAt"] = int(time.time() * 1000)
@@ -13421,10 +13442,48 @@ class BridgeHandler(BaseHTTPRequestHandler):
                                                 img_item["status"] = "failed"
                                                 img_item["lastError"] = step
                                                 push_log(f"Lỗi tạo ảnh AI Flow: {step}", "err", project_id=proj_id, subproject_id=sub_id)
+                                            elif step.startswith("⚠️"):
+                                                img_item.setdefault("warnings", []).append(step)
+                                                push_log(f"Cảnh báo tạo ảnh AI Flow: {step}", "warn", project_id=proj_id, subproject_id=sub_id)
                                             save_projects(projs)
                                             break
                                 break
                         break
+            self._send_json(200, {"success": True})
+            return
+
+        # Ghi nhận log trực tiếp từ Extension Bridge lên toàn bộ ứng dụng
+        if pathname == "/api/bridge/log":
+            msg = body.get("message") or body.get("log") or ""
+            log_type = str(body.get("type") or "info").lower()
+            if log_type not in ("info", "warn", "err", "success", "step"):
+                log_type = "info"
+            proj_id = body.get("projectId") or body.get("targetProjectId")
+            sub_id = body.get("subProjectId") or body.get("targetSubProjectId")
+            node_name = body.get("nodeName") or "Extension"
+            details = body.get("details") or {}
+
+            if msg:
+                formatted_msg = f"[{node_name}] {msg}"
+                print(f"[Bridge Log:{log_type.upper()}] {formatted_msg}")
+                push_log(formatted_msg, log_type=log_type, project_id=proj_id, subproject_id=sub_id)
+
+                # Nếu có postId hoặc imageRequestId đính kèm cảnh báo/lỗi, ghi vào item tương ứng
+                post_id = details.get("postId") or body.get("postId")
+                if post_id and proj_id and sub_id and log_type in ("warn", "err"):
+                    projs = get_projects()
+                    for p in projs:
+                        if p.get("id") == proj_id:
+                            for s in p.get("subProjects", []):
+                                if s.get("id") == sub_id:
+                                    for post_item in s.get("postQueue", []):
+                                        if post_item.get("id") == post_id:
+                                            post_item.setdefault("warnings", []).append(msg)
+                                            save_projects(projs)
+                                            break
+                                    break
+                            break
+
             self._send_json(200, {"success": True})
             return
 
@@ -13875,6 +13934,25 @@ class BridgeHandler(BaseHTTPRequestHandler):
                                             if "shareToStorySuccess" in body: p_item["shareToStorySuccess"] = bool(body.get("shareToStorySuccess"))
                                             if "autoReactSuccess" in body: p_item["autoReactSuccess"] = bool(body.get("autoReactSuccess"))
                                             if "autoReactMethod" in body: p_item["autoReactMethod"] = str(body.get("autoReactMethod"))
+
+                                            # Ghi nhận cảnh báo & cơ chế dự phòng vào nhật ký toàn app
+                                            if body.get("mediaUploadError"):
+                                                w_msg = f"Tải media thất bại ({body.get('mediaUploadError')}), đã tự động chuyển sang đăng Text"
+                                                p_item.setdefault("warnings", []).append(w_msg)
+                                                push_log(f"⚠️ [Bài đăng {p_item.get('id')}] {w_msg}", "warn", project_id=proj_id, subproject_id=target_sub['id'])
+                                            if body.get("autoReactWarning") or (body.get("autoReactMethod") and "dom" in str(body.get("autoReactMethod")).lower()):
+                                                w_msg = f"Thả cảm xúc phải dùng cơ chế dự phòng [{body.get('autoReactMethod')}]: {body.get('autoReactWarning', 'GraphQL lỗi hoặc không khớp')}"
+                                                p_item.setdefault("warnings", []).append(w_msg)
+                                                push_log(f"⚠️ [Bài đăng {p_item.get('id')}] {w_msg}", "warn", project_id=proj_id, subproject_id=target_sub['id'])
+                                            if body.get("autoReactSuccess") is False and p_item.get("autoReactType") and p_item.get("autoReactType") != "NONE":
+                                                e_msg = f"Thả cảm xúc ({p_item.get('autoReactType')}) thất bại: {body.get('autoReactError', 'Không thành công')}"
+                                                p_item.setdefault("warnings", []).append(e_msg)
+                                                push_log(f"⚠️ [Bài đăng {p_item.get('id')}] {e_msg}", "warn", project_id=proj_id, subproject_id=target_sub['id'])
+                                            if body.get("shareToStorySuccess") is False and body.get("shareToFeed") is not False:
+                                                w_msg = f"Chia sẻ lên Tin (Story) thất bại: {body.get('shareToStoryError', 'Facebook từ chối chia sẻ tin')}"
+                                                p_item.setdefault("warnings", []).append(w_msg)
+                                                push_log(f"⚠️ [Bài đăng {p_item.get('id')}] {w_msg}", "warn", project_id=proj_id, subproject_id=target_sub['id'])
+
                                             now_ts = int(time.time() * 1000)
                                             p_item["publishedAt"] = body.get("publishedAt") or now_ts
                                             p_item["publishedAtStr"] = format_scheduled_time(p_item["publishedAt"])

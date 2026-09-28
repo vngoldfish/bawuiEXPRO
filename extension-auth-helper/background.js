@@ -24,6 +24,27 @@ function getHeaders(extra = {}) {
     return headers;
 }
 
+// Gửi nhật ký/cảnh báo trực tiếp từ Extension lên toàn bộ hệ thống Server & UI
+async function sendAppLog(message, logType = "info", extra = {}) {
+    console.log(`[AppLog:${logType.toUpperCase()}] ${message}`, extra);
+    try {
+        await fetch(`${BACKEND_URL}/api/bridge/log`, {
+            method: "POST",
+            headers: getHeaders(),
+            body: JSON.stringify({
+                message,
+                type: logType,
+                nodeId: NODE_ID,
+                nodeName: NODE_NAME,
+                projectId: extra.projectId || extra.targetProjectId || null,
+                subProjectId: extra.subProjectId || extra.targetSubProjectId || null,
+                details: extra
+            }),
+            signal: AbortSignal.timeout(4000)
+        }).catch(() => {});
+    } catch(e) {}
+}
+
 // 1. Khởi tạo cấu hình Node từ Storage
 async function initConfig() {
     try {
@@ -294,12 +315,35 @@ async function _uploadMediaToFacebook(tabId, fileBase64, fileName, mimeType) {
                     const isVideo = (fMime && fMime.startsWith("video/")) || (fName && fName.match(/\.(mp4|mov|avi|mkv|webm)$/i));
 
                     let fb_dtsg = "";
-                    const html = document.documentElement.innerHTML || "";
-                    if (window.DTSGInitialData && window.DTSGInitialData.token) fb_dtsg = window.DTSGInitialData.token;
-                    else if (window.DTSGInitData && window.DTSGInitData.token) fb_dtsg = window.DTSGInitData.token;
-                    if (!fb_dtsg) {
-                        const m = html.match(/"token"\s*:\s*"([^"]{20,})"\s*,\s*"async_get_token"/);
-                        if (m && m[1]) fb_dtsg = m[1];
+                    for (let attempt = 0; attempt < 6; attempt++) {
+                        const html = document.documentElement.innerHTML || "";
+                        try {
+                            if (window.DTSGInitialData && window.DTSGInitialData.token) fb_dtsg = window.DTSGInitialData.token;
+                            else if (window.DTSGInitData && window.DTSGInitData.token) fb_dtsg = window.DTSGInitData.token;
+                            else if (window.__DTSGInitialData && window.__DTSGInitialData.token) fb_dtsg = window.__DTSGInitialData.token;
+                        } catch(e) {}
+                        if (!fb_dtsg && typeof require !== "undefined") {
+                            try {
+                                const mod = require("DTSGInitData") || require("DTSGInitialData");
+                                if (mod && mod.token) fb_dtsg = mod.token;
+                            } catch(e) {}
+                        }
+                        if (!fb_dtsg) {
+                            const dtsgPatterns = [
+                                /\["DTSGInitialData",\s*\[\]\s*,\s*\{\s*"token"\s*:\s*"([^"]+)"/,
+                                /\["DTSGInitData",\s*\[\]\s*,\s*\{\s*"token"\s*:\s*"([^"]+)"/,
+                                /"DTSGInitialData"[^}]+"token"\s*:\s*"([^"]+)"/,
+                                /"DTSGInitData"[^}]+"token"\s*:\s*"([^"]+)"/,
+                                /"token"\s*:\s*"([^"]{20,})"\s*,\s*"async_get_token"/,
+                                /name="fb_dtsg"[^>]*value="([^"]+)"/
+                            ];
+                            for (const p of dtsgPatterns) {
+                                const m = html.match(p);
+                                if (m && m[1]) { fb_dtsg = m[1]; break; }
+                            }
+                        }
+                        if (fb_dtsg) break;
+                        await new Promise(r => setTimeout(r, 300));
                     }
 
                     let lsd = "";
@@ -927,9 +971,10 @@ async function _executeFbPost(payload, updateStep) {
 
         // Upload Media
         let uploadedMediaId = null;
+        let uploadResult = null;
         if (payload.mediaData && payload.mediaData.base64) {
             await updateStep(`📸 2/4: Đang tải tệp lên Facebook (${payload.mediaData.fileName || 'media'})...`);
-            const uploadResult = await _uploadMediaToFacebook(
+            uploadResult = await _uploadMediaToFacebook(
                 targetTab.id,
                 payload.mediaData.base64,
                 payload.mediaData.fileName || "upload_file",
@@ -939,6 +984,13 @@ async function _executeFbPost(payload, updateStep) {
                 uploadedMediaId = uploadResult.mediaId;
                 await updateStep(`✅ 2/4: Tải tệp thành công! ID=${uploadedMediaId}`);
             } else {
+                const uploadErrMsg = `⚠️ [Đăng bài Cảnh báo] Tải tệp media lên Facebook thất bại (${uploadResult?.error || 'Unknown'}). Đã tự động chuyển sang cơ chế đăng Text thuần.`;
+                await sendAppLog(uploadErrMsg, "warn", {
+                    postId: payload.id,
+                    targetProjectId: payload.targetProjectId,
+                    targetSubProjectId: payload.targetSubProjectId,
+                    error: uploadResult?.error
+                });
                 await updateStep(`⚠️ 2/4: Upload Media thất bại (${uploadResult?.error || 'Unknown'}), tiếp tục đăng text...`);
             }
         }
@@ -1390,6 +1442,13 @@ async function _executeFbPost(payload, updateStep) {
                 await updateStep(`✅ Đã chia sẻ bài viết lên Tin (Story) thành công!`);
             } else {
                 console.warn("[Bridge] Chia sẻ Tin:", shareToStoryResult?.error);
+                const storyErrMsg = `⚠️ [Chia sẻ Tin Cảnh báo] Không thể chia sẻ bài viết ${fbPostId} lên Tin: ${shareToStoryResult?.error || 'Bỏ qua'}`;
+                await sendAppLog(storyErrMsg, "warn", {
+                    postId: payload.id,
+                    targetProjectId: payload.targetProjectId,
+                    targetSubProjectId: payload.targetSubProjectId,
+                    error: shareToStoryResult?.error
+                });
                 await updateStep(`⚠️ Chia sẻ lên Tin (Story): ${shareToStoryResult?.error || 'Bỏ qua'}`);
             }
         }
@@ -1428,6 +1487,15 @@ async function _executeFbPost(payload, updateStep) {
                 if (seedRes.count !== undefined) {
                     await updateStep(`💬 Đã gửi thành công ${seedRes.count}/${payload.seedingComments.length} bình luận seeding!`);
                 }
+                if (seedRes.count < payload.seedingComments.length) {
+                    const seedWarnMsg = `⚠️ [Seeding Cảnh báo] Chỉ gửi được ${seedRes.count || 0}/${payload.seedingComments.length} bình luận cho bài viết ${fbPostId}: ${seedRes.error || "Một số bình luận bị Facebook chặn"}`;
+                    await sendAppLog(seedWarnMsg, "warn", {
+                        postId: payload.id,
+                        targetProjectId: payload.targetProjectId,
+                        targetSubProjectId: payload.targetSubProjectId,
+                        error: seedRes.error
+                    });
+                }
                 seedingResultData = {
                     seedingIds: seedRes.seedingIds || [],
                     seedingDetails: seedRes.seedingDetails || []
@@ -1439,12 +1507,23 @@ async function _executeFbPost(payload, updateStep) {
         let autoReactResult = null;
         if (payload.autoReactType && payload.autoReactType !== "NONE") {
             await updateStep(`❤️ Thả cảm xúc (${payload.autoReactType}) vào bài viết...`);
-            autoReactResult = await _executeFbReaction(targetTab.id, fbFeedbackId || btoa("feedback:" + fbPostId), payload.autoReactType, fallbackActorId, fbPostId || numericPostId);
+            autoReactResult = await _executeFbReaction(
+                targetTab.id,
+                fbFeedbackId || btoa("feedback:" + fbPostId),
+                payload.autoReactType,
+                fallbackActorId,
+                fbPostId || numericPostId,
+                { targetProjectId: payload.targetProjectId, targetSubProjectId: payload.targetSubProjectId, postId: payload.id }
+            );
             if (autoReactResult && autoReactResult.success) {
-                await updateStep(`❤️ Đã thả cảm xúc (${payload.autoReactType}) thành công [${autoReactResult.method || 'API'}]!`);
+                if (autoReactResult.fallbackUsed) {
+                    await updateStep(`⚠️ Đã thả cảm xúc (${payload.autoReactType}) [Dự phòng: ${autoReactResult.method}]!`);
+                } else {
+                    await updateStep(`❤️ Đã thả cảm xúc (${payload.autoReactType}) thành công [GraphQL API]!`);
+                }
             } else {
                 console.warn("[AutoReact] Lỗi thả cảm xúc:", autoReactResult?.error);
-                await updateStep(`⚠️ Thả cảm xúc (${payload.autoReactType}): ${autoReactResult?.error || "Không thành công"}`);
+                await updateStep(`❌ Thả cảm xúc (${payload.autoReactType}) thất bại: ${autoReactResult?.error || "Không thành công"}`);
             }
         }
 
@@ -1458,7 +1537,11 @@ async function _executeFbPost(payload, updateStep) {
             numericPostId,
             autoReactSuccess: autoReactResult ? autoReactResult.success : false,
             autoReactMethod: autoReactResult ? (autoReactResult.method || "none") : "none",
+            autoReactWarning: autoReactResult?.fallbackUsed ? `GraphQL lỗi: ${autoReactResult.gqlError || 'N/A'}` : null,
+            autoReactError: autoReactResult?.success ? null : (autoReactResult?.error || null),
+            mediaUploadError: (uploadResult && !uploadResult.success) ? (uploadResult.error || "Lỗi upload media") : null,
             shareToStorySuccess: shareToStoryResult ? shareToStoryResult.success : false,
+            shareToStoryError: (shareToStoryResult && !shareToStoryResult.success) ? (shareToStoryResult.error || "Lỗi chia sẻ story") : null,
             seedingIds: seedingResultData.seedingIds,
             seedingDetails: seedingResultData.seedingDetails,
             publishedAt: Date.now(),
@@ -1466,6 +1549,12 @@ async function _executeFbPost(payload, updateStep) {
         };
 
     } catch(err) {
+        await sendAppLog(`❌ [Đăng bài Facebook Ngoại lệ] ${err.message}`, "err", {
+            postId: payload.id,
+            targetProjectId: payload.targetProjectId,
+            targetSubProjectId: payload.targetSubProjectId,
+            error: err.message
+        });
         await updateStep(`❌ Lỗi ngoại lệ: ${err.message}`);
         return { success: false, error: err.message };
     }
@@ -1983,6 +2072,12 @@ async function _executeXTweet(payload, updateStep) {
 
     } catch(err) {
         console.error("[_executeXTweet Error]:", err);
+        await sendAppLog(`❌ [Đăng bài X Thất bại] ${err.message}`, "err", {
+            postId: payload.id,
+            targetProjectId: payload.targetProjectId,
+            targetSubProjectId: payload.targetSubProjectId,
+            error: err.message
+        });
         await updateStep(`❌ Lỗi đăng bài X: ${err.message}`);
         return {
             success: false,
@@ -2007,11 +2102,30 @@ async function _executeFbSeeding(tabId, postId, knownFeedbackId, comments, fallb
                 let lsd = "";
                 for (let attempt = 0; attempt < 8; attempt++) {
                     const html = document.documentElement.innerHTML || "";
-                    if (window.DTSGInitialData && window.DTSGInitialData.token) fb_dtsg = window.DTSGInitialData.token;
-                    else if (window.DTSGInitData && window.DTSGInitData.token) fb_dtsg = window.DTSGInitData.token;
+                    try {
+                        if (window.DTSGInitialData && window.DTSGInitialData.token) fb_dtsg = window.DTSGInitialData.token;
+                        else if (window.DTSGInitData && window.DTSGInitData.token) fb_dtsg = window.DTSGInitData.token;
+                        else if (window.__DTSGInitialData && window.__DTSGInitialData.token) fb_dtsg = window.__DTSGInitialData.token;
+                    } catch(e) {}
+                    if (!fb_dtsg && typeof require !== "undefined") {
+                        try {
+                            const mod = require("DTSGInitData") || require("DTSGInitialData");
+                            if (mod && mod.token) fb_dtsg = mod.token;
+                        } catch(e) {}
+                    }
                     if (!fb_dtsg) {
-                        const m = html.match(/"token"\s*:\s*"([^"]{20,})"\s*,\s*"async_get_token"/);
-                        if (m && m[1]) fb_dtsg = m[1];
+                        const dtsgPatterns = [
+                            /\["DTSGInitialData",\s*\[\]\s*,\s*\{\s*"token"\s*:\s*"([^"]+)"/,
+                            /\["DTSGInitData",\s*\[\]\s*,\s*\{\s*"token"\s*:\s*"([^"]+)"/,
+                            /"DTSGInitialData"[^}]+"token"\s*:\s*"([^"]+)"/,
+                            /"DTSGInitData"[^}]+"token"\s*:\s*"([^"]+)"/,
+                            /"token"\s*:\s*"([^"]{20,})"\s*,\s*"async_get_token"/,
+                            /name="fb_dtsg"[^>]*value="([^"]+)"/
+                        ];
+                        for (const p of dtsgPatterns) {
+                            const m = html.match(p);
+                            if (m && m[1]) { fb_dtsg = m[1]; break; }
+                        }
                     }
                     if (!lsd) {
                         const m = html.match(/"lsd"\s*:\s*"([^"]+)"/);
@@ -2446,7 +2560,7 @@ async function _executeFbReaction(tabId, feedbackId, reactType, fallbackActorId,
                                 });
                                 const text = await res.text();
                                 if (res.ok && (text.includes('"feedback_react"') || text.includes('"viewer_feedback_reaction"') || text.includes('"feedback_reaction"') || text.includes('"feedback":{')) && !text.includes('"errorSummary"') && !text.includes('1675004')) {
-                                    return { success: true, method: "graphql", docId, feedbackId: fId };
+                                    return { success: true, method: "graphql", docId, feedbackId: fId, fallbackUsed: false };
                                 } else {
                                     lastGqlError = text.substring(0, 100);
                                 }
@@ -2485,7 +2599,7 @@ async function _executeFbReaction(tabId, feedbackId, reactType, fallbackActorId,
                             likeBtn.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
                             likeBtn.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
                             likeBtn.click();
-                            return { success: true, method: "dom_like_click" };
+                            return { success: true, method: "dom_like_click", fallbackUsed: true, gqlError: lastGqlError };
                         } else {
                             // Di chuột mở khay cảm xúc (Reaction Dock)
                             likeBtn.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
@@ -2515,25 +2629,51 @@ async function _executeFbReaction(tabId, feedbackId, reactType, fallbackActorId,
                                 targetReactionBtn.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
                                 targetReactionBtn.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
                                 targetReactionBtn.click();
-                                return { success: true, method: "dom_reaction_tray", reaction: normalizedType };
+                                return { success: true, method: "dom_reaction_tray", reaction: normalizedType, fallbackUsed: true, gqlError: lastGqlError };
                             } else {
                                 likeBtn.click();
-                                return { success: true, method: "dom_fallback_like" };
+                                return { success: true, method: "dom_fallback_like", fallbackUsed: true, gqlError: lastGqlError };
                             }
                         }
                     }
                 } catch(domErr) {}
 
-                return { success: false, error: lastGqlError || "Không thể thực hiện thả cảm xúc" };
+                return { success: false, error: lastGqlError ? `GraphQL thất bại: ${lastGqlError}` : "Không thể thực hiện thả cảm xúc", fallbackUsed: true, gqlError: lastGqlError };
             },
             args: [feedbackId, reactType, fallbackActorId, numericPostId]
         });
 
         const res = results?.[0]?.result || { success: false, error: "Lỗi thực thi script reaction" };
         console.log(`[AutoReact] Kết quả thả cảm xúc (${reactType}):`, res);
+
+        // BÁO CÁO CẢNH BÁO NẾU PHẢI CHUYỂN SANG CƠ CHẾ DỰ PHÒNG HOẶC LỖI
+        if (res.fallbackUsed) {
+            const warnMsg = `⚠️ [AutoReact Cảnh báo] Thả cảm xúc (${reactType}) không thể dùng GraphQL API (Lý do: ${res.gqlError || "không khớp hoặc bị chặn"}). Đã kích hoạt cơ chế dự phòng Cấp 2 [${res.method || "DOM Native"}].`;
+            await sendAppLog(warnMsg, "warn", {
+                postId: numericPostId || feedbackId,
+                reactType,
+                method: res.method,
+                gqlError: res.gqlError,
+                ...context
+            });
+        }
+
+        if (!res.success) {
+            const errMsg = `❌ [AutoReact Lỗi] Thất bại khi thả cảm xúc (${reactType}) cho bài viết ${numericPostId || feedbackId}: ${res.error || "Không rõ nguyên nhân"}. (Chi tiết GraphQL: ${res.gqlError || "N/A"})`;
+            await sendAppLog(errMsg, "err", {
+                postId: numericPostId || feedbackId,
+                reactType,
+                error: res.error,
+                gqlError: res.gqlError,
+                ...context
+            });
+        }
+
         return res;
     } catch(e) {
         console.warn(`[AutoReact] Ngoại lệ executeScript:`, e);
+        const excMsg = `❌ [AutoReact Ngoại lệ] Lỗi inject script thả cảm xúc: ${e.message}`;
+        await sendAppLog(excMsg, "err", { postId: numericPostId || feedbackId, reactType, error: e.message, ...context });
         return { success: false, error: e.message };
     }
 }
@@ -4047,6 +4187,12 @@ async function _executeCommandAsync(cmd) {
                         progressStep: shareRes.success ? "✅ Đã chia sẻ thành công lên Tin (Story)" : `❌ Lỗi chia sẻ Tin: ${shareRes.error}`
                     };
                     if (!shareRes.success) {
+                        await sendAppLog(`❌ [Chia sẻ Tin Lỗi] ${shareRes.error || "Thất bại"} cho bài viết ${cmd.postId}`, "err", {
+                            postId: cmd.postId,
+                            targetProjectId: cmd.targetProjectId,
+                            targetSubProjectId: cmd.targetSubProjectId,
+                            error: shareRes.error
+                        });
                         await updateStep(`❌ Lỗi chia sẻ Tin: ${shareRes.error || "Thất bại"}`);
                     }
                     break;
@@ -4082,6 +4228,16 @@ async function _executeCommandAsync(cmd) {
                     const comments = Array.isArray(cmd.comments) ? cmd.comments : (cmd.comments ? [cmd.comments] : []);
                     const seedRes = await _executeFbSeeding(targetTab.id, cmd.fbPostId || cmd.postId, cmd.fbFeedbackId, comments);
                     
+                    if (seedRes && seedRes.count !== undefined && seedRes.count < comments.length) {
+                        const seedWarnMsg = `⚠️ [Seeding Cảnh báo] Chỉ gửi được ${seedRes.count || 0}/${comments.length} bình luận cho bài viết ${cmd.postId}: ${seedRes.error || "Một số bình luận bị Facebook chặn"}`;
+                        await sendAppLog(seedWarnMsg, "warn", {
+                            postId: cmd.postId,
+                            targetProjectId: cmd.targetProjectId,
+                            targetSubProjectId: cmd.targetSubProjectId,
+                            error: seedRes.error
+                        });
+                    }
+
                     let autoReactResult = null;
                     if (cmd.autoReactType && cmd.autoReactType !== "NONE") {
                         await updateStep(`💖 Đang thả cảm xúc (${cmd.autoReactType}) vào bài viết...`);
@@ -4098,13 +4254,18 @@ async function _executeCommandAsync(cmd) {
                             targetFbId,
                             cmd.autoReactType,
                             fallbackActorId,
-                            cmd.fbPostId || cmd.postId
+                            cmd.fbPostId || cmd.postId,
+                            { targetProjectId: cmd.targetProjectId, targetSubProjectId: cmd.targetSubProjectId, postId: cmd.postId }
                         );
                         if (autoReactResult && autoReactResult.success) {
-                            await updateStep(`💖 Đã thả cảm xúc (${cmd.autoReactType}) thành công [${autoReactResult.method || 'API'}]!`);
+                            if (autoReactResult.fallbackUsed) {
+                                await updateStep(`⚠️ Đã thả cảm xúc (${cmd.autoReactType}) [Dự phòng: ${autoReactResult.method}]!`);
+                            } else {
+                                await updateStep(`💖 Đã thả cảm xúc (${cmd.autoReactType}) thành công [${autoReactResult.method || 'API'}]!`);
+                            }
                         } else {
                             console.warn("[SEEDING] Lỗi thả cảm xúc:", autoReactResult?.error);
-                            await updateStep(`⚠️ Thả cảm xúc (${cmd.autoReactType}): ${autoReactResult?.error || "Không thành công"}`);
+                            await updateStep(`❌ Thả cảm xúc (${cmd.autoReactType}) thất bại: ${autoReactResult?.error || "Không thành công"}`);
                         }
                     }
 
@@ -4116,10 +4277,18 @@ async function _executeCommandAsync(cmd) {
                         postId: cmd.postId,
                         autoReactSuccess: autoReactResult ? autoReactResult.success : false,
                         autoReactMethod: autoReactResult ? (autoReactResult.method || "none") : "none",
+                        autoReactWarning: autoReactResult?.fallbackUsed ? `GraphQL lỗi: ${autoReactResult.gqlError || 'N/A'}` : null,
+                        autoReactError: autoReactResult?.success ? null : (autoReactResult?.error || null),
                         error: seedRes.error,
                         progressStep: seedRes.success ? `✅ Đã seeding xong ${seedRes.count || comments.length} bình luận` + (autoReactResult?.success ? ` & thả cảm xúc [${cmd.autoReactType}]` : '') : `❌ Lỗi seeding: ${seedRes.error}`
                     };
                     if (!seedRes.success) {
+                        await sendAppLog(`❌ [Seeding Lỗi] Thất bại khi gửi bình luận cho bài viết ${cmd.postId}: ${seedRes.error || "Thất bại"}`, "err", {
+                            postId: cmd.postId,
+                            targetProjectId: cmd.targetProjectId,
+                            targetSubProjectId: cmd.targetSubProjectId,
+                            error: seedRes.error
+                        });
                         await updateStep(`❌ Lỗi seeding: ${seedRes.error || "Thất bại"}`);
                     }
                     break;
@@ -4706,6 +4875,12 @@ async function _executeCommandAsync(cmd) {
                                 const onScreenErr = checkRes[0].result.error;
                                 console.warn("[Flow Bridge] Phát hiện thông báo lỗi trên màn hình Flow:", onScreenErr);
                                 const err = `Google Flow báo lỗi: "${onScreenErr}"`;
+                                await sendAppLog(`❌ [Google Flow Lỗi] ${err}`, "err", {
+                                    imageRequestId,
+                                    targetProjectId: cmd.targetProjectId,
+                                    targetSubProjectId: cmd.targetSubProjectId,
+                                    error: err
+                                });
                                 await updateStep("❌ Lỗi: " + err);
                                 cmdResult = { success: false, error: err, imageRequestId };
                                 break;
@@ -4723,6 +4898,12 @@ async function _executeCommandAsync(cmd) {
                         // Báo lỗi rõ ràng nếu không có ảnh MỚI nào được sinh ra cho prompt này
                         if (capturedImages.length === 0) {
                             const err = "Google Flow không tạo ảnh mới cho prompt này sau 60s (có thể prompt bị bộ lọc an toàn của Google chặn hoặc hết quota)";
+                            await sendAppLog(`❌ [Google Flow Timeout] ${err}`, "err", {
+                                imageRequestId,
+                                targetProjectId: cmd.targetProjectId,
+                                targetSubProjectId: cmd.targetSubProjectId,
+                                error: err
+                            });
                             await updateStep("❌ Lỗi: " + err);
                             cmdResult = {
                                 success: false,
@@ -4830,6 +5011,12 @@ async function _executeCommandAsync(cmd) {
 
                     } catch(flowErr) {
                         console.error("[Flow Bridge] Fatal error:", flowErr);
+                        await sendAppLog(`❌ [Google Flow Ngoại lệ] ${flowErr.message}`, "err", {
+                            imageRequestId,
+                            targetProjectId: cmd.targetProjectId,
+                            targetSubProjectId: cmd.targetSubProjectId,
+                            error: flowErr.message
+                        });
                         await updateStep("❌ Lỗi: " + flowErr.message);
                         cmdResult = { success: false, error: flowErr.message, imageRequestId };
                     } finally {
@@ -5672,7 +5859,15 @@ async function _executeCommandAsync(cmd) {
                     cmdResult = { success: false, error: `Action '${cmd.action}' không tồn tại` };
             }
         } catch (execErr) {
+            console.error(`[Bridge Exec Error] ${cmd.action}:`, execErr);
             cmdResult = { success: false, error: execErr.message };
+            await sendAppLog(`❌ [Lỗi Lệnh ${cmd.action}] ${execErr.message}`, "err", {
+                commandId: cmd.id,
+                action: cmd.action,
+                targetProjectId: cmd.targetProjectId,
+                targetSubProjectId: cmd.targetSubProjectId,
+                error: execErr.message
+            });
         } finally {
             if (subId) activeSubProjectIds.delete(subId);
             if (isFlowAction) activeFlowCount = Math.max(0, activeFlowCount - 1);

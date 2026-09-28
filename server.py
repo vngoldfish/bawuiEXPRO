@@ -5897,6 +5897,12 @@ async function triggerRunNow(postId) {
         }
 
         const _seenFailedTaskIds = new Set();
+        try {
+            const stored = JSON.parse(sessionStorage.getItem('seen_failed_tasks') || '[]');
+            stored.forEach(id => _seenFailedTaskIds.add(id));
+        } catch(e) {}
+        const _initializedProjectIds = new Set();
+
         async function fetchParentProjectData(projId) {
             if (!projId) return;
             try {
@@ -5911,23 +5917,46 @@ async function triggerRunNow(postId) {
                 const subProjects = project.subProjects || [];
                 const results = data.results || {};
 
-                // Cảnh báo ngay lập tức qua Toast nếu phát hiện tác vụ thất bại
-                subProjects.forEach(sub => {
-                    (sub.postQueue || []).forEach(post => {
-                        if (post.status === 'failed' && !_seenFailedTaskIds.has(post.id)) {
-                            _seenFailedTaskIds.add(post.id);
-                            const errMsg = post.lastError || post.progressStep || "Thao tác thất bại";
-                            showToast(`❌ Bài đăng [${post.platform || 'FB'}]: ${errMsg}`, 'error', 7000);
-                        }
+                // Cảnh báo qua Toast: KHÔNG hiển thị lại các lỗi cũ trong quá khứ khi reset/mở lại trang
+                const isFirstLoadForProject = !_initializedProjectIds.has(projId);
+                if (isFirstLoadForProject) {
+                    _initializedProjectIds.add(projId);
+                    subProjects.forEach(sub => {
+                        (sub.postQueue || []).forEach(post => {
+                            if (post.status === 'failed') _seenFailedTaskIds.add(post.id);
+                        });
+                        (sub.imageQueue || []).forEach(img => {
+                            if (img.status === 'failed') _seenFailedTaskIds.add(img.id);
+                        });
                     });
-                    (sub.imageQueue || []).forEach(img => {
-                        if (img.status === 'failed' && !_seenFailedTaskIds.has(img.id)) {
-                            _seenFailedTaskIds.add(img.id);
-                            const errMsg = img.lastError || img.progressStep || "Tạo ảnh thất bại";
-                            showToast(`❌ Tạo ảnh AI: ${errMsg}`, 'error', 7000);
-                        }
+                    try {
+                        sessionStorage.setItem('seen_failed_tasks', JSON.stringify(Array.from(_seenFailedTaskIds)));
+                    } catch(e) {}
+                } else {
+                    // Chỉ hiển thị Toast cho tác vụ MỚI bị lỗi trong phiên làm việc hiện tại
+                    subProjects.forEach(sub => {
+                        (sub.postQueue || []).forEach(post => {
+                            if (post.status === 'failed' && !_seenFailedTaskIds.has(post.id)) {
+                                _seenFailedTaskIds.add(post.id);
+                                try {
+                                    sessionStorage.setItem('seen_failed_tasks', JSON.stringify(Array.from(_seenFailedTaskIds)));
+                                } catch(e) {}
+                                const errMsg = post.lastError || post.progressStep || "Thao tác thất bại";
+                                showToast(`❌ Bài đăng [${post.platform || 'FB'}]: ${errMsg}`, 'error', 7000);
+                            }
+                        });
+                        (sub.imageQueue || []).forEach(img => {
+                            if (img.status === 'failed' && !_seenFailedTaskIds.has(img.id)) {
+                                _seenFailedTaskIds.add(img.id);
+                                try {
+                                    sessionStorage.setItem('seen_failed_tasks', JSON.stringify(Array.from(_seenFailedTaskIds)));
+                                } catch(e) {}
+                                const errMsg = img.lastError || img.progressStep || "Tạo ảnh thất bại";
+                                showToast(`❌ Tạo ảnh AI: ${errMsg}`, 'error', 7000);
+                            }
+                        });
                     });
-                });
+                }
 
                 if (data.project && data.project.id) {
                     const pIdx = allProjects.findIndex(p => p.id === data.project.id);

@@ -1325,6 +1325,37 @@
           "scrapedData": [],
           "postQueue": [
             {
+              "id": "post_1790560870_e5ad",
+              "title": "",
+              "content": "4321",
+              "postType": "post",
+              "targetType": "profile",
+              "targetId": "",
+              "targetUrl": "https://www.facebook.com",
+              "shareToFeed": true,
+              "mediaUrl": "",
+              "mediaData": null,
+              "seedingComments": [
+                "1",
+                "2",
+                "3",
+                "4"
+              ],
+              "autoReactType": "LIKE",
+              "status": "failed",
+              "progressStep": "❌ Quá hạn (Timeout 90s) — Vui lòng kiểm tra tab Facebook hoặc bấm Thử lại",
+              "fbPostId": "",
+              "fbPostUrl": "",
+              "scheduledTime": 0,
+              "scheduledTimeStr": "",
+              "scheduledAt": "",
+              "lastError": "Timeout: Quá 90s không nhận được phản hồi từ Extension hoặc Facebook",
+              "createdAt": 1790560870350,
+              "callbackUrl": "",
+              "source": "api",
+              "updatedAt": 1790560912540
+            },
+            {
               "id": "post_1790559729_bf0b",
               "title": "",
               "content": "54,321",
@@ -3342,90 +3373,9 @@
               "runNow": true,
               "progressStep": "✅ 4/4: Đã hoàn tất tạo 1 ảnh AI Flow thành công!",
               "completedAt": 1790322618984
-            },
-            {
-              "id": "flowimg_1790323442924_9728",
-              "prompt": "con mèo đang nói chuyện với con gà",
-              "model": "GEM_PIX_2",
-              "imageCount": 1,
-              "aspectRatio": "3:4",
-              "flowProjectId": "d7be0595-14b8-4052-8803-b668f1a9c4e7",
-              "flowChildId": "fchild_1790313899_43fd",
-              "status": "failed",
-              "images": [],
-              "createdAt": 1790323442924,
-              "runNow": true,
-              "lastError": "Timeout: Quá trình tạo ảnh vượt quá 90s không nhận được phản hồi từ Google Flow",
-              "progressStep": "❌ Quá hạn (Timeout 90s) — Google Flow không phản hồi"
-            },
-            {
-              "id": "flowimg_1790413123639_2446",
-              "prompt": "con chó",
-              "model": "HARBOR_SEAL",
-              "imageCount": 1,
-              "aspectRatio": "3:4",
-              "flowProjectId": "d7be0595-14b8-4052-8803-b668f1a9c4e7",
-              "flowChildId": "fchild_1790313899_43fd",
-              "status": "failed",
-              "images": [],
-              "createdAt": 1790413123639,
-              "runNow": true,
-              "progressStep": "⏳ 3/4: Đang chờ Google Flow xử lý... (55s / 60s)",
-              "lastError": "Google Flow không tạo ảnh mới cho prompt này sau 60s (có thể prompt bị bộ lọc an toàn của Google chặn hoặc hết quota)"
-            },
-            {
-              "id": "flowimg_1790420089214_1025",
-              "prompt": "test prompt",
-              "model": "HARBOR_SEAL",
-              "imageCount": 4,
-              "aspectRatio": "3:4",
-              "flowProjectId": "d7be0595-14b8-4052-8803-b668f1a9c4e7",
-              "flowChildId": "fchild_1790313899_43fd",
-              "status": "failed",
-              "images": [],
-              "createdAt": 1790420089214,
-              "runNow": true,
-              "lastError": "Timeout: Quá trình tạo ảnh vượt quá 90s không nhận được phản hồi từ Google Flow",
-              "progressStep": "❌ Quá hạn (Timeout 90s) — Google Flow không phản hồi"
-            },
-            {
-              "id": "flowimg_1790420268194_8055",
-              "prompt": "con meo",
-              "model": "GEM_PIX_2",
-              "imageCount": 1,
-              "aspectRatio": "3:4",
-              "flowProjectId": "d7be0595-14b8-4052-8803-b668f1a9c4e7",
-              "flowChildId": "fchild_1790313899_43fd",
-              "status": "failed",
-              "images": [],
-              "createdAt": 1790420268194,
-              "runNow": true,
-              "lastError": "Timeout: Quá trình tạo ảnh vượt quá 90s không nhận được phản hồi từ Google Flow",
-              "progressStep": "❌ Quá hạn (Timeout 90s) — Google Flow không phản hồi"
             }
           ],
-          "pendingCommands": [
-            {
-              "action": "FLOW_GENERATE_IMAGE",
-              "prompt": "chu meo de thuong dang canh con ga",
-              "model": "HARBOR_SEAL",
-              "imageCount": 1,
-              "aspectRatio": "3:4",
-              "imageRequestId": "flowimg_1790253696049_5972",
-              "projectId": "proj_main",
-              "subProjectId": "sub_flow_1790252867_e84a"
-            },
-            {
-              "action": "FLOW_GENERATE_IMAGE",
-              "prompt": "con su tu",
-              "model": "HARBOR_SEAL",
-              "imageCount": 1,
-              "aspectRatio": "3:4",
-              "imageRequestId": "flowimg_1790254320092_7837",
-              "projectId": "proj_main",
-              "subProjectId": "sub_flow_1790252867_e84a"
-            }
-          ],
+          "pendingCommands": [],
           "flowChildProjects": [
             {
               "id": "fchild_1790313899_43fd",

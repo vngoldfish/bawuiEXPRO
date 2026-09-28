@@ -5588,187 +5588,18 @@ async function triggerRunNow(postId) {
             }
         }
 
-        function copyN8nWorkflowJson() {
-            const token = (currentProject && currentProject.token) ? currentProject.token : "BW-PROJ-MAIN99";
-            const origin = window.location.origin || "http://localhost:9999";
-            const workflowObj = {
-              "name": "EXPRO — Tự Động Đăng Bài Facebook Qua REST API",
-              "nodes": [
-                {
-                  "parameters": {},
-                  "id": "e7b0e1a2-1111-4444-9999-000000000001",
-                  "name": "Kích hoạt thủ công (Manual Trigger)",
-                  "type": "n8n-nodes-base.manualTrigger",
-                  "typeVersion": 1,
-                  "position": [220, 300]
-                },
-                {
-                  "parameters": {
-                    "values": {
-                      "string": [
-                        {
-                          "name": "content",
-                          "value": "🚀 Tự động hóa đăng bài Facebook từ n8n qua EXPRO REST API!\n\n{Chúc các bạn một ngày mới tràn đầy năng lượng|Chúc mọi người tuần mới làm việc bùng nổ doanh số|Hệ thống tự động hóa đang vận hành trơn tru}! ✨\n\n#n8n #Automation #EXPRO #FacebookAutoPost"
-                        },
-                        {
-                          "name": "mediaUrl",
-                          "value": "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1080"
-                        },
-                        {
-                          "name": "postType",
-                          "value": "post"
-                        },
-                        {
-                          "name": "targetType",
-                          "value": "profile"
-                        },
-                        {
-                          "name": "autoReactType",
-                          "value": "LIKE"
-                        }
-                      ],
-                      "boolean": [
-                        {
-                          "name": "shareToFeed",
-                          "value": true
-                        },
-                        {
-                          "name": "waitForCompletion",
-                          "value": true
-                        }
-                      ],
-                      "number": [
-                        {
-                          "name": "timeout",
-                          "value": 60
-                        }
-                      ]
-                    },
-                    "options": {}
-                  },
-                  "id": "e7b0e1a2-1111-4444-9999-000000000002",
-                  "name": "1. Soạn Dữ Liệu Bài Viết",
-                  "type": "n8n-nodes-base.set",
-                  "typeVersion": 2,
-                  "position": [440, 300]
-                },
-                {
-                  "parameters": {
-                    "jsCode": "// Thêm mảng seeding comments vào payload bài đăng\nconst item = $input.first().json;\nitem.seedingComments = [\n  \"Bài viết chia sẻ rất hữu ích!\",\n  \"Inbox mình xin tài liệu với ạ\"\n];\nreturn item;"
-                  },
-                  "id": "e7b0e1a2-1111-4444-9999-000000000003",
-                  "name": "2. Cấu Hình Seeding Mồi",
-                  "type": "n8n-nodes-base.code",
-                  "typeVersion": 2,
-                  "position": [660, 300]
-                },
-                {
-                  "parameters": {
-                    "method": "POST",
-                    "url": `${origin}/api/v1/posts`,
-                    "sendHeaders": true,
-                    "headerParameters": {
-                      "parameters": [
-                        {
-                          "name": "Authorization",
-                          "value": `Bearer ${token}`
-                        },
-                        {
-                          "name": "Content-Type",
-                          "value": "application/json"
-                        }
-                      ]
-                    },
-                    "sendBody": true,
-                    "specifyBody": "json",
-                    "jsonBody": "={{ JSON.stringify($json) }}",
-                    "options": {
-                      "timeout": 70000
-                    }
-                  },
-                  "id": "e7b0e1a2-1111-4444-9999-000000000004",
-                  "name": "3. Gọi EXPRO REST API (Đồng Bộ)",
-                  "type": "n8n-nodes-base.httpRequest",
-                  "typeVersion": 4.1,
-                  "position": [880, 300]
-                },
-                {
-                  "parameters": {
-                    "conditions": {
-                      "options": {
-                        "caseSensitive": true,
-                        "leftValue": "",
-                        "typeValidation": "strict"
-                      },
-                      "conditions": [
-                        {
-                          "id": "d8a1e2f3-1111-2222-3333-444455556666",
-                          "leftValue": "={{ $json.status }}",
-                          "rightValue": "completed",
-                          "operator": {
-                            "type": "string",
-                            "operation": "equals"
-                          }
-                        }
-                      ],
-                      "combinator": "and"
-                    },
-                    "options": {}
-                  },
-                  "id": "e7b0e1a2-1111-4444-9999-000000000005",
-                  "name": "4. Kiểm Tra Thành Công?",
-                  "type": "n8n-nodes-base.if",
-                  "typeVersion": 2,
-                  "position": [1100, 300]
-                },
-                {
-                  "parameters": {
-                    "jsCode": "// Kết quả đăng thành công\nconst data = $input.first().json;\nreturn {\n  success: true,\n  message: \"🎉 Đăng bài Facebook thành công qua n8n!\",\n  postId: data.postId,\n  fbPostId: data.fbPostId,\n  fbPostUrl: data.fbPostUrl,\n  publishedAt: data.publishedAtStr || data.publishedAt,\n  autoReactSuccess: data.autoReactSuccess,\n  seedingCount: (data.seedingIds || []).length\n};"
-                  },
-                  "id": "e7b0e1a2-1111-4444-9999-000000000006",
-                  "name": "✅ Xuất Link Bài Viết Facebook",
-                  "type": "n8n-nodes-base.code",
-                  "typeVersion": 2,
-                  "position": [1340, 220]
-                },
-                {
-                  "parameters": {
-                    "jsCode": "// Kết quả khi bài đăng gặp lỗi\nconst err = $input.first().json;\nreturn {\n  success: false,\n  message: \"❌ Đăng bài Facebook thất bại!\",\n  error: err.error || err.lastError || \"Unknown Error\",\n  progressStep: err.progressStep\n};"
-                  },
-                  "id": "e7b0e1a2-1111-4444-9999-000000000007",
-                  "name": "❌ Báo Lỗi Bài Đăng",
-                  "type": "n8n-nodes-base.code",
-                  "typeVersion": 2,
-                  "position": [1340, 400]
-                }
-              ],
-              "connections": {
-                "Kích hoạt thủ công (Manual Trigger)": {
-                  "main": [[{"node": "1. Soạn Dữ Liệu Bài Viết", "type": "main", "index": 0}]]
-                },
-                "1. Soạn Dữ Liệu Bài Viết": {
-                  "main": [[{"node": "2. Cấu Hình Seeding Mồi", "type": "main", "index": 0}]]
-                },
-                "2. Cấu Hình Seeding Mồi": {
-                  "main": [[{"node": "3. Gọi EXPRO REST API (Đồng Bộ)", "type": "main", "index": 0}]]
-                },
-                "3. Gọi EXPRO REST API (Đồng Bộ)": {
-                  "main": [[{"node": "4. Kiểm Tra Thành Công?", "type": "main", "index": 0}]]
-                },
-                "4. Kiểm Tra Thành Công?": {
-                  "main": [
-                    [{"node": "✅ Xuất Link Bài Viết Facebook", "type": "main", "index": 0}],
-                    [{"node": "❌ Báo Lỗi Bài Đăng", "type": "main", "index": 0}]
-                  ]
-                }
-              },
-              "settings": {
-                "executionOrder": "v1"
-              }
-            };
-
-            navigator.clipboard.writeText(JSON.stringify(workflowObj, null, 2));
-            showToast("🎉 Đã copy Workflow n8n JSON! Mở n8n và bấm Ctrl+V (hoặc Cmd+V) để dán ngay!", "success", 7000);
+        async function copyN8nWorkflowJson() {
+            try {
+                const token = (currentProject && currentProject.token) ? currentProject.token : "";
+                const url = token ? `/api/v1/n8n/workflow?token=${encodeURIComponent(token)}` : '/api/v1/n8n/workflow';
+                const res = await fetch(url);
+                if (!res.ok) throw new Error("HTTP " + res.status);
+                const data = await res.json();
+                await navigator.clipboard.writeText(JSON.stringify(data, null, 2));
+                showToast("🎉 Đã copy Workflow n8n JSON! Mở n8n và bấm Ctrl+V (hoặc Cmd+V) để dán ngay!", "success", 7000);
+            } catch(e) {
+                showToast("❌ Không thể sao chép workflow: " + (e.message || e), "error");
+            }
         }
 
         // =========================================================
@@ -12494,6 +12325,42 @@ class BridgeHandler(BaseHTTPRequestHandler):
                         "status": s.get("status")
                     })
             self._send_json(200, {"success": True, "accounts": accounts})
+            return
+
+        # 11. API Trả về n8n Workflow JSON mẫu (tự động điền Token & Base URL)
+        if pathname in ("/api/v1/n8n/workflow", "/api/n8n/workflow"):
+            token = self.headers.get("X-Project-Token") or self.headers.get("Authorization", "")
+            if token.lower().startswith("bearer "):
+                token = token[7:].strip()
+            if not token:
+                query_parts = parsed.query.split("&") if parsed.query else []
+                for q in query_parts:
+                    if q.startswith("token="):
+                        token = q.split("=", 1)[1]
+                        break
+            if not token:
+                all_p = get_projects()
+                token = all_p[0].get("token") if all_p else "BW-PROJ-MAIN9999"
+
+            wf_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "n8n_facebook_workflow.json")
+            wf_data = {}
+            if os.path.exists(wf_path):
+                with open(wf_path, "r", encoding="utf-8") as f:
+                    wf_data = json.load(f)
+            else:
+                wf_data = {"error": "Workflow file not found"}
+
+            host_header = self.headers.get("Host") or "localhost:9999"
+            base_url = f"http://{host_header}"
+            for n in wf_data.get("nodes", []):
+                if n.get("type") == "n8n-nodes-base.httpRequest":
+                    params = n.get("parameters", {})
+                    params["url"] = f"{base_url}/api/v1/posts"
+                    for h in params.get("headerParameters", {}).get("parameters", []):
+                        if h.get("name") == "Authorization":
+                            h["value"] = f"Bearer {token}"
+
+            self._send_json(200, wf_data)
             return
 
         self._send_json(404, {"error": "Endpoint not found"})

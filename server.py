@@ -392,6 +392,23 @@ def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, 
         all_projs = get_projects()
         target_proj = None
 
+    # Tự động trích xuất các bí danh (aliases) cho Project và Account/UID nếu chưa được truyền riêng biệt
+    if not proj_id and isinstance(post_data, dict):
+        proj_id = (
+            post_data.get("projectId") or post_data.get("project") or 
+            post_data.get("projectName") or post_data.get("targetProjectId")
+        )
+    if not sub_id and isinstance(post_data, dict):
+        sub_id = (
+            post_data.get("subProjectId") or post_data.get("targetSubProjectId") or 
+            post_data.get("account") or post_data.get("accountId") or 
+            post_data.get("c_user") or post_data.get("uid") or post_data.get("fbUid") or
+            post_data.get("accountName")
+        )
+
+    target_sub = None
+    account_query = str(sub_id or "").strip()
+
     if token:
         token_clean = token.strip()
         for p in all_projs:
@@ -419,40 +436,84 @@ def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, 
                 }
             })
     elif proj_id:
+        proj_query = str(proj_id).strip()
+        # 1. Khớp chính xác ID hoặc Name
         for p in all_projs:
-            if p.get("id") == proj_id:
+            if p.get("id") == proj_query or str(p.get("name", "")).strip().lower() == proj_query.lower():
                 target_proj = p
                 break
-    else:
-        if len(all_projs) == 1:
-            target_proj = all_projs[0]
+        # 2. Khớp gần đúng (nằm trong tên dự án)
+        if not target_proj:
+            for p in all_projs:
+                if proj_query.lower() in str(p.get("name", "")).lower():
+                    target_proj = p
+                    break
+
+    # Nếu chưa tìm thấy target_proj nhưng người dùng truyền account_query (UID / c_user / tên nick / ID account):
+    # Tự động quét toàn bộ các dự án trong hệ thống để tìm xem nick này thuộc dự án nào!
+    if not target_proj and account_query:
+        # 1. Quét tìm theo UID (c_user) hoặc subProjectId chính xác
+        for p in all_projs:
+            for s in p.get("subProjects", []):
+                s_cuser = str(s.get("c_user", "")).strip()
+                s_id = str(s.get("id", "")).strip()
+                if (s_cuser and s_cuser == account_query) or (s_id and s_id == account_query):
+                    target_proj = p
+                    target_sub = s
+                    break
+            if target_proj:
+                break
+        # 2. Quét tìm theo tên nick (fbName) hoặc tên tài khoản (name)
+        if not target_proj:
+            for p in all_projs:
+                for s in p.get("subProjects", []):
+                    s_fbname = str(s.get("fbName", "")).strip().lower()
+                    s_name = str(s.get("name", "")).strip().lower()
+                    aq_lower = account_query.lower()
+                    if (s_fbname and (s_fbname == aq_lower or aq_lower in s_fbname)) or (s_name and (s_name == aq_lower or aq_lower in s_name)):
+                        target_proj = p
+                        target_sub = s
+                        break
+                if target_proj:
+                    break
+
+    # Fallback nếu máy chủ chỉ có đúng 1 project
+    if not target_proj and len(all_projs) == 1:
+        target_proj = all_projs[0]
 
     if not target_proj:
         return (404, {
             "success": False,
             "error": {
                 "code": "PROJECT_NOT_FOUND",
-                "message": "Không tìm thấy dự án tương ứng"
+                "message": "Không tìm thấy dự án tương ứng. Bạn có thể truyền 'project' (ID hoặc tên dự án), 'token' hoặc 'uid' / 'account' Facebook!"
             }
         })
 
-    # Định vị tài khoản Facebook đích linh hoạt (hỗ trợ subProjectId, c_user, fbName, account)
-    target_sub = None
+    # Định vị tài khoản Facebook đích trong dự án (nếu chưa được định vị từ bước quét toàn cục)
     subs = target_proj.get("subProjects", [])
-    account_query = str(post_data.get("account") or post_data.get("c_user") or post_data.get("fbName") or post_data.get("accountId") or post_data.get("uid") or sub_id or "").strip()
-    if account_query:
-        for s in subs:
-            if s.get("id") == account_query or str(s.get("c_user", "")).strip() == account_query:
-                target_sub = s
-                break
-        if not target_sub:
+    if not target_sub:
+        if account_query:
+            # 1. Khớp chính xác ID hoặc UID (c_user)
             for s in subs:
-                if account_query.lower() in str(s.get("fbName", "")).lower() or account_query.lower() in str(s.get("name", "")).lower():
+                s_cuser = str(s.get("c_user", "")).strip()
+                s_id = str(s.get("id", "")).strip()
+                if (s_id and s_id == account_query) or (s_cuser and s_cuser == account_query):
                     target_sub = s
                     break
+            # 2. Khớp theo tên nick fbName hoặc tên thư mục name
+            if not target_sub:
+                for s in subs:
+                    s_fbname = str(s.get("fbName", "")).strip().lower()
+                    s_name = str(s.get("name", "")).strip().lower()
+                    aq_lower = account_query.lower()
+                    if (s_fbname and (s_fbname == aq_lower or aq_lower in s_fbname)) or (s_name and (s_name == aq_lower or aq_lower in s_name)):
+                        target_sub = s
+                        break
 
+    # Nếu không truyền account_query hoặc không tìm thấy theo query, tự động chọn tài khoản tốt nhất trong dự án
     if not target_sub:
-        # Ưu tiên tài khoản Facebook ĐANG CÓ COOKIE / C_USER (như RIN) thay vì tài khoản trống
+        # Ưu tiên tài khoản Facebook ĐANG CÓ COOKIE / C_USER (đã đăng nhập)
         for s in subs:
             if s.get("type", "facebook") == "facebook" and s.get("c_user"):
                 target_sub = s
@@ -12442,27 +12503,47 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 token = query_params.get("token")
             
             target_proj = find_project_by_token(token) if token else None
-            proj_id_query = query_params.get("projectId")
+            proj_id_query = query_params.get("projectId") or query_params.get("project") or query_params.get("projectName")
             if not target_proj and proj_id_query:
                 all_p = get_projects()
+                pq_lower = str(proj_id_query).strip().lower()
                 for p in all_p:
-                    if p.get("id") == proj_id_query:
+                    if p.get("id") == proj_id_query or str(p.get("name", "")).strip().lower() == pq_lower:
                         target_proj = p
                         break
+                if not target_proj:
+                    for p in all_p:
+                        if pq_lower in str(p.get("name", "")).lower():
+                            target_proj = p
+                            break
 
             all_projs = [target_proj] if target_proj else get_projects()
 
             status_filter = query_params.get("status")
             post_type_filter = query_params.get("postType")
-            sub_id_filter = query_params.get("subProjectId")
+            sub_id_filter = (
+                query_params.get("subProjectId") or query_params.get("targetSubProjectId") or
+                query_params.get("account") or query_params.get("accountId") or
+                query_params.get("c_user") or query_params.get("uid") or query_params.get("fbUid")
+            )
             limit = int(query_params.get("limit", 50))
             offset = int(query_params.get("offset", 0))
 
             all_posts = []
             for p in all_projs:
                 for s in p.get("subProjects", []):
-                    if sub_id_filter and s.get("id") != sub_id_filter:
-                        continue
+                    if sub_id_filter:
+                        s_cuser = str(s.get("c_user", "")).strip()
+                        s_id = str(s.get("id", "")).strip()
+                        sf_clean = str(sub_id_filter).strip().lower()
+                        matches = (
+                            s_id == sub_id_filter or
+                            s_cuser == sub_id_filter or
+                            sf_clean in str(s.get("fbName", "")).lower() or
+                            sf_clean in str(s.get("name", "")).lower()
+                        )
+                        if not matches:
+                            continue
                     for post_item in s.get("postQueue", []):
                         if status_filter and status_filter != "all" and post_item.get("status") != status_filter:
                             continue
@@ -13595,9 +13676,30 @@ class BridgeHandler(BaseHTTPRequestHandler):
             if not token:
                 token = body.get("token") or body.get("projectToken") or body.get("apiKey") or query_params.get("token") or query_params.get("apiKey")
 
-            proj_id = body.get("projectId") or query_params.get("projectId")
-            sub_id = body.get("subProjectId") or body.get("targetSubProjectId") or body.get("account") or body.get("c_user") or query_params.get("subProjectId") or query_params.get("c_user")
             post_data = body.get("post") if (isinstance(body.get("post"), dict) and body.get("post")) else body
+            proj_id = (
+                body.get("projectId") or body.get("project") or body.get("projectName") or body.get("targetProjectId") or
+                (post_data.get("projectId") if isinstance(post_data, dict) else None) or
+                (post_data.get("project") if isinstance(post_data, dict) else None) or
+                (post_data.get("projectName") if isinstance(post_data, dict) else None) or
+                (post_data.get("targetProjectId") if isinstance(post_data, dict) else None) or
+                query_params.get("projectId") or query_params.get("project")
+            )
+            sub_id = (
+                body.get("subProjectId") or body.get("targetSubProjectId") or body.get("account") or
+                body.get("accountId") or body.get("c_user") or body.get("uid") or body.get("fbUid") or
+                body.get("accountName") or
+                (post_data.get("subProjectId") if isinstance(post_data, dict) else None) or
+                (post_data.get("targetSubProjectId") if isinstance(post_data, dict) else None) or
+                (post_data.get("account") if isinstance(post_data, dict) else None) or
+                (post_data.get("accountId") if isinstance(post_data, dict) else None) or
+                (post_data.get("c_user") if isinstance(post_data, dict) else None) or
+                (post_data.get("uid") if isinstance(post_data, dict) else None) or
+                (post_data.get("fbUid") if isinstance(post_data, dict) else None) or
+                (post_data.get("accountName") if isinstance(post_data, dict) else None) or
+                query_params.get("subProjectId") or query_params.get("targetSubProjectId") or
+                query_params.get("account") or query_params.get("c_user") or query_params.get("uid")
+            )
 
             if "runNow" in body:
                 run_now = bool(body.get("runNow"))

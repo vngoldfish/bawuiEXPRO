@@ -1486,7 +1486,6 @@ async function _executeFbPost(payload, updateStep) {
         const fbFeedbackId = gqlRes.fbFeedbackId || (fbPostId ? btoa("feedback:" + fbPostId) : null);
         const storyId = gqlRes.storyId || null;
         const numericPostId = gqlRes.numericPostId || null;
-        const currentActorId = gqlRes.actorId || fallbackActorId;
 
         // Tự động chia sẻ lên Tin (Story 24h) theo mutation từ sharetinfacebook.har
         let shareToStoryResult = null;

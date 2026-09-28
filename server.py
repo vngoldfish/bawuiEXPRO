@@ -332,10 +332,18 @@ def push_log(message, log_type="", project_id=None, subproject_id=None):
     if len(live_logs) > 300:
         live_logs.pop(0)
 
-def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, source="dashboard", token=None):
+# Bộ quản lý sự kiện đồng bộ cho REST API (Long polling / Sync wait cho n8n)
+_post_completion_events = {}
+_post_events_lock = threading.Lock()
+
+def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, source="dashboard", token=None, wait_for_completion=False, wait_timeout=60):
     """
-    Tạo hoặc lên lịch bài viết mới theo chuẩn REST API.
-    Hỗ trợ: Đăng ngay (run_now=True), Lên lịch (scheduledAt / scheduledTime), hoặc Lưu nháp (pending).
+    Tạo hoặc lên lịch bài viết mới theo chuẩn REST API (tối ưu hóa cho n8n & tự động hóa).
+    Hỗ trợ:
+      - Đăng ngay (run_now=True)
+      - Chế độ đồng bộ (wait_for_completion=True: chờ Extension đăng xong mới trả kết quả)
+      - Lên lịch tự động (scheduledAt / scheduledTime)
+      - Lưu nháp vào hàng đợi (pending)
     Trả về tuple: (status_code, response_dict)
     """
     if post_data is None:
@@ -376,14 +384,22 @@ def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, 
             }
         })
 
+    # Định vị tài khoản Facebook đích linh hoạt (hỗ trợ subProjectId, c_user, fbName, account)
     target_sub = None
     subs = target_proj.get("subProjects", [])
-    if sub_id:
+    account_query = str(post_data.get("account") or post_data.get("c_user") or post_data.get("fbName") or post_data.get("accountId") or post_data.get("uid") or sub_id or "").strip()
+    if account_query:
         for s in subs:
-            if s.get("id") == sub_id:
+            if s.get("id") == account_query or str(s.get("c_user", "")).strip() == account_query:
                 target_sub = s
                 break
-    else:
+        if not target_sub:
+            for s in subs:
+                if account_query.lower() in str(s.get("fbName", "")).lower() or account_query.lower() in str(s.get("name", "")).lower():
+                    target_sub = s
+                    break
+
+    if not target_sub:
         for s in subs:
             if s.get("type", "facebook") == "facebook":
                 target_sub = s
@@ -400,8 +416,12 @@ def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, 
             }
         })
 
-    raw_content = post_data.get("content", "")
-    media_url = (post_data.get("mediaUrl") or "").strip()
+    # Hỗ trợ các bí danh (aliases) linh hoạt từ n8n / AI: content, message, text, caption
+    raw_content = post_data.get("content") or post_data.get("message") or post_data.get("text") or post_data.get("caption") or post_data.get("postContent") or ""
+    media_url = (post_data.get("mediaUrl") or post_data.get("imageUrl") or post_data.get("image") or post_data.get("videoUrl") or post_data.get("photo") or post_data.get("photoUrl") or "").strip()
+    media_urls_raw = post_data.get("mediaUrls") or post_data.get("images") or []
+    if isinstance(media_urls_raw, list) and media_urls_raw and not media_url:
+        media_url = str(media_urls_raw[0]).strip()
     media_data = post_data.get("mediaData")
 
     if not raw_content and not media_url and not media_data and not post_data.get("title"):
@@ -409,7 +429,7 @@ def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, 
             "success": False,
             "error": {
                 "code": "MISSING_CONTENT",
-                "message": "Vui lòng nhập nội dung bài viết ('content') hoặc đính kèm tệp media ('mediaUrl')!"
+                "message": "Vui lòng nhập nội dung bài viết ('content' / 'message') hoặc đính kèm link media ('mediaUrl')!"
             }
         })
 
@@ -433,14 +453,15 @@ def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, 
             }
         })
 
-    raw_seeding = post_data.get("seedingComments", [])
+    raw_seeding = post_data.get("seedingComments") or post_data.get("comments") or post_data.get("seeding") or []
     seeding_comments = []
     if isinstance(raw_seeding, str):
         seeding_comments = [c.strip() for c in raw_seeding.split("\n") if c.strip()]
     elif isinstance(raw_seeding, list):
         seeding_comments = [str(c).strip() for c in raw_seeding if str(c).strip()]
 
-    auto_react = str(post_data.get("autoReactType") or "LIKE").upper()
+    raw_react = post_data.get("autoReactType") or post_data.get("autoReact") or post_data.get("reaction") or post_data.get("react") or "LIKE"
+    auto_react = str(raw_react).upper()
     if auto_react not in ("LIKE", "LOVE", "CARE", "HAHA", "WOW", "SAD", "ANGRY", "NONE"):
         auto_react = "LIKE"
 
@@ -448,6 +469,19 @@ def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, 
     if share_to_feed_raw is None:
         share_to_feed_raw = post_data.get("shareToStory")
     share_to_feed = True if share_to_feed_raw is None else bool(share_to_feed_raw)
+
+    # Chế độ đồng bộ (Sync Wait / waitForCompletion)
+    if not wait_for_completion:
+        for wk in ("waitForCompletion", "sync", "wait"):
+            if wk in post_data:
+                wait_for_completion = str(post_data[wk]).lower() in ("true", "1", "yes")
+                break
+    try:
+        t_val = post_data.get("timeout") or wait_timeout
+        wait_timeout = int(t_val)
+    except Exception:
+        wait_timeout = 60
+    wait_timeout = max(5, min(wait_timeout, 180))
 
     # Xử lý Đặt Giờ Đăng (Post Scheduling)
     sched_val = post_data.get("scheduledAt") or post_data.get("scheduledTime")
@@ -536,6 +570,84 @@ def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, 
     else:
         push_log(f"Đã thêm bài viết mới vào hàng đợi của '{target_sub['name']}'", "success", project_id=target_proj["id"], subproject_id=target_sub["id"])
 
+    # XỬ LÝ CHẾ ĐỘ ĐỒNG BỘ CHO N8N (SYNC WAIT)
+    if run_now and wait_for_completion and status == "in_progress":
+        ev = threading.Event()
+        with _post_events_lock:
+            _post_completion_events[post_id] = ev
+
+        finished = ev.wait(timeout=wait_timeout)
+        with _post_events_lock:
+            _post_completion_events.pop(post_id, None)
+
+        fresh_projs = get_projects()
+        fresh_post = None
+        for p in fresh_projs:
+            if p.get("id") == target_proj["id"]:
+                for s in p.get("subProjects", []):
+                    if s.get("id") == target_sub["id"]:
+                        for itm in s.get("postQueue", []):
+                            if itm.get("id") == post_id:
+                                fresh_post = itm
+                                break
+                    if fresh_post: break
+            if fresh_post: break
+
+        final_post = fresh_post or post_entry
+        final_status = final_post.get("status", "in_progress")
+        is_success = (final_status == "completed")
+
+        if finished and is_success:
+            return (200, {
+                "success": True,
+                "status": "completed",
+                "message": "Đã xuất bản bài viết thành công lên Facebook!",
+                "postId": post_id,
+                "fbPostId": final_post.get("fbPostId", ""),
+                "fbPostUrl": final_post.get("fbPostUrl", ""),
+                "fbFeedbackId": final_post.get("fbFeedbackId", ""),
+                "publishedAt": final_post.get("publishedAt"),
+                "publishedAtStr": final_post.get("publishedAtStr", ""),
+                "autoReactSuccess": final_post.get("autoReactSuccess", False),
+                "autoReactMethod": final_post.get("autoReactMethod", ""),
+                "seedingIds": final_post.get("seedingIds", []),
+                "seedingCount": len(final_post.get("seedingIds", [])),
+                "account": {
+                    "projectId": target_proj["id"],
+                    "projectName": target_proj["name"],
+                    "subProjectId": target_sub["id"],
+                    "subProjectName": target_sub["name"],
+                    "c_user": target_sub.get("c_user", ""),
+                    "fbName": target_sub.get("fbName", "")
+                },
+                "data": final_post,
+                "post": final_post
+            })
+        elif finished and not is_success:
+            return (400, {
+                "success": False,
+                "status": "failed",
+                "error": {
+                    "code": "POST_FAILED",
+                    "message": final_post.get("lastError") or "Đăng bài thất bại"
+                },
+                "postId": post_id,
+                "lastError": final_post.get("lastError", ""),
+                "progressStep": final_post.get("progressStep", ""),
+                "data": final_post
+            })
+        else:
+            return (202, {
+                "success": True,
+                "status": "in_progress",
+                "message": f"Bài viết đang được xử lý trên Chrome Extension (quá {wait_timeout}s chờ đồng bộ). Tác vụ vẫn tiếp tục chạy ngầm.",
+                "postId": post_id,
+                "progressStep": final_post.get("progressStep", ""),
+                "checkStatusUrl": f"/api/v1/posts/{post_id}",
+                "data": final_post
+            })
+
+    # PHẢN HỒI BẤT ĐỒNG BỘ THÔNG THƯỜNG
     msg = f"Đã lên lịch đăng bài thành công vào lúc {format_scheduled_time(sched_ms)}" if is_scheduled else ("Đã phát lệnh đăng ngay sang Extension!" if run_now else "Đã thêm bài viết vào hàng đợi đăng!")
 
     response_payload = {
@@ -3623,6 +3735,69 @@ Sản phẩm tuyệt vời quá</textarea>
                     </div>
                 </div>
 
+                <!-- ================================================================= -->
+                <!-- KHỐI HƯỚNG DẪN TÍCH HỢP N8N CHUẨN REST API -->
+                <!-- ================================================================= -->
+                <div class="card" style="margin-bottom:20px; background:linear-gradient(135deg, #1e1b4b 0%, #0f172a 100%); border:1px solid #6366f1;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:14px;">
+                        <div>
+                            <h3 style="font-size:16px; font-weight:800; color:#fff; display:flex; align-items:center; gap:8px; margin:0;">
+                                <span style="font-size:20px;">⚡</span> <span>Tích Hợp Tự Động Hóa n8n — REST API Chuẩn</span>
+                            </h3>
+                            <p style="font-size:13px; color:#cbd5e1; margin-top:4px; margin-bottom:0;">
+                                Kết nối n8n cực kỳ đơn giản với 2 chế độ: <b>Đồng bộ (1 Node duy nhất trả về link bài Facebook)</b> hoặc <b>Bất đồng bộ (Webhook Callback)</b>.
+                            </p>
+                        </div>
+                        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                            <button type="button" class="btn btn-sm btn-purple" onclick="copyN8nWorkflowJson()" style="box-shadow:0 4px 14px rgba(99,102,241,0.4); font-weight:700;">
+                                📋 Sao Chép Workflow n8n JSON (Paste vào n8n là chạy)
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="grid-responsive" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:14px; margin-bottom:14px;">
+                        <div style="background:#090e1c; padding:12px 14px; border-radius:8px; border:1px solid rgba(56,189,248,0.2);">
+                            <div style="font-size:13px; font-weight:700; color:#38bdf8; margin-bottom:6px; display:flex; align-items:center; gap:6px;">
+                                <span>🎯</span> <span>Chế độ 1: Đồng Bộ (Khuyên Dùng cho n8n)</span>
+                            </div>
+                            <div style="font-size:12px; color:#cbd5e1; line-height:1.6;">
+                                Thêm <code>"waitForCompletion": true</code> vào body JSON của node HTTP Request. Server sẽ giữ kết nối và <b>trả về trực tiếp link bài viết Facebook (fbPostUrl)</b> ngay khi Extension đăng xong!
+                            </div>
+                        </div>
+
+                        <div style="background:#090e1c; padding:12px 14px; border-radius:8px; border:1px solid rgba(167,139,250,0.2);">
+                            <div style="font-size:13px; font-weight:700; color:#a78bfa; margin-bottom:6px; display:flex; align-items:center; gap:6px;">
+                                <span>🔔</span> <span>Chế độ 2: Webhook Callback (Cho tác vụ lớn)</span>
+                            </div>
+                            <div style="font-size:12px; color:#cbd5e1; line-height:1.6;">
+                                Thêm <code>"callbackUrl": "https://n8n.../webhook/fb"</code>. API trả về ngay 200, khi Extension hoàn tất sẽ tự động gửi thông báo POST kèm kết quả sang node Webhook của n8n.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- MẪU JSON CẤU HÌNH HTTP REQUEST NODE TRONG N8N -->
+                    <div style="background:#070b16; border:1px solid #1e293b; border-radius:6px; padding:12px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                            <span style="font-size:11px; font-weight:700; color:#94a3b8; text-transform:uppercase;">📝 Payload Mẫu Cho Node HTTP Request Trên n8n:</span>
+                            <button type="button" class="btn-sm" style="background:#1e293b; color:#38bdf8; font-size:11px; padding:2px 8px; border-radius:4px;" onclick="copyN8nPayload()">📋 Copy Payload</button>
+                        </div>
+                        <pre id="n8nPayloadCodeBlock" style="margin:0; font-size:12px; color:#34d399; font-family:monospace; background:transparent; overflow-x:auto; line-height:1.5;">{
+  "content": "🚀 Tự động đăng từ n8n! {Chúc bạn ngày mới tràn ngập niềm vui|Tuần mới bùng nổ doanh số} ✨",
+  "mediaUrl": "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1080",
+  "postType": "post",
+  "targetType": "profile",
+  "autoReactType": "LIKE",
+  "seedingComments": [
+    "Bài viết rất ý nghĩa!",
+    "Inbox mình tư vấn thêm nhé"
+  ],
+  "shareToFeed": true,
+  "waitForCompletion": true,
+  "timeout": 60
+}</pre>
+                    </div>
+                </div>
+
                 <!-- DANH SÁCH CHI TIẾT CÁC ENDPOINT REST API -->
                 <div style="display:flex; flex-direction:column; gap:20px;">
                     <!-- ENDPOINT 1: POST /api/v1/posts -->
@@ -3704,11 +3879,29 @@ Sản phẩm tuyệt vời quá</textarea>
                                         <td style="padding:8px 10px; color:#94a3b8;">Không</td>
                                         <td style="padding:8px 10px; color:var(--text-muted);">Cảm xúc: <code>LOVE</code>, <code>LIKE</code>, <code>CARE</code>, <code>HAHA</code>, <code>WOW</code>, <code>NONE</code>. Mặc định: <code>LIKE</code>.</td>
                                     </tr>
-                                    <tr>
+                                    <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
                                         <td style="padding:8px 10px;"><code>runNow</code></td>
                                         <td style="padding:8px 10px; color:#a78bfa;">boolean</td>
                                         <td style="padding:8px 10px; color:#94a3b8;">Không</td>
                                         <td style="padding:8px 10px; color:var(--text-muted);"><code>true</code> = Đăng ngay; <code>false</code> = Lưu nháp (hoặc lên lịch nếu có <code>scheduledAt</code>). Mặc định: <code>true</code>.</td>
+                                    </tr>
+                                    <tr style="border-bottom:1px solid rgba(255,255,255,0.05); background:rgba(99,102,241,0.07);">
+                                        <td style="padding:8px 10px;"><code>waitForCompletion</code></td>
+                                        <td style="padding:8px 10px; color:#a78bfa; font-weight:700;">boolean</td>
+                                        <td style="padding:8px 10px; color:#94a3b8;">Không</td>
+                                        <td style="padding:8px 10px; color:#cbd5e1;"><b>Chế độ đồng bộ cho n8n</b>. Nếu <code>true</code>, server sẽ giữ kết nối và trả về trực tiếp link Facebook (<code>fbPostUrl</code>) ngay khi đăng xong (tối đa timeout). Mặc định: <code>false</code>.</td>
+                                    </tr>
+                                    <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                                        <td style="padding:8px 10px;"><code>timeout</code></td>
+                                        <td style="padding:8px 10px; color:#a78bfa;">number</td>
+                                        <td style="padding:8px 10px; color:#94a3b8;">Không</td>
+                                        <td style="padding:8px 10px; color:var(--text-muted);">Thời gian tối đa (giây) server chờ Extension hoàn tất ở chế độ <code>waitForCompletion</code> (5s - 180s). Mặc định: <code>60</code>.</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="padding:8px 10px;"><code>callbackUrl</code></td>
+                                        <td style="padding:8px 10px; color:#a78bfa;">string</td>
+                                        <td style="padding:8px 10px; color:#94a3b8;">Không</td>
+                                        <td style="padding:8px 10px; color:var(--text-muted);">Địa chỉ Webhook n8n để server bắn POST thông báo kết quả khi đăng xong (chế độ bất đồng bộ).</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -5385,6 +5578,197 @@ async function triggerRunNow(postId) {
         function copySubApiBaseUrl() {
             navigator.clipboard.writeText(window.location.origin);
             showToast("📋 Đã copy Base URL vào clipboard!", "success");
+        }
+
+        function copyN8nPayload() {
+            const el = document.getElementById("n8nPayloadCodeBlock");
+            if (el && el.innerText) {
+                navigator.clipboard.writeText(el.innerText.trim());
+                showToast("📋 Đã copy JSON Payload n8n vào clipboard!", "success");
+            }
+        }
+
+        function copyN8nWorkflowJson() {
+            const token = (currentProject && currentProject.token) ? currentProject.token : "BW-PROJ-MAIN99";
+            const origin = window.location.origin || "http://localhost:9999";
+            const workflowObj = {
+              "name": "EXPRO — Tự Động Đăng Bài Facebook Qua REST API",
+              "nodes": [
+                {
+                  "parameters": {},
+                  "id": "e7b0e1a2-1111-4444-9999-000000000001",
+                  "name": "Kích hoạt thủ công (Manual Trigger)",
+                  "type": "n8n-nodes-base.manualTrigger",
+                  "typeVersion": 1,
+                  "position": [220, 300]
+                },
+                {
+                  "parameters": {
+                    "values": {
+                      "string": [
+                        {
+                          "name": "content",
+                          "value": "🚀 Tự động hóa đăng bài Facebook từ n8n qua EXPRO REST API!\n\n{Chúc các bạn một ngày mới tràn đầy năng lượng|Chúc mọi người tuần mới làm việc bùng nổ doanh số|Hệ thống tự động hóa đang vận hành trơn tru}! ✨\n\n#n8n #Automation #EXPRO #FacebookAutoPost"
+                        },
+                        {
+                          "name": "mediaUrl",
+                          "value": "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1080"
+                        },
+                        {
+                          "name": "postType",
+                          "value": "post"
+                        },
+                        {
+                          "name": "targetType",
+                          "value": "profile"
+                        },
+                        {
+                          "name": "autoReactType",
+                          "value": "LIKE"
+                        }
+                      ],
+                      "boolean": [
+                        {
+                          "name": "shareToFeed",
+                          "value": true
+                        },
+                        {
+                          "name": "waitForCompletion",
+                          "value": true
+                        }
+                      ],
+                      "number": [
+                        {
+                          "name": "timeout",
+                          "value": 60
+                        }
+                      ]
+                    },
+                    "options": {}
+                  },
+                  "id": "e7b0e1a2-1111-4444-9999-000000000002",
+                  "name": "1. Soạn Dữ Liệu Bài Viết",
+                  "type": "n8n-nodes-base.set",
+                  "typeVersion": 2,
+                  "position": [440, 300]
+                },
+                {
+                  "parameters": {
+                    "jsCode": "// Thêm mảng seeding comments vào payload bài đăng\nconst item = $input.first().json;\nitem.seedingComments = [\n  \"Bài viết chia sẻ rất hữu ích!\",\n  \"Inbox mình xin tài liệu với ạ\"\n];\nreturn item;"
+                  },
+                  "id": "e7b0e1a2-1111-4444-9999-000000000003",
+                  "name": "2. Cấu Hình Seeding Mồi",
+                  "type": "n8n-nodes-base.code",
+                  "typeVersion": 2,
+                  "position": [660, 300]
+                },
+                {
+                  "parameters": {
+                    "method": "POST",
+                    "url": `${origin}/api/v1/posts`,
+                    "sendHeaders": true,
+                    "headerParameters": {
+                      "parameters": [
+                        {
+                          "name": "Authorization",
+                          "value": `Bearer ${token}`
+                        },
+                        {
+                          "name": "Content-Type",
+                          "value": "application/json"
+                        }
+                      ]
+                    },
+                    "sendBody": true,
+                    "specifyBody": "json",
+                    "jsonBody": "={{ JSON.stringify($json) }}",
+                    "options": {
+                      "timeout": 70000
+                    }
+                  },
+                  "id": "e7b0e1a2-1111-4444-9999-000000000004",
+                  "name": "3. Gọi EXPRO REST API (Đồng Bộ)",
+                  "type": "n8n-nodes-base.httpRequest",
+                  "typeVersion": 4.1,
+                  "position": [880, 300]
+                },
+                {
+                  "parameters": {
+                    "conditions": {
+                      "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict"
+                      },
+                      "conditions": [
+                        {
+                          "id": "d8a1e2f3-1111-2222-3333-444455556666",
+                          "leftValue": "={{ $json.status }}",
+                          "rightValue": "completed",
+                          "operator": {
+                            "type": "string",
+                            "operation": "equals"
+                          }
+                        }
+                      ],
+                      "combinator": "and"
+                    },
+                    "options": {}
+                  },
+                  "id": "e7b0e1a2-1111-4444-9999-000000000005",
+                  "name": "4. Kiểm Tra Thành Công?",
+                  "type": "n8n-nodes-base.if",
+                  "typeVersion": 2,
+                  "position": [1100, 300]
+                },
+                {
+                  "parameters": {
+                    "jsCode": "// Kết quả đăng thành công\nconst data = $input.first().json;\nreturn {\n  success: true,\n  message: \"🎉 Đăng bài Facebook thành công qua n8n!\",\n  postId: data.postId,\n  fbPostId: data.fbPostId,\n  fbPostUrl: data.fbPostUrl,\n  publishedAt: data.publishedAtStr || data.publishedAt,\n  autoReactSuccess: data.autoReactSuccess,\n  seedingCount: (data.seedingIds || []).length\n};"
+                  },
+                  "id": "e7b0e1a2-1111-4444-9999-000000000006",
+                  "name": "✅ Xuất Link Bài Viết Facebook",
+                  "type": "n8n-nodes-base.code",
+                  "typeVersion": 2,
+                  "position": [1340, 220]
+                },
+                {
+                  "parameters": {
+                    "jsCode": "// Kết quả khi bài đăng gặp lỗi\nconst err = $input.first().json;\nreturn {\n  success: false,\n  message: \"❌ Đăng bài Facebook thất bại!\",\n  error: err.error || err.lastError || \"Unknown Error\",\n  progressStep: err.progressStep\n};"
+                  },
+                  "id": "e7b0e1a2-1111-4444-9999-000000000007",
+                  "name": "❌ Báo Lỗi Bài Đăng",
+                  "type": "n8n-nodes-base.code",
+                  "typeVersion": 2,
+                  "position": [1340, 400]
+                }
+              ],
+              "connections": {
+                "Kích hoạt thủ công (Manual Trigger)": {
+                  "main": [[{"node": "1. Soạn Dữ Liệu Bài Viết", "type": "main", "index": 0}]]
+                },
+                "1. Soạn Dữ Liệu Bài Viết": {
+                  "main": [[{"node": "2. Cấu Hình Seeding Mồi", "type": "main", "index": 0}]]
+                },
+                "2. Cấu Hình Seeding Mồi": {
+                  "main": [[{"node": "3. Gọi EXPRO REST API (Đồng Bộ)", "type": "main", "index": 0}]]
+                },
+                "3. Gọi EXPRO REST API (Đồng Bộ)": {
+                  "main": [[{"node": "4. Kiểm Tra Thành Công?", "type": "main", "index": 0}]]
+                },
+                "4. Kiểm Tra Thành Công?": {
+                  "main": [
+                    [{"node": "✅ Xuất Link Bài Viết Facebook", "type": "main", "index": 0}],
+                    [{"node": "❌ Báo Lỗi Bài Đăng", "type": "main", "index": 0}]
+                  ]
+                }
+              },
+              "settings": {
+                "executionOrder": "v1"
+              }
+            };
+
+            navigator.clipboard.writeText(JSON.stringify(workflowObj, null, 2));
+            showToast("🎉 Đã copy Workflow n8n JSON! Mở n8n và bấm Ctrl+V (hoặc Cmd+V) để dán ngay!", "success", 7000);
         }
 
         // =========================================================
@@ -13125,15 +13509,22 @@ class BridgeHandler(BaseHTTPRequestHandler):
         # POST /api/v1/posts, /api/posts, /api/v1/posts/publish, /api/subprojects/add-post
         # =====================================================================
         if pathname in ("/api/v1/posts", "/api/posts", "/api/v1/posts/publish", "/api/posts/publish", "/api/publish", "/api/subprojects/add-post"):
+            query_params = {}
+            if parsed.query:
+                for q in parsed.query.split("&"):
+                    if "=" in q:
+                        k, v = q.split("=", 1)
+                        query_params[k.strip()] = v.strip()
+
             auth_header = self.headers.get("Authorization", "")
-            token = self.headers.get("X-Project-Token") or self.headers.get("X-Sync-Token")
+            token = self.headers.get("X-Project-Token") or self.headers.get("X-Sync-Token") or self.headers.get("X-API-Key")
             if not token and auth_header.lower().startswith("bearer "):
                 token = auth_header[7:].strip()
             if not token:
-                token = body.get("token") or body.get("projectToken")
+                token = body.get("token") or body.get("projectToken") or body.get("apiKey") or query_params.get("token") or query_params.get("apiKey")
 
-            proj_id = body.get("projectId")
-            sub_id = body.get("subProjectId") or body.get("targetSubProjectId")
+            proj_id = body.get("projectId") or query_params.get("projectId")
+            sub_id = body.get("subProjectId") or body.get("targetSubProjectId") or body.get("account") or body.get("c_user") or query_params.get("subProjectId") or query_params.get("c_user")
             post_data = body.get("post") if (isinstance(body.get("post"), dict) and body.get("post")) else body
 
             if "runNow" in body:
@@ -13143,6 +13534,25 @@ class BridgeHandler(BaseHTTPRequestHandler):
             else:
                 run_now = False if pathname == "/api/subprojects/add-post" else True
 
+            # Chế độ đồng bộ (Sync Wait / waitForCompletion) cho n8n
+            wait_for_comp = False
+            for k in ("waitForCompletion", "sync", "wait"):
+                if k in body:
+                    wait_for_comp = str(body[k]).lower() in ("true", "1", "yes")
+                    break
+                elif k in post_data:
+                    wait_for_comp = str(post_data[k]).lower() in ("true", "1", "yes")
+                    break
+                elif k in query_params:
+                    wait_for_comp = str(query_params[k]).lower() in ("true", "1", "yes")
+                    break
+
+            timeout_val = body.get("timeout") or post_data.get("timeout") or query_params.get("timeout") or 60
+            try:
+                wait_timeout = int(timeout_val)
+            except Exception:
+                wait_timeout = 60
+
             source = "api" if ("/api/v1/" in pathname or "/api/posts" in pathname or "/api/publish" in pathname) else "dashboard"
             status_code, res_payload = create_post_entry(
                 proj_id=proj_id,
@@ -13150,7 +13560,9 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 post_data=post_data,
                 run_now=run_now,
                 source=source,
-                token=token
+                token=token,
+                wait_for_completion=wait_for_comp,
+                wait_timeout=wait_timeout
             )
             self._send_json(status_code, res_payload)
             return
@@ -13994,6 +14406,12 @@ class BridgeHandler(BaseHTTPRequestHandler):
                                             p_item["progressStep"] = f"❌ Thất bại: {p_item['lastError']}"
                                             push_log(f"Lỗi xuất bản bài viết '{p_item.get('title') or p_item.get('id')}': {p_item['lastError']}", "err", project_id=proj_id, subproject_id=target_sub['id'])
                                         save_projects(projs)
+
+                                        # Đánh thức các thread đang đợi đồng bộ (Sync Wait / waitForCompletion)
+                                        with _post_events_lock:
+                                            ev = _post_completion_events.get(post_id)
+                                            if ev:
+                                                ev.set()
 
                                         # Webhook callback notification (if configured)
                                         cb_url = p_item.get("callbackUrl")

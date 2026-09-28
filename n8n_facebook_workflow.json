@@ -1,0 +1,240 @@
+{
+  "name": "EXPRO — Tự Động Đăng Bài Facebook Qua REST API",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "e7b0e1a2-1111-4444-9999-000000000001",
+      "name": "Kích hoạt thủ công (Manual Trigger)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "content",
+              "value": "🚀 Tự động hóa đăng bài Facebook từ n8n qua EXPRO REST API!\n\n{Chúc các bạn một ngày mới tràn đầy năng lượng|Chúc mọi người tuần mới làm việc bùng nổ doanh số|Hệ thống tự động hóa đang vận hành trơn tru}! ✨\n\n#n8n #Automation #EXPRO #FacebookAutoPost"
+            },
+            {
+              "name": "mediaUrl",
+              "value": "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1080"
+            },
+            {
+              "name": "postType",
+              "value": "post"
+            },
+            {
+              "name": "targetType",
+              "value": "profile"
+            },
+            {
+              "name": "autoReactType",
+              "value": "LIKE"
+            }
+          ],
+          "boolean": [
+            {
+              "name": "shareToFeed",
+              "value": true
+            },
+            {
+              "name": "waitForCompletion",
+              "value": true
+            }
+          ],
+          "number": [
+            {
+              "name": "timeout",
+              "value": 60
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e7b0e1a2-1111-4444-9999-000000000002",
+      "name": "1. Soạn Dữ Liệu Bài Viết",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Thêm mảng seeding comments vào payload bài đăng\nconst item = $input.first().json;\nitem.seedingComments = [\n  \"Bài viết chia sẻ rất hữu ích!\",\n  \"Inbox mình xin tài liệu với ạ\"\n];\nreturn item;"
+      },
+      "id": "e7b0e1a2-1111-4444-9999-000000000003",
+      "name": "2. Cấu Hình Seeding Mồi",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:9999/api/v1/posts",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer BW-PROJ-MAIN99"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 70000
+        }
+      },
+      "id": "e7b0e1a2-1111-4444-9999-000000000004",
+      "name": "3. Gọi EXPRO REST API (Đồng Bộ)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        880,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "d8a1e2f3-1111-2222-3333-444455556666",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "completed",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e7b0e1a2-1111-4444-9999-000000000005",
+      "name": "4. Kiểm Tra Thành Công?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Kết quả đăng thành công\nconst data = $input.first().json;\nreturn {\n  success: true,\n  message: \"🎉 Đăng bài Facebook thành công qua n8n!\",\n  postId: data.postId,\n  fbPostId: data.fbPostId,\n  fbPostUrl: data.fbPostUrl,\n  publishedAt: data.publishedAtStr || data.publishedAt,\n  autoReactSuccess: data.autoReactSuccess,\n  seedingCount: (data.seedingIds || []).length\n};"
+      },
+      "id": "e7b0e1a2-1111-4444-9999-000000000006",
+      "name": "✅ Xuất Link Bài Viết Facebook",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Kết quả khi bài đăng gặp lỗi\nconst err = $input.first().json;\nreturn {\n  success: false,\n  message: \"❌ Đăng bài Facebook thất bại!\",\n  error: err.error || err.lastError || \"Unknown Error\",\n  progressStep: err.progressStep\n};"
+      },
+      "id": "e7b0e1a2-1111-4444-9999-000000000007",
+      "name": "❌ Báo Lỗi Bài Đăng",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        400
+      ]
+    }
+  ],
+  "connections": {
+    "Kích hoạt thủ công (Manual Trigger)": {
+      "main": [
+        [
+          {
+            "node": "1. Soạn Dữ Liệu Bài Viết",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "1. Soạn Dữ Liệu Bài Viết": {
+      "main": [
+        [
+          {
+            "node": "2. Cấu Hình Seeding Mồi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. Cấu Hình Seeding Mồi": {
+      "main": [
+        [
+          {
+            "node": "3. Gọi EXPRO REST API (Đồng Bộ)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3. Gọi EXPRO REST API (Đồng Bộ)": {
+      "main": [
+        [
+          {
+            "node": "4. Kiểm Tra Thành Công?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4. Kiểm Tra Thành Công?": {
+      "main": [
+        [
+          {
+            "node": "✅ Xuất Link Bài Viết Facebook",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "❌ Báo Lỗi Bài Đăng",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

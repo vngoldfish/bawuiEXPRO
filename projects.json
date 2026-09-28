@@ -1342,18 +1342,56 @@
                 "4"
               ],
               "autoReactType": "LIKE",
-              "status": "failed",
-              "progressStep": "❌ Quá hạn (Timeout 90s) — Vui lòng kiểm tra tab Facebook hoặc bấm Thử lại",
-              "fbPostId": "",
-              "fbPostUrl": "",
+              "status": "completed",
+              "progressStep": "✅ Đã đăng thành công lên Facebook (ID: 2156206308585980)",
+              "fbPostId": "2156206308585980",
+              "fbPostUrl": "https://www.facebook.com/permalink.php?story_fbid=2156206308585980&id=100025898964308",
               "scheduledTime": 0,
               "scheduledTimeStr": "",
               "scheduledAt": "",
-              "lastError": "Timeout: Quá 90s không nhận được phản hồi từ Extension hoặc Facebook",
+              "lastError": "",
               "createdAt": 1790560870350,
               "callbackUrl": "",
               "source": "api",
-              "updatedAt": 1790560912540
+              "updatedAt": 1790565245222,
+              "fbFeedbackId": "ZmVlZGJhY2s6MjE1NjIwNjMwODU4NTk4MA==",
+              "seedingIds": [
+                "1619273796510530",
+                "2084313852216139",
+                "1375197601472526",
+                "1768661994182861"
+              ],
+              "seedingDetails": [
+                {
+                  "id": "1619273796510530",
+                  "status": "success",
+                  "text": "1",
+                  "timestamp": 1790565227477
+                },
+                {
+                  "id": "2084313852216139",
+                  "status": "success",
+                  "text": "2",
+                  "timestamp": 1790565233137
+                },
+                {
+                  "id": "1375197601472526",
+                  "status": "success",
+                  "text": "3",
+                  "timestamp": 1790565238468
+                },
+                {
+                  "id": "1768661994182861",
+                  "status": "success",
+                  "text": "4",
+                  "timestamp": 1790565243908
+                }
+              ],
+              "shareToStorySuccess": true,
+              "autoReactSuccess": true,
+              "autoReactMethod": "graphql",
+              "publishedAt": 1790565245334,
+              "publishedAtStr": "12:14:05 28/09/2026"
             },
             {
               "id": "post_1790559729_bf0b",

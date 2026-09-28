@@ -336,6 +336,45 @@ def push_log(message, log_type="", project_id=None, subproject_id=None):
 _post_completion_events = {}
 _post_events_lock = threading.Lock()
 
+def format_facebook_post_url(post_id, actor_id="", target_type="profile", target_id="", post_type="post"):
+    """Chuẩn hóa link bài viết Facebook chính xác 100%, loại bỏ triệt để link /photo/?fbid="""
+    if not post_id:
+        return ""
+    pid_str = str(post_id).strip()
+    if pid_str.startswith("pfbid"):
+        return f"https://www.facebook.com/posts/{pid_str}"
+    if post_type == "reel":
+        return f"https://www.facebook.com/reel/{pid_str}"
+    if post_type == "video":
+        return f"https://www.facebook.com/watch/?v={pid_str}"
+    if target_type == "group" and target_id:
+        return f"https://www.facebook.com/groups/{target_id}/posts/{pid_str}"
+    owner = target_id if (target_type in ("page", "group") and target_id) else actor_id
+    if owner:
+        return f"https://www.facebook.com/permalink.php?story_fbid={pid_str}&id={owner}"
+    return f"https://www.facebook.com/posts/{pid_str}"
+
+def sanitize_post_url(post_obj, sub_obj=None):
+    """Đảm bảo URL bài viết luôn đúng định dạng, tự động chuyển /photo/?fbid= thành permalink bài viết chuẩn"""
+    if not post_obj:
+        return ""
+    cur_url = post_obj.get("fbPostUrl") or post_obj.get("tweetUrl") or ""
+    is_x = (sub_obj and sub_obj.get("type") == "x") or ("x.com" in cur_url or "twitter.com" in cur_url)
+    if is_x:
+        return cur_url
+    fb_pid = post_obj.get("fbPostId") or ""
+    if not cur_url or "/photo/?fbid=" in cur_url:
+        if fb_pid:
+            c_user = sub_obj.get("c_user", "") if sub_obj else ""
+            return format_facebook_post_url(
+                post_id=fb_pid,
+                actor_id=c_user,
+                target_type=post_obj.get("targetType", "profile"),
+                target_id=post_obj.get("targetId", ""),
+                post_type=post_obj.get("postType", "post")
+            )
+    return cur_url
+
 def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, source="dashboard", token=None, wait_for_completion=None, wait_timeout=60):
     """
     Tạo hoặc lên lịch bài viết mới theo chuẩn REST API (tối ưu hóa cho n8n & tự động hóa).
@@ -692,6 +731,11 @@ def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, 
         final_status = final_post.get("status", "in_progress")
         is_success = (final_status == "completed")
 
+        # Đảm bảo fbPostUrl luôn được chuẩn hóa đúng, không bao giờ dùng /photo/?fbid=
+        sanitized_url = sanitize_post_url(final_post, target_sub)
+        if sanitized_url:
+            final_post["fbPostUrl"] = sanitized_url
+
         if finished and is_success:
             return (200, {
                 "success": True,
@@ -700,7 +744,7 @@ def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, 
                 "message": "Đã xuất bản bài viết thành công lên Facebook!",
                 "postId": post_id,
                 "fbPostId": final_post.get("fbPostId", ""),
-                "fbPostUrl": final_post.get("fbPostUrl", ""),
+                "fbPostUrl": sanitized_url or final_post.get("fbPostUrl", ""),
                 "fbFeedbackId": final_post.get("fbFeedbackId", ""),
                 "publishedAt": final_post.get("publishedAt"),
                 "publishedAtStr": final_post.get("publishedAtStr", ""),
@@ -9040,14 +9084,18 @@ async function triggerRunNow(postId) {
             const currSub = currProj ? (currProj.subProjects || []).find(s => s.id === currentSubProjectId) : null;
             const fbPostId = p.fbPostId || p.tweetId || "";
             let fbPostUrl = p.fbPostUrl || p.tweetUrl || "";
-            if (!fbPostUrl && fbPostId) {
-                if (fbPostId.startsWith("pfbid")) fbPostUrl = `https://www.facebook.com/posts/${fbPostId}`;
-                else if (p.postType === "reel") fbPostUrl = `https://www.facebook.com/reel/${fbPostId}`;
-                else if (p.postType === "video") fbPostUrl = `https://www.facebook.com/watch/?v=${fbPostId}`;
-                else if (currSub && currSub.type === "x") fbPostUrl = `https://x.com/i/status/${fbPostId}`;
-                else fbPostUrl = `https://www.facebook.com/photo/?fbid=${fbPostId}`;
-            }
             const isXSub = (currSub && currSub.type === 'x') || !!p.tweetId || !!p.tweetUrl || (fbPostUrl && (fbPostUrl.includes('x.com') || fbPostUrl.includes('twitter.com')));
+            if (!isXSub && fbPostId) {
+                const ownerId = (p.targetType === "group" || p.targetType === "page") && p.targetId ? p.targetId : (currSub ? (currSub.c_user || "") : "");
+                if (!fbPostUrl || fbPostUrl.includes("/photo/?fbid=")) {
+                    if (fbPostId.startsWith("pfbid")) fbPostUrl = `https://www.facebook.com/posts/${fbPostId}`;
+                    else if (p.postType === "reel") fbPostUrl = `https://www.facebook.com/reel/${fbPostId}`;
+                    else if (p.postType === "video") fbPostUrl = `https://www.facebook.com/watch/?v=${fbPostId}`;
+                    else if (p.targetType === "group" && p.targetId) fbPostUrl = `https://www.facebook.com/groups/${p.targetId}/posts/${fbPostId}`;
+                    else if (ownerId) fbPostUrl = `https://www.facebook.com/permalink.php?story_fbid=${fbPostId}&id=${ownerId}`;
+                    else fbPostUrl = `https://www.facebook.com/posts/${fbPostId}`;
+                }
+            }
 
             const typeMap = { "post": "📝 Bài Viết", "video": "🎬 Video", "reel": "⚡ Reels", "story": "📖 Story" };
             const targetMap = { "profile": "👤 Profile", "page": "🚩 Fanpage", "group": "👥 Group" };
@@ -12335,10 +12383,15 @@ class BridgeHandler(BaseHTTPRequestHandler):
                         preceding_cmds += 1
                 queue_pos = preceding_cmds + (1 if is_sub_busy else 0) + 1
 
+            clean_post_url = sanitize_post_url(found_post, found_sub)
+            if clean_post_url:
+                found_post["fbPostUrl"] = clean_post_url
+
             resp_data = {
                 **found_post,
                 "inQueue": in_queue,
                 "queuePosition": queue_pos if in_queue else 1,
+                "fbPostUrl": clean_post_url or found_post.get("fbPostUrl", ""),
                 "account": {
                     "projectId": found_proj.get("id") if found_proj else "",
                     "projectName": found_proj.get("name") if found_proj else "",
@@ -12362,7 +12415,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 "shareToStory": found_post.get("shareToStory", found_post.get("shareToFeed", True)),
                 "shareToStorySuccess": found_post.get("shareToStorySuccess", False),
                 "fbPostId": found_post.get("fbPostId", ""),
-                "fbPostUrl": found_post.get("fbPostUrl", ""),
+                "fbPostUrl": clean_post_url or found_post.get("fbPostUrl", ""),
                 "fbFeedbackId": found_post.get("fbFeedbackId", ""),
                 "seedingIds": found_post.get("seedingIds", []),
                 "seedingDetails": found_post.get("seedingDetails", []),
@@ -12421,6 +12474,10 @@ class BridgeHandler(BaseHTTPRequestHandler):
                             m_copy.pop("base64", None)
                             m_copy["hasBase64"] = bool(post_summary["mediaData"].get("base64"))
                             post_summary["mediaData"] = m_copy
+
+                        clean_item_url = sanitize_post_url(post_summary, s)
+                        if clean_item_url:
+                            post_summary["fbPostUrl"] = clean_item_url
 
                         all_posts.append({
                             **post_summary,
@@ -14420,8 +14477,10 @@ class BridgeHandler(BaseHTTPRequestHandler):
                                             if body.get("tweetUrl"): p_item["tweetUrl"] = body.get("tweetUrl")
                                             if body.get("fbPostId"): p_item["fbPostId"] = body.get("fbPostId")
                                             elif body.get("tweetId"): p_item["fbPostId"] = body.get("tweetId")
-                                            if body.get("fbPostUrl"): p_item["fbPostUrl"] = body.get("fbPostUrl")
-                                            elif body.get("tweetUrl"): p_item["fbPostUrl"] = body.get("tweetUrl")
+                                            raw_rep_url = body.get("fbPostUrl") or body.get("tweetUrl") or p_item.get("fbPostUrl") or ""
+                                            p_item["fbPostUrl"] = raw_rep_url
+                                            clean_rep_url = sanitize_post_url(p_item, target_sub)
+                                            if clean_rep_url: p_item["fbPostUrl"] = clean_rep_url
                                             if body.get("fbFeedbackId"): p_item["fbFeedbackId"] = body.get("fbFeedbackId")
                                             if body.get("seedingIds"): p_item["seedingIds"] = body.get("seedingIds")
                                             if body.get("seedingDetails"): p_item["seedingDetails"] = body.get("seedingDetails")

@@ -1295,16 +1295,22 @@ async function _executeFbPost(payload, updateStep) {
                             let purl = "";
                             const effectiveId = pid || mediaId;
                             if (effectiveId) {
-                                if (String(effectiveId).startsWith("pfbid")) {
-                                    purl = `https://www.facebook.com/posts/${effectiveId}`;
+                                const effStr = String(effectiveId).trim();
+                                if (effStr.startsWith("pfbid")) {
+                                    purl = `https://www.facebook.com/posts/${effStr}`;
                                 } else if (postType === "reel") {
-                                    purl = `https://www.facebook.com/reel/${effectiveId}`;
+                                    purl = `https://www.facebook.com/reel/${effStr}`;
                                 } else if (postType === "video") {
-                                    purl = `https://www.facebook.com/watch/?v=${effectiveId}`;
-                                } else if (mediaId) {
-                                    purl = `https://www.facebook.com/photo/?fbid=${effectiveId}`;
+                                    purl = `https://www.facebook.com/watch/?v=${effStr}`;
+                                } else if (targetType === "group" && targetId) {
+                                    purl = `https://www.facebook.com/groups/${targetId}/posts/${effStr}`;
                                 } else {
-                                    purl = `https://www.facebook.com/permalink.php?story_fbid=${effectiveId}&id=${actorId}`;
+                                    const ownerId = (targetType === "page" && targetId) ? targetId : actorId;
+                                    if (ownerId) {
+                                        purl = `https://www.facebook.com/permalink.php?story_fbid=${effStr}&id=${ownerId}`;
+                                    } else {
+                                        purl = `https://www.facebook.com/posts/${effStr}`;
+                                    }
                                 }
                             }
 
@@ -1381,10 +1387,31 @@ async function _executeFbPost(payload, updateStep) {
                                 if (numM && numM[1]) numPid = numM[1];
                                 else if (pid && !String(pid).startsWith("pfbid")) numPid = String(pid);
 
+                                const confirmedId = pid || numPid || effectiveId || storyId || null;
+                                const confirmedStr = confirmedId ? String(confirmedId).trim() : "";
+                                if (confirmedStr) {
+                                    if (confirmedStr.startsWith("pfbid")) {
+                                        purl = `https://www.facebook.com/posts/${confirmedStr}`;
+                                    } else if (postType === "reel") {
+                                        purl = `https://www.facebook.com/reel/${confirmedStr}`;
+                                    } else if (postType === "video") {
+                                        purl = `https://www.facebook.com/watch/?v=${confirmedStr}`;
+                                    } else if (targetType === "group" && targetId) {
+                                        purl = `https://www.facebook.com/groups/${targetId}/posts/${confirmedStr}`;
+                                    } else {
+                                        const ownerId = (targetType === "page" && targetId) ? targetId : actorId;
+                                        if (ownerId) {
+                                            purl = `https://www.facebook.com/permalink.php?story_fbid=${confirmedStr}&id=${ownerId}`;
+                                        } else {
+                                            purl = `https://www.facebook.com/posts/${confirmedStr}`;
+                                        }
+                                    }
+                                }
+
                                 return {
                                     success: true,
-                                    fbPostId: effectiveId ? String(effectiveId) : (pid || storyId || null),
-                                    fbPostUrl: purl || `https://www.facebook.com/posts/${effectiveId || pid || ''}`,
+                                    fbPostId: confirmedId ? String(confirmedId) : (effectiveId ? String(effectiveId) : (pid || storyId || null)),
+                                    fbPostUrl: purl,
                                     fbFeedbackId: extractedFeedbackId,
                                     storyId: storyId || null,
                                     numericPostId: numPid,
@@ -1433,7 +1460,29 @@ async function _executeFbPost(payload, updateStep) {
         }
 
         const fbPostId = gqlRes.fbPostId || uploadedMediaId;
-        const fbPostUrl = gqlRes.fbPostUrl || (fbPostId ? `https://www.facebook.com/posts/${fbPostId}` : "");
+        const currentActorId = gqlRes.actorId || fallbackActorId;
+        let fbPostUrl = gqlRes.fbPostUrl || "";
+        if (!fbPostUrl || fbPostUrl.includes("/photo/?fbid=")) {
+            if (fbPostId) {
+                const pidStr = String(fbPostId).trim();
+                if (pidStr.startsWith("pfbid")) {
+                    fbPostUrl = `https://www.facebook.com/posts/${pidStr}`;
+                } else if (postType === "reel") {
+                    fbPostUrl = `https://www.facebook.com/reel/${pidStr}`;
+                } else if (postType === "video") {
+                    fbPostUrl = `https://www.facebook.com/watch/?v=${pidStr}`;
+                } else if (payload.targetType === "group" && payload.targetId) {
+                    fbPostUrl = `https://www.facebook.com/groups/${payload.targetId}/posts/${pidStr}`;
+                } else {
+                    const ownerId = (payload.targetType === "page" && payload.targetId) ? payload.targetId : currentActorId;
+                    if (ownerId) {
+                        fbPostUrl = `https://www.facebook.com/permalink.php?story_fbid=${pidStr}&id=${ownerId}`;
+                    } else {
+                        fbPostUrl = `https://www.facebook.com/posts/${pidStr}`;
+                    }
+                }
+            }
+        }
         const fbFeedbackId = gqlRes.fbFeedbackId || (fbPostId ? btoa("feedback:" + fbPostId) : null);
         const storyId = gqlRes.storyId || null;
         const numericPostId = gqlRes.numericPostId || null;

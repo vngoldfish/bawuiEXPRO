@@ -336,7 +336,7 @@ def push_log(message, log_type="", project_id=None, subproject_id=None):
 _post_completion_events = {}
 _post_events_lock = threading.Lock()
 
-def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, source="dashboard", token=None, wait_for_completion=False, wait_timeout=60):
+def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, source="dashboard", token=None, wait_for_completion=None, wait_timeout=60):
     """
     Tạo hoặc lên lịch bài viết mới theo chuẩn REST API (tối ưu hóa cho n8n & tự động hóa).
     Hỗ trợ:
@@ -512,11 +512,17 @@ def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, 
     share_to_feed = True if share_to_feed_raw is None else bool(share_to_feed_raw)
 
     # Chế độ đồng bộ (Sync Wait / waitForCompletion)
-    if not wait_for_completion:
-        for wk in ("waitForCompletion", "sync", "wait"):
-            if wk in post_data:
-                wait_for_completion = str(post_data[wk]).lower() in ("true", "1", "yes")
-                break
+    explicit_wait = None
+    for wk in ("waitForCompletion", "sync", "wait"):
+        if wk in post_data:
+            explicit_wait = str(post_data[wk]).lower() in ("true", "1", "yes")
+            break
+    if explicit_wait is not None:
+        wait_for_completion = explicit_wait
+    elif wait_for_completion is None:
+        # Mặc định: REST API & n8n (source == 'api') sẽ kích hoạt Smart Wait khi run_now=True
+        wait_for_completion = True if (source == "api" and run_now) else False
+
     try:
         t_val = post_data.get("timeout") or wait_timeout
         wait_timeout = int(t_val)
@@ -634,8 +640,33 @@ def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, 
     else:
         push_log(f"Đã thêm bài viết mới vào hàng đợi của '{target_sub['name']}'", "success", project_id=target_proj["id"], subproject_id=target_sub["id"])
 
-    # XỬ LÝ CHẾ ĐỘ ĐỒNG BỘ CHO N8N (SYNC WAIT)
-    if run_now and wait_for_completion:
+    # SMART CONDITIONAL WAIT CHO N8N & REST API:
+    # TRƯỜNG HỢP 1: BÀI VIẾT ĐI VÀO HÀNG ĐỢI (NICK ĐANG BẬN) -> Trả về HTTP 200 ngay lập tức, KHÔNG block HTTP connection
+    if run_now and is_nick_busy:
+        return (200, {
+            "success": True,
+            "status": "queued",
+            "inQueue": True,
+            "queuePosition": queue_pos,
+            "message": f"Nick '{target_sub['name']}' đang bận xử lý tác vụ khác. Bài viết đã được tiếp nhận và xếp vào hàng đợi tuần tự (vị trí #{queue_pos}).",
+            "postId": post_id,
+            "cmdId": cmd_id,
+            "checkStatusUrl": f"/api/v1/posts/{post_id}",
+            "data": post_entry,
+            "post": post_entry,
+            "targetAccount": {
+                "projectId": target_proj["id"],
+                "projectName": target_proj["name"],
+                "subProjectId": target_sub["id"],
+                "subProjectName": target_sub["name"],
+                "c_user": target_sub.get("c_user", ""),
+                "fbName": target_sub.get("fbName", "")
+            }
+        })
+
+    # TRƯỜNG HỢP 2: BÀI VIẾT KHÔNG VÀO HÀNG ĐỢI (NICK RẢNH, THỰC THI NGAY) VÀ BẬT WAIT_FOR_COMPLETION
+    # -> Backend đợi Extension thực thi xong rồi trả về kết quả (thành công / thất bại)
+    if run_now and wait_for_completion and not is_nick_busy:
         ev = threading.Event()
         with _post_events_lock:
             _post_completion_events[post_id] = ev
@@ -665,6 +696,7 @@ def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, 
             return (200, {
                 "success": True,
                 "status": "completed",
+                "inQueue": False,
                 "message": "Đã xuất bản bài viết thành công lên Facebook!",
                 "postId": post_id,
                 "fbPostId": final_post.get("fbPostId", ""),
@@ -691,6 +723,7 @@ def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, 
             return (400, {
                 "success": False,
                 "status": "failed",
+                "inQueue": False,
                 "error": {
                     "code": "POST_FAILED",
                     "message": final_post.get("lastError") or "Đăng bài thất bại"
@@ -704,6 +737,7 @@ def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, 
             return (202, {
                 "success": True,
                 "status": "in_progress",
+                "inQueue": False,
                 "message": f"Bài viết đang được xử lý trên Chrome Extension (quá {wait_timeout}s chờ đồng bộ). Tác vụ vẫn tiếp tục chạy ngầm.",
                 "postId": post_id,
                 "progressStep": final_post.get("progressStep", ""),
@@ -711,11 +745,9 @@ def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, 
                 "data": final_post
             })
 
-    # PHẢN HỒI BẤT ĐỒNG BỘ THÔNG THƯỜNG
+    # TRƯỜNG HỢP 3: PHẢN HỒI BẤT ĐỒNG BỘ THÔNG THƯỜNG (khi gọi từ Dashboard UI hoặc caller explicitly tắt wait_for_completion)
     if is_scheduled:
         msg = f"Đã lên lịch đăng bài thành công vào lúc {format_scheduled_time(sched_ms)}"
-    elif run_now and is_nick_busy:
-        msg = f"Nick '{target_sub['name']}' đang bận xử lý tác vụ khác. Bài viết đã được xếp vào hàng đợi tuần tự (vị trí #{queue_pos})."
     elif run_now:
         msg = "Đã phát lệnh đăng ngay sang Extension!"
     else:
@@ -729,7 +761,9 @@ def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, 
         "postId": post_id,
         "cmdId": cmd_id,
         "status": status,
-        "queuePosition": queue_pos if (run_now and is_nick_busy) else 1,
+        "inQueue": False,
+        "queuePosition": 1,
+        "checkStatusUrl": f"/api/v1/posts/{post_id}",
         "targetAccount": {
             "projectId": target_proj["id"],
             "projectName": target_proj["name"],
@@ -8661,6 +8695,7 @@ async function triggerRunNow(postId) {
                     body: JSON.stringify({
                         projectId: currentProjectId,
                         subProjectId: currentSubProjectId,
+                        source: "dashboard",
                         ...payload
                     })
                 });
@@ -10400,6 +10435,7 @@ async function triggerRunNow(postId) {
                     body: JSON.stringify({
                         projectId: currentProjectId,
                         subProjectId: currentSubProjectId,
+                        source: "dashboard",
                         ...payload
                     })
                 });
@@ -12286,8 +12322,23 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 self._send_json(404, {"success": False, "error": {"code": "NOT_FOUND", "message": f"Không tìm thấy bài viết có ID '{post_id}'"}})
                 return
 
+            in_queue = (found_post.get("status") == "queued")
+            queue_pos = 1
+            if in_queue and found_sub:
+                sub_id_check = found_sub.get("id")
+                is_sub_busy = any(sub_id_check in n.get("busySubProjects", []) for n in connected_nodes.values())
+                preceding_cmds = 0
+                for c in pending_commands:
+                    if c.get("targetSubProjectId") == sub_id_check:
+                        if (c.get("post") or {}).get("id") == post_id:
+                            break
+                        preceding_cmds += 1
+                queue_pos = preceding_cmds + (1 if is_sub_busy else 0) + 1
+
             resp_data = {
                 **found_post,
+                "inQueue": in_queue,
+                "queuePosition": queue_pos if in_queue else 1,
                 "account": {
                     "projectId": found_proj.get("id") if found_proj else "",
                     "projectName": found_proj.get("name") if found_proj else "",
@@ -12303,7 +12354,10 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 "post": resp_data,
                 "postId": found_post.get("id"),
                 "status": found_post.get("status"),
+                "inQueue": in_queue,
+                "queuePosition": queue_pos if in_queue else 1,
                 "progressStep": found_post.get("progressStep", ""),
+                "checkStatusUrl": f"/api/v1/posts/{found_post.get('id')}",
                 "shareToFeed": found_post.get("shareToFeed", True),
                 "shareToStory": found_post.get("shareToStory", found_post.get("shareToFeed", True)),
                 "shareToStorySuccess": found_post.get("shareToStorySuccess", False),
@@ -13496,7 +13550,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 run_now = False if pathname == "/api/subprojects/add-post" else True
 
             # Chế độ đồng bộ (Sync Wait / waitForCompletion) cho n8n
-            wait_for_comp = False
+            wait_for_comp = None
             for k in ("waitForCompletion", "sync", "wait"):
                 if k in body:
                     wait_for_comp = str(body[k]).lower() in ("true", "1", "yes")
@@ -13514,7 +13568,21 @@ class BridgeHandler(BaseHTTPRequestHandler):
             except Exception:
                 wait_timeout = 60
 
-            source = "api" if ("/api/v1/" in pathname or "/api/posts" in pathname or "/api/publish" in pathname) else "dashboard"
+            # Phân biệt nguồn gọi: Dashboard UI vs External API (n8n/script/curl)
+            client_source = body.get("source") or post_data.get("source")
+            if client_source:
+                source = str(client_source).lower()
+            else:
+                has_api_auth = bool(token and (self.headers.get("Authorization") or self.headers.get("X-Project-Token") or self.headers.get("X-Sync-Token") or self.headers.get("X-API-Key")))
+                is_api_route = pathname in ("/api/v1/posts/publish", "/api/posts/publish", "/api/publish", "/api/v1/post/publish", "/api/v1/posts/video", "/api/v1/posts/photo")
+                if has_api_auth or is_api_route or (pathname.startswith("/api/v1/") and not self.headers.get("Referer")):
+                    source = "api"
+                else:
+                    source = "dashboard"
+
+            if wait_for_comp is None:
+                # Mặc định cho REST API & n8n: nếu run_now=True thì bật Smart Wait
+                wait_for_comp = True if (source == "api" and run_now) else False
             status_code, res_payload = create_post_entry(
                 proj_id=proj_id,
                 sub_id=sub_id,

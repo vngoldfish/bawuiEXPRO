@@ -349,8 +349,9 @@ def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, 
     if post_data is None:
         post_data = {}
 
-    all_projs = get_projects()
-    target_proj = None
+    with PROJECTS_LOCK:
+        all_projs = get_projects()
+        target_proj = None
 
     if token:
         token_clean = token.strip()

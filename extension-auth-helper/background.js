@@ -346,6 +346,7 @@ async function _uploadMediaToFacebook(tabId, fileBase64, fileName, mimeType) {
                         await new Promise(r => setTimeout(r, 300));
                     }
 
+                    const finalHtml = document.documentElement.innerHTML || "";
                     let lsd = "";
                     let jazoest = "";
                     let spinR = "";
@@ -353,14 +354,14 @@ async function _uploadMediaToFacebook(tabId, fileBase64, fileName, mimeType) {
                     let spinT = "";
                     let hsi = "";
 
-                    const lsdM = html.match(/\["LSD",\[\],\{"token":"([^"]+)"/) || html.match(/"lsd":"([^"]+)"/);
+                    const lsdM = finalHtml.match(/\["LSD",\[\],\{"token":"([^"]+)"/) || finalHtml.match(/"lsd":"([^"]+)"/);
                     if (lsdM) lsd = lsdM[1];
-                    const jazoM = html.match(/jazoest=(\d+)/);
+                    const jazoM = finalHtml.match(/jazoest=(\d+)/);
                     if (jazoM) jazoest = jazoM[1];
-                    const spinM = html.match(/"__spin_t":(\d+),"__spin_r":(\d+),"__spin_b":"([^"]+)","__hsi":"([^"]+)"/);
+                    const spinM = finalHtml.match(/"__spin_t":(\d+),"__spin_r":(\d+),"__spin_b":"([^"]+)","__hsi":"([^"]+)"/);
                     if (spinM) { spinT = spinM[1]; spinR = spinM[2]; spinB = spinM[3]; hsi = spinM[4]; }
 
-                    const cUserMatch = document.cookie.match(/c_user=(\d+)/) || html.match(/"USER_ID":"(\d+)"/) || html.match(/"ACCOUNT_ID":"(\d+)"/);
+                    const cUserMatch = document.cookie.match(/c_user=(\d+)/) || finalHtml.match(/"USER_ID":"(\d+)"/) || finalHtml.match(/"ACCOUNT_ID":"(\d+)"/);
                     const userId = cUserMatch ? cUserMatch[1] : "";
 
                     if (!userId || !fb_dtsg) {
@@ -941,16 +942,29 @@ async function _executeFbPost(payload, updateStep) {
                 const res = await fetch(fetchMediaUrl);
                 if (res.ok) {
                     const blob = await res.blob();
-                    const b64 = await new Promise((resolve, reject) => {
-                        const reader = new FileReader();
-                        reader.onloadend = () => {
-                            const result = reader.result;
-                            const comma = result.indexOf(",");
-                            resolve(comma !== -1 ? result.slice(comma + 1) : result);
-                        };
-                        reader.onerror = reject;
-                        reader.readAsDataURL(blob);
-                    });
+                    let b64 = "";
+                    try {
+                        const arrayBuffer = await blob.arrayBuffer();
+                        const bytes = new Uint8Array(arrayBuffer);
+                        let binary = "";
+                        const len = bytes.byteLength;
+                        const chunkSize = 8192;
+                        for (let i = 0; i < len; i += chunkSize) {
+                            binary += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i + chunkSize, len)));
+                        }
+                        b64 = btoa(binary);
+                    } catch(bErr) {
+                        b64 = await new Promise((resolve, reject) => {
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                                const result = reader.result;
+                                const comma = result.indexOf(",");
+                                resolve(comma !== -1 ? result.slice(comma + 1) : result);
+                            };
+                            reader.onerror = reject;
+                            reader.readAsDataURL(blob);
+                        });
+                    }
                     const isVideoUrl = !!(payload.mediaUrl.match(/\.(mp4|mov|avi|mkv|webm)/i) || postType === "video" || postType === "reel");
                     payload.mediaData = {
                         base64: b64,

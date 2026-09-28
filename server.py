@@ -355,9 +355,21 @@ def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, 
     if token:
         token_clean = token.strip()
         for p in all_projs:
-            if p.get("token") and p.get("token").strip() == token_clean:
+            p_tok = (p.get("token") or "").strip()
+            if p_tok == token_clean:
                 target_proj = p
                 break
+        # Fallback cho token: nếu có tiền tố BW-PROJ- hoặc một phần token hợp lệ
+        if not target_proj:
+            for p in all_projs:
+                p_tok = (p.get("token") or "").strip()
+                if p_tok and (token_clean.startswith(p_tok[:12]) or p_tok.startswith(token_clean)):
+                    target_proj = p
+                    break
+        # Fallback nếu máy chủ chỉ có đúng 1 project
+        if not target_proj and len(all_projs) == 1:
+            target_proj = all_projs[0]
+
         if not target_proj:
             return (401, {
                 "success": False,
@@ -400,10 +412,16 @@ def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, 
                     break
 
     if not target_sub:
+        # Ưu tiên tài khoản Facebook ĐANG CÓ COOKIE / C_USER (như RIN) thay vì tài khoản trống
         for s in subs:
-            if s.get("type", "facebook") == "facebook":
+            if s.get("type", "facebook") == "facebook" and s.get("c_user"):
                 target_sub = s
                 break
+        if not target_sub:
+            for s in subs:
+                if s.get("type", "facebook") == "facebook":
+                    target_sub = s
+                    break
         if not target_sub and len(subs) > 0:
             target_sub = subs[0]
 
@@ -416,26 +434,48 @@ def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, 
             }
         })
 
-    # Hỗ trợ các bí danh (aliases) linh hoạt từ n8n / AI: content, message, text, caption
-    raw_content = post_data.get("content") or post_data.get("message") or post_data.get("text") or post_data.get("caption") or post_data.get("postContent") or ""
-    media_url = (post_data.get("mediaUrl") or post_data.get("imageUrl") or post_data.get("image") or post_data.get("videoUrl") or post_data.get("photo") or post_data.get("photoUrl") or "").strip()
-    media_urls_raw = post_data.get("mediaUrls") or post_data.get("images") or []
+    # Hỗ trợ các bí danh (aliases) linh hoạt từ n8n / AI: content, message, text, caption, body
+    raw_content = (post_data.get("content") or post_data.get("message") or post_data.get("text") or 
+                   post_data.get("caption") or post_data.get("postContent") or post_data.get("body") or "")
+    if isinstance(raw_content, dict):
+        raw_content = str(raw_content.get("text") or raw_content.get("value") or "")
+    elif not isinstance(raw_content, str):
+        raw_content = str(raw_content or "")
+
+    # Bí danh media URL: hỗ trợ cả video, video_url, image_url, photo, media, file, link...
+    media_url = str(
+        post_data.get("mediaUrl") or post_data.get("media_url") or 
+        post_data.get("videoUrl") or post_data.get("video_url") or post_data.get("video") or
+        post_data.get("imageUrl") or post_data.get("image_url") or post_data.get("image") or
+        post_data.get("photoUrl") or post_data.get("photo_url") or post_data.get("photo") or
+        post_data.get("media") or post_data.get("file") or post_data.get("attachment") or
+        post_data.get("url") or post_data.get("link") or ""
+    ).strip()
+
+    media_urls_raw = post_data.get("mediaUrls") or post_data.get("images") or post_data.get("videos") or []
     if isinstance(media_urls_raw, list) and media_urls_raw and not media_url:
         media_url = str(media_urls_raw[0]).strip()
-    media_data = post_data.get("mediaData")
+    media_data = post_data.get("mediaData") or post_data.get("media_data")
+
+    post_type = str(post_data.get("postType") or post_data.get("post_type") or post_data.get("type") or "post").lower()
+
+    # Tự động nhận diện postType nếu có tệp video
+    is_video_ext = any(media_url.lower().split("?")[0].endswith(ext) for ext in (".mp4", ".mov", ".avi", ".mkv", ".webm"))
+    if is_video_ext or post_data.get("video") or post_data.get("videoUrl") or post_data.get("video_url"):
+        if post_type not in ("video", "reel"):
+            post_type = "video"
 
     if not raw_content and not media_url and not media_data and not post_data.get("title"):
         return (400, {
             "success": False,
             "error": {
                 "code": "MISSING_CONTENT",
-                "message": "Vui lòng nhập nội dung bài viết ('content' / 'message') hoặc đính kèm link media ('mediaUrl')!"
+                "message": "Vui lòng nhập nội dung bài viết ('content' / 'message') hoặc đính kèm link media ('mediaUrl' / 'videoUrl')!"
             }
         })
 
     content = resolve_spintax(raw_content)
 
-    post_type = str(post_data.get("postType", "post")).lower()
     if post_type not in ("post", "reel", "video", "story"):
         post_type = "post"
 
@@ -12140,7 +12180,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
             now = int(time.time() * 1000)
             active_nodes = []
             for node_id, node in list(connected_nodes.items()):
-                if now - node.get("lastSeen", 0) < 25000:
+                if now - node.get("lastSeen", 0) < 75000:
                     active_nodes.append(node)
             
             uptime_sec = int(time.time() - SERVER_START_TIME)
@@ -12376,6 +12416,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         pathname = parsed.path
         body = self._parse_body()
+        if pathname not in ("/api/bridge/poll", "/api/bridge/heartbeat"):
+            print(f"[HTTP POST] {pathname} keys={list(body.keys()) if isinstance(body, dict) else type(body)}", flush=True)
 
         # 1. Tạo dự án cha mới
         if pathname == "/api/projects":
@@ -13372,10 +13414,12 @@ class BridgeHandler(BaseHTTPRequestHandler):
             return
 
         # =====================================================================
-        # PUBLIC REST API & DASHBOARD: TẠO HOẶC LÊN LỊCH BÀI VIẾT
-        # POST /api/v1/posts, /api/posts, /api/v1/posts/publish, /api/subprojects/add-post
-        # =====================================================================
-        if pathname in ("/api/v1/posts", "/api/posts", "/api/v1/posts/publish", "/api/posts/publish", "/api/publish", "/api/subprojects/add-post"):
+        if pathname in (
+            "/api/v1/posts", "/api/posts", "/api/v1/posts/publish", "/api/posts/publish",
+            "/api/publish", "/api/subprojects/add-post", "/api/v1/post", "/api/post",
+            "/api/v1/post/publish", "/api/v1/posts/create", "/api/posts/create",
+            "/api/v1/posts/video", "/api/v1/posts/photo"
+        ):
             query_params = {}
             if parsed.query:
                 for q in parsed.query.split("&"):

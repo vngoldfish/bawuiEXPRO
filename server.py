@@ -8712,7 +8712,7 @@ async function triggerRunNow(postId) {
                         ${p.mediaData ? `<span class="badge-folder" style="background:rgba(168,85,247,0.15); color:#c084fc;">📎 Tệp: ${escapeHtml(p.mediaData.fileName || 'media')}</span>` : ''}
                         ${p.mediaUrl && !p.mediaData ? `<span class="badge-folder" style="background:rgba(56,189,248,0.15); color:#38bdf8; max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">🖼️ URL: ${escapeHtml(p.mediaUrl)}</span>` : ''}
                         ${seedingCount > 0 ? `<span class="badge-folder" style="background:rgba(52,211,153,0.15); color:#34d399;">💬 ${seedingCount} Seeding</span>` : ''}
-                        ${p.autoReactType && p.autoReactType !== "NONE" ? `<span class="badge-folder" style="background:rgba(239,68,68,0.15); color:#f87171;">❤️ React: ${escapeHtml(p.autoReactType)}</span>` : ''}
+                        ${p.autoReactType && p.autoReactType !== "NONE" ? `<span class="badge-folder" style="background:rgba(239,68,68,0.15); color:#f87171;">❤️ React: ${escapeHtml(p.autoReactType)}${p.autoReactSuccess ? ' (✅ ' + (p.autoReactMethod || 'ok') + ')' : ''}</span>` : ''}
                     </div>
 
                     ${p.progressStep ? `
@@ -13873,6 +13873,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
                                             if body.get("seedingIds"): p_item["seedingIds"] = body.get("seedingIds")
                                             if body.get("seedingDetails"): p_item["seedingDetails"] = body.get("seedingDetails")
                                             if "shareToStorySuccess" in body: p_item["shareToStorySuccess"] = bool(body.get("shareToStorySuccess"))
+                                            if "autoReactSuccess" in body: p_item["autoReactSuccess"] = bool(body.get("autoReactSuccess"))
+                                            if "autoReactMethod" in body: p_item["autoReactMethod"] = str(body.get("autoReactMethod"))
                                             now_ts = int(time.time() * 1000)
                                             p_item["publishedAt"] = body.get("publishedAt") or now_ts
                                             p_item["publishedAtStr"] = format_scheduled_time(p_item["publishedAt"])

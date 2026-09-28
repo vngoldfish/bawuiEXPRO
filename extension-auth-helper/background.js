@@ -1436,9 +1436,16 @@ async function _executeFbPost(payload, updateStep) {
         }
 
         // Auto-React
+        let autoReactResult = null;
         if (payload.autoReactType && payload.autoReactType !== "NONE") {
             await updateStep(`❤️ Thả cảm xúc (${payload.autoReactType}) vào bài viết...`);
-            await _executeFbReaction(targetTab.id, fbFeedbackId || btoa("feedback:" + fbPostId), payload.autoReactType, fallbackActorId);
+            autoReactResult = await _executeFbReaction(targetTab.id, fbFeedbackId || btoa("feedback:" + fbPostId), payload.autoReactType, fallbackActorId, fbPostId || numericPostId);
+            if (autoReactResult && autoReactResult.success) {
+                await updateStep(`❤️ Đã thả cảm xúc (${payload.autoReactType}) thành công [${autoReactResult.method || 'API'}]!`);
+            } else {
+                console.warn("[AutoReact] Lỗi thả cảm xúc:", autoReactResult?.error);
+                await updateStep(`⚠️ Thả cảm xúc (${payload.autoReactType}): ${autoReactResult?.error || "Không thành công"}`);
+            }
         }
 
         await updateStep(`✅ Hoàn tất xuất bản bài viết lên Facebook!`);
@@ -1449,6 +1456,8 @@ async function _executeFbPost(payload, updateStep) {
             fbFeedbackId,
             storyId,
             numericPostId,
+            autoReactSuccess: autoReactResult ? autoReactResult.success : false,
+            autoReactMethod: autoReactResult ? (autoReactResult.method || "none") : "none",
             shareToStorySuccess: shareToStoryResult ? shareToStoryResult.success : false,
             seedingIds: seedingResultData.seedingIds,
             seedingDetails: seedingResultData.seedingDetails,
@@ -2254,75 +2263,279 @@ async function _executeFbSeeding(tabId, postId, knownFeedbackId, comments, fallb
     }
 }
 
-async function _executeFbReaction(tabId, feedbackId, reactType, fallbackActorId) {
+async function _executeFbReaction(tabId, feedbackId, reactType, fallbackActorId, numericPostId) {
+    if (!reactType || reactType === "NONE") return { success: true, skipped: true };
+
     try {
-        await chrome.scripting.executeScript({
+        const results = await chrome.scripting.executeScript({
             target: { tabId },
-            func: async (feedbackId, reactType, fallbackActorId) => {
+            func: async (feedbackId, reactType, fallbackActorId, numericPostId) => {
+                const reactionMap = { "LIKE": 1, "LOVE": 2, "CARE": 16, "HAHA": 4, "WOW": 3, "SAD": 7, "ANGRY": 8 };
+                const reactionValue = reactionMap[(reactType || "LIKE").toUpperCase()] || 1;
+
+                // 1. Trích xuất fb_dtsg và lsd với 8 lần retry và đa dạng selector/regex
                 let fb_dtsg = "";
                 let lsd = "";
-                const html = document.documentElement.innerHTML || "";
-                if (window.DTSGInitialData && window.DTSGInitialData.token) fb_dtsg = window.DTSGInitialData.token;
-                else if (window.DTSGInitData && window.DTSGInitData.token) fb_dtsg = window.DTSGInitData.token;
-                if (!fb_dtsg) {
-                    const m = html.match(/"token"\s*:\s*"([^"]{20,})"\s*,\s*"async_get_token"/);
-                    if (m && m[1]) fb_dtsg = m[1];
+                for (let attempt = 0; attempt < 8; attempt++) {
+                    const html = document.documentElement.innerHTML || "";
+                    try {
+                        if (window.DTSGInitialData && window.DTSGInitialData.token) fb_dtsg = window.DTSGInitialData.token;
+                        else if (window.DTSGInitData && window.DTSGInitData.token) fb_dtsg = window.DTSGInitData.token;
+                        else if (window.__DTSGInitialData && window.__DTSGInitialData.token) fb_dtsg = window.__DTSGInitialData.token;
+                    } catch(e) {}
+
+                    if (!fb_dtsg && typeof require !== "undefined") {
+                        try {
+                            const mod = require("DTSGInitData") || require("DTSGInitialData");
+                            if (mod && mod.token) fb_dtsg = mod.token;
+                            else if (mod && typeof mod.getAsyncParams === "function") {
+                                const params = mod.getAsyncParams();
+                                if (params && params.fb_dtsg) fb_dtsg = params.fb_dtsg;
+                            }
+                        } catch(e) {}
+                    }
+
+                    if (!fb_dtsg) {
+                        const dtsgPatterns = [
+                            /\["DTSGInitialData",\s*\[\]\s*,\s*\{\s*"token"\s*:\s*"([^"]+)"/,
+                            /\["DTSGInitData",\s*\[\]\s*,\s*\{\s*"token"\s*:\s*"([^"]+)"/,
+                            /"DTSGInitialData"[^}]+"token"\s*:\s*"([^"]+)"/,
+                            /"DTSGInitData"[^}]+"token"\s*:\s*"([^"]+)"/,
+                            /"token"\s*:\s*"([^"]{20,})"\s*,\s*"async_get_token"/,
+                            /name="fb_dtsg"[^>]*value="([^"]+)"/
+                        ];
+                        for (const p of dtsgPatterns) {
+                            const m = html.match(p);
+                            if (m && m[1]) { fb_dtsg = m[1]; break; }
+                        }
+                    }
+
+                    if (!lsd) {
+                        try {
+                            if (window.LSD && window.LSD.token) lsd = window.LSD.token;
+                        } catch(e) {}
+                        if (!lsd) {
+                            const m = html.match(/"lsd"\s*:\s*"([^"]+)"/);
+                            if (m && m[1]) lsd = m[1];
+                        }
+                    }
+
+                    if (fb_dtsg) break;
+                    await new Promise(r => setTimeout(r, 400));
                 }
-                if (!lsd) {
-                    const m = html.match(/"lsd"\s*:\s*"([^"]+)"/);
-                    if (m && m[1]) lsd = m[1];
-                }
+
+                // 2. Trích xuất actorId (UID người dùng)
                 let actorId = "";
                 const cUserMatch = document.cookie.match(/c_user=(\d+)/);
                 if (cUserMatch && cUserMatch[1]) actorId = cUserMatch[1];
+                if (!actorId) {
+                    const html = document.documentElement.innerHTML || "";
+                    const m = html.match(/"USER_ID"\s*:\s*"(\d+)"/) || html.match(/"actorID"\s*:\s*"(\d+)"/);
+                    if (m && m[1]) actorId = m[1];
+                }
                 if (!actorId) actorId = fallbackActorId || "";
 
-                if (!fb_dtsg || !actorId || !feedbackId) return { success: false };
+                // 3. Chuẩn hóa targetFeedbackId
+                let targetFeedbackId = "";
+                let rawNumericId = numericPostId ? String(numericPostId) : "";
+
+                if (feedbackId) {
+                    const strF = String(feedbackId);
+                    if (strF.startsWith("ZmVl")) {
+                        targetFeedbackId = strF;
+                        try {
+                            const decoded = atob(strF);
+                            rawNumericId = decoded.replace(/^feedback:/, "") || rawNumericId;
+                        } catch(e) {}
+                    } else if (strF.startsWith("feedback:")) {
+                        targetFeedbackId = btoa(strF);
+                        rawNumericId = strF.replace(/^feedback:/, "") || rawNumericId;
+                    } else {
+                        targetFeedbackId = btoa("feedback:" + strF);
+                        rawNumericId = strF;
+                    }
+                } else if (rawNumericId) {
+                    targetFeedbackId = btoa("feedback:" + rawNumericId);
+                }
+
+                if (!targetFeedbackId) {
+                    const html = document.documentElement.innerHTML || "";
+                    const m = html.match(/"(?:feedback_target_id|legacy_story_id|story_fbid|post_id)"\s*:\s*"(\d+)"/);
+                    if (m && m[1]) {
+                        targetFeedbackId = btoa("feedback:" + m[1]);
+                        rawNumericId = m[1];
+                    }
+                }
 
                 let jazoest = "2";
-                for (let i = 0; i < fb_dtsg.length; i++) jazoest += fb_dtsg.charCodeAt(i);
+                if (fb_dtsg) {
+                    for (let i = 0; i < fb_dtsg.length; i++) jazoest += fb_dtsg.charCodeAt(i);
+                }
 
-                const reactionMap = { "LIKE": 1, "LOVE": 2, "CARE": 16, "HAHA": 4, "WOW": 3, "SAD": 7, "ANGRY": 8 };
-                const reactionValue = reactionMap[(reactType || "").toUpperCase()] || 1;
+                // 4. Quét dynamic doc_id từ document.scripts và bổ sung fallback list
+                let candidateDocIds = [];
+                try {
+                    const scripts = Array.from(document.scripts || []);
+                    for (const s of scripts) {
+                        const content = s.textContent || s.innerHTML || "";
+                        if (content.includes("CometUFIFeedbackReactMutation") || content.includes("feedback_reaction")) {
+                            const matches = content.matchAll(/"doc_id"\s*:\s*"(\d{14,})"/g);
+                            for (const m of matches) {
+                                if (m && m[1] && !candidateDocIds.includes(m[1])) {
+                                    candidateDocIds.push(m[1]);
+                                }
+                            }
+                        }
+                    }
+                } catch(e) {}
 
-                const vars = {
-                    input: {
-                        attribution_id_v2: "CometHomeRoot.react,comet.home,via_cold_start," + Date.now() + ",166542,4748854339,,",
-                        feedback_id: feedbackId,
-                        feedback_reaction: reactionValue,
-                        feedback_source: "OBJECT",
-                        is_tracking_encrypted: false,
-                        tracking: [null],
-                        session_id: actorId + "_" + Date.now(),
-                        client_mutation_id: String(Math.floor(Math.random() * 10) + 1),
-                        actor_id: actorId
-                    },
-                    useDefaultActor: false
-                };
+                const fallbackDocIds = [
+                    "3928142190617090",
+                    "27646120298312844",
+                    "5737666249615598",
+                    "4820846671372545",
+                    "6473667189337587"
+                ];
+                for (const id of fallbackDocIds) {
+                    if (!candidateDocIds.includes(id)) candidateDocIds.push(id);
+                }
 
-                const params = new URLSearchParams();
-                params.append("av", actorId);
-                params.append("__user", actorId);
-                params.append("__a", "1");
-                params.append("fb_dtsg", fb_dtsg);
-                params.append("jazoest", jazoest);
-                params.append("lsd", lsd);
-                params.append("fb_api_caller_class", "RelayModern");
-                params.append("fb_api_req_friendly_name", "CometUFIFeedbackReactMutation");
-                params.append("variables", JSON.stringify(vars));
-                params.append("doc_id", "27646120298312844");
+                // 5. Thử nghiệm qua GraphQL Mutation
+                let lastGqlError = "";
+                if (fb_dtsg && actorId && targetFeedbackId) {
+                    const fIdList = [targetFeedbackId];
+                    if (rawNumericId && rawNumericId !== targetFeedbackId) {
+                        fIdList.push(rawNumericId);
+                    }
 
-                await fetch("/api/graphql/", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                    body: params.toString(),
-                    credentials: "include"
-                });
-                return { success: true };
+                    for (const docId of candidateDocIds) {
+                        for (const fId of fIdList) {
+                            const vars = {
+                                input: {
+                                    attribution_id_v2: "CometHomeRoot.react,comet.home,via_cold_start," + Date.now() + ",166542,4748854339,,",
+                                    feedback_id: fId,
+                                    feedback_reaction: reactionValue,
+                                    feedback_source: "OBJECT",
+                                    is_tracking_encrypted: false,
+                                    tracking: [null],
+                                    session_id: actorId + "_" + Date.now(),
+                                    client_mutation_id: String(Math.floor(Math.random() * 10) + 1),
+                                    actor_id: actorId
+                                },
+                                useDefaultActor: false
+                            };
+
+                            try {
+                                const params = new URLSearchParams();
+                                params.append("av", actorId);
+                                params.append("__user", actorId);
+                                params.append("__a", "1");
+                                params.append("fb_dtsg", fb_dtsg);
+                                params.append("jazoest", jazoest);
+                                params.append("lsd", lsd);
+                                params.append("fb_api_caller_class", "RelayModern");
+                                params.append("fb_api_req_friendly_name", "CometUFIFeedbackReactMutation");
+                                params.append("variables", JSON.stringify(vars));
+                                params.append("doc_id", docId);
+
+                                const res = await fetch("/api/graphql/", {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                                    body: params.toString(),
+                                    credentials: "include"
+                                });
+                                const text = await res.text();
+                                if (res.ok && (text.includes('"feedback_react"') || text.includes('"viewer_feedback_reaction"') || text.includes('"feedback_reaction"') || text.includes('"feedback":{')) && !text.includes('"errorSummary"') && !text.includes('1675004')) {
+                                    return { success: true, method: "graphql", docId, feedbackId: fId };
+                                } else {
+                                    lastGqlError = text.substring(0, 100);
+                                }
+                            } catch(netErr) {
+                                lastGqlError = netErr.message;
+                            }
+                        }
+                    }
+                } else {
+                    lastGqlError = `Thiếu thông tin GraphQL (fb_dtsg: ${!!fb_dtsg}, actorId: ${!!actorId}, targetFeedbackId: ${!!targetFeedbackId})`;
+                }
+
+                // 6. CẤP 2: NATIVE DOM CLICK FALLBACK (Nếu GraphQL chưa khớp)
+                try {
+                    const normalizedType = (reactType || "LIKE").toUpperCase();
+                    const likeBtnSelectors = [
+                        'div[aria-label="Thích" i][role="button"]',
+                        'div[aria-label="Like" i][role="button"]',
+                        'div[aria-label*="Bày tỏ cảm xúc" i][role="button"]',
+                        'div[aria-label*="reaction" i][role="button"]',
+                        'div[role="button"][tabindex="0"] [aria-label*="Thích" i]',
+                        'div[role="button"][tabindex="0"] [aria-label*="Like" i]'
+                    ];
+
+                    let likeBtn = null;
+                    for (const sel of likeBtnSelectors) {
+                        const els = Array.from(document.querySelectorAll(sel));
+                        if (els.length > 0) {
+                            likeBtn = els[0].closest('div[role="button"]') || els[0];
+                            break;
+                        }
+                    }
+
+                    if (likeBtn) {
+                        if (normalizedType === "LIKE") {
+                            likeBtn.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+                            likeBtn.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
+                            likeBtn.click();
+                            return { success: true, method: "dom_like_click" };
+                        } else {
+                            // Di chuột mở khay cảm xúc (Reaction Dock)
+                            likeBtn.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
+                            likeBtn.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+                            likeBtn.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+                            await new Promise(r => setTimeout(r, 600));
+
+                            const reactionLabels = {
+                                "LOVE": ["Yêu thích", "Love"],
+                                "CARE": ["Thương thương", "Care"],
+                                "HAHA": ["Haha"],
+                                "WOW": ["Wow"],
+                                "SAD": ["Buồn", "Sad"],
+                                "ANGRY": ["Phẫn nộ", "Angry"]
+                            };
+                            const targets = reactionLabels[normalizedType] || ["Like", "Thích"];
+                            let targetReactionBtn = null;
+                            for (const lbl of targets) {
+                                const rBtn = document.querySelector(`div[role="toolbar"] [aria-label*="${lbl}" i], div[role="dialog"] [aria-label*="${lbl}" i], [aria-label*="${lbl}" i][role="button"]`);
+                                if (rBtn) {
+                                    targetReactionBtn = rBtn;
+                                    break;
+                                }
+                            }
+
+                            if (targetReactionBtn) {
+                                targetReactionBtn.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+                                targetReactionBtn.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
+                                targetReactionBtn.click();
+                                return { success: true, method: "dom_reaction_tray", reaction: normalizedType };
+                            } else {
+                                likeBtn.click();
+                                return { success: true, method: "dom_fallback_like" };
+                            }
+                        }
+                    }
+                } catch(domErr) {}
+
+                return { success: false, error: lastGqlError || "Không thể thực hiện thả cảm xúc" };
             },
-            args: [feedbackId, reactType, fallbackActorId]
+            args: [feedbackId, reactType, fallbackActorId, numericPostId]
         });
-    } catch(e) {}
+
+        const res = results?.[0]?.result || { success: false, error: "Lỗi thực thi script reaction" };
+        console.log(`[AutoReact] Kết quả thả cảm xúc (${reactType}):`, res);
+        return res;
+    } catch(e) {
+        console.warn(`[AutoReact] Ngoại lệ executeScript:`, e);
+        return { success: false, error: e.message };
+    }
 }
 
 let pollingStartedAt = 0;
@@ -3869,8 +4082,30 @@ async function _executeCommandAsync(cmd) {
                     const comments = Array.isArray(cmd.comments) ? cmd.comments : (cmd.comments ? [cmd.comments] : []);
                     const seedRes = await _executeFbSeeding(targetTab.id, cmd.fbPostId || cmd.postId, cmd.fbFeedbackId, comments);
                     
+                    let autoReactResult = null;
                     if (cmd.autoReactType && cmd.autoReactType !== "NONE") {
-                        await _executeFbReaction(targetTab.id, cmd.fbFeedbackId || btoa("feedback:" + (cmd.fbPostId || cmd.postId)), cmd.autoReactType);
+                        await updateStep(`💖 Đang thả cảm xúc (${cmd.autoReactType}) vào bài viết...`);
+                        let fallbackActorId = cmd.actorId || "";
+                        if (!fallbackActorId) {
+                            try {
+                                const cCookie = await chrome.cookies.get({ url: "https://www.facebook.com", name: "c_user" });
+                                if (cCookie && cCookie.value) fallbackActorId = cCookie.value;
+                            } catch(e) {}
+                        }
+                        const targetFbId = cmd.fbFeedbackId || (cmd.fbPostId || cmd.postId ? btoa("feedback:" + (cmd.fbPostId || cmd.postId)) : null);
+                        autoReactResult = await _executeFbReaction(
+                            targetTab.id,
+                            targetFbId,
+                            cmd.autoReactType,
+                            fallbackActorId,
+                            cmd.fbPostId || cmd.postId
+                        );
+                        if (autoReactResult && autoReactResult.success) {
+                            await updateStep(`💖 Đã thả cảm xúc (${cmd.autoReactType}) thành công [${autoReactResult.method || 'API'}]!`);
+                        } else {
+                            console.warn("[SEEDING] Lỗi thả cảm xúc:", autoReactResult?.error);
+                            await updateStep(`⚠️ Thả cảm xúc (${cmd.autoReactType}): ${autoReactResult?.error || "Không thành công"}`);
+                        }
                     }
 
                     cmdResult = {
@@ -3879,8 +4114,10 @@ async function _executeCommandAsync(cmd) {
                         seedingIds: seedRes.seedingIds || [],
                         seedingDetails: seedRes.seedingDetails || [],
                         postId: cmd.postId,
+                        autoReactSuccess: autoReactResult ? autoReactResult.success : false,
+                        autoReactMethod: autoReactResult ? (autoReactResult.method || "none") : "none",
                         error: seedRes.error,
-                        progressStep: seedRes.success ? `✅ Đã seeding xong ${seedRes.count || comments.length} bình luận` : `❌ Lỗi seeding: ${seedRes.error}`
+                        progressStep: seedRes.success ? `✅ Đã seeding xong ${seedRes.count || comments.length} bình luận` + (autoReactResult?.success ? ` & thả cảm xúc [${cmd.autoReactType}]` : '') : `❌ Lỗi seeding: ${seedRes.error}`
                     };
                     if (!seedRes.success) {
                         await updateStep(`❌ Lỗi seeding: ${seedRes.error || "Thất bại"}`);

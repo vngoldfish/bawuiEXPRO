@@ -550,13 +550,31 @@ def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, 
     post_id = f"post_{int(time.time())}_{uuid.uuid4().hex[:4]}"
     scheduled_iso = datetime.fromtimestamp(sched_ms / 1000.0, tz=timezone.utc).isoformat() if sched_ms else ""
 
+    # Kiểm tra xem Nick này có đang bận xử lý tác vụ nào không:
+    # 1. Có node Extension nào đang chạy bài của subproject này không?
+    sub_id_check = target_sub["id"]
+    is_extension_busy = False
+    for node in connected_nodes.values():
+        if sub_id_check in node.get("busySubProjects", []):
+            is_extension_busy = True
+            break
+
+    # 2. Đã có bao nhiêu lệnh của nick này đang chờ trong hàng đợi?
+    existing_pending_count = sum(1 for c in pending_commands if c.get("targetSubProjectId") == sub_id_check)
+    is_nick_busy = is_extension_busy or (existing_pending_count > 0)
+    queue_pos = existing_pending_count + (1 if is_extension_busy else 0) + 1
+
     if is_scheduled:
         status = "scheduled"
         formatted_sched = format_scheduled_time(sched_ms)
         progress_step = f"⏳ Đã lên lịch đăng lúc {formatted_sched}"
     elif run_now:
-        status = "in_progress"
-        progress_step = "Đang chuyển lệnh sang Extension..."
+        if is_nick_busy:
+            status = "queued"
+            progress_step = f"⏳ Đang xếp hàng đợi (#{queue_pos}) — Chờ nick '{target_sub['name']}' hoàn tất tác vụ trước..."
+        else:
+            status = "in_progress"
+            progress_step = "Đang chuyển lệnh sang Extension..."
     else:
         status = "pending"
         progress_step = "Đã lưu vào hàng đợi (chờ phát lệnh)"
@@ -576,6 +594,7 @@ def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, 
         "autoReactType": auto_react,
         "status": status,
         "progressStep": progress_step,
+        "queuePosition": queue_pos if (run_now and is_nick_busy) else 1,
         "fbPostId": "",
         "fbPostUrl": "",
         "scheduledTime": sched_ms if is_scheduled else 0,
@@ -593,7 +612,7 @@ def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, 
     cmd_id = None
     is_x_sub = target_sub.get("type") == "x"
     platform_name = "X (Twitter)" if is_x_sub else "Facebook"
-    if run_now and status == "in_progress":
+    if run_now:
         cmd_id = f"cmd_{int(time.time())}_{uuid.uuid4().hex[:6]}"
         cmd = {
             "id": cmd_id,
@@ -603,16 +622,20 @@ def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, 
             "targetNodeId": "*",
             "post": post_entry
         }
-        pending_commands.insert(0, cmd)
+        # FIFO: Dùng append() để bảo đảm lệnh đến trước chạy trước, tuần tự theo nick
+        pending_commands.append(cmd)
         recent_issued_commands[cmd_id] = cmd
-        push_log(f"Đã phát lệnh đăng ngay bài viết '{post_id}' lên {platform_name} cho '{target_sub['name']}'", "step", project_id=target_proj["id"], subproject_id=target_sub["id"])
+        if is_nick_busy:
+            push_log(f"⏳ Nick '{target_sub['name']}' đang bận. Đã xếp bài viết '{post_id}' vào hàng đợi tuần tự (vị trí #{queue_pos})", "info", project_id=target_proj["id"], subproject_id=target_sub["id"])
+        else:
+            push_log(f"Đã phát lệnh đăng ngay bài viết '{post_id}' lên {platform_name} cho '{target_sub['name']}'", "step", project_id=target_proj["id"], subproject_id=target_sub["id"])
     elif is_scheduled:
         push_log(f"⏰ Đã lên lịch đăng bài '{post_entry['title'] or post_id}' vào lúc {format_scheduled_time(sched_ms)} lên {platform_name} cho '{target_sub['name']}'", "step", project_id=target_proj["id"], subproject_id=target_sub["id"])
     else:
         push_log(f"Đã thêm bài viết mới vào hàng đợi của '{target_sub['name']}'", "success", project_id=target_proj["id"], subproject_id=target_sub["id"])
 
     # XỬ LÝ CHẾ ĐỘ ĐỒNG BỘ CHO N8N (SYNC WAIT)
-    if run_now and wait_for_completion and status == "in_progress":
+    if run_now and wait_for_completion:
         ev = threading.Event()
         with _post_events_lock:
             _post_completion_events[post_id] = ev
@@ -689,7 +712,14 @@ def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, 
             })
 
     # PHẢN HỒI BẤT ĐỒNG BỘ THÔNG THƯỜNG
-    msg = f"Đã lên lịch đăng bài thành công vào lúc {format_scheduled_time(sched_ms)}" if is_scheduled else ("Đã phát lệnh đăng ngay sang Extension!" if run_now else "Đã thêm bài viết vào hàng đợi đăng!")
+    if is_scheduled:
+        msg = f"Đã lên lịch đăng bài thành công vào lúc {format_scheduled_time(sched_ms)}"
+    elif run_now and is_nick_busy:
+        msg = f"Nick '{target_sub['name']}' đang bận xử lý tác vụ khác. Bài viết đã được xếp vào hàng đợi tuần tự (vị trí #{queue_pos})."
+    elif run_now:
+        msg = "Đã phát lệnh đăng ngay sang Extension!"
+    else:
+        msg = "Đã thêm bài viết vào hàng đợi đăng!"
 
     response_payload = {
         "success": True,
@@ -699,6 +729,7 @@ def create_post_entry(proj_id=None, sub_id=None, post_data=None, run_now=False, 
         "postId": post_id,
         "cmdId": cmd_id,
         "status": status,
+        "queuePosition": queue_pos if (run_now and is_nick_busy) else 1,
         "targetAccount": {
             "projectId": target_proj["id"],
             "projectName": target_proj["name"],
@@ -727,8 +758,23 @@ def start_post_scheduler():
                             if post.get("status") == "scheduled":
                                 sched_time = post.get("scheduledTime", 0)
                                 if sched_time and sched_time <= now_ms:
-                                    post["status"] = "in_progress"
-                                    post["progressStep"] = "⏰ Đến giờ hẹn! Đang chuyển lệnh đăng sang Extension..."
+                                    # Kiểm tra xem nick này có đang bận không
+                                    is_sub_busy = False
+                                    for node in connected_nodes.values():
+                                        if sub_id in node.get("busySubProjects", []):
+                                            is_sub_busy = True
+                                            break
+                                    pending_cnt = sum(1 for c in pending_commands if c.get("targetSubProjectId") == sub_id)
+                                    is_busy = is_sub_busy or (pending_cnt > 0)
+                                    q_pos = pending_cnt + (1 if is_sub_busy else 0) + 1
+
+                                    if is_busy:
+                                        post["status"] = "queued"
+                                        post["progressStep"] = f"⏰ Đến giờ hẹn! Đang xếp hàng đợi (#{q_pos}) sau bài đang chạy..."
+                                    else:
+                                        post["status"] = "in_progress"
+                                        post["progressStep"] = "⏰ Đến giờ hẹn! Đang chuyển lệnh đăng sang Extension..."
+
                                     post["updatedAt"] = now_ms
                                     modified = True
                                     cmd_id = f"cmd_{int(time.time())}_{uuid.uuid4().hex[:6]}"
@@ -745,7 +791,10 @@ def start_post_scheduler():
                                     pending_commands.append(cmd)
                                     recent_issued_commands[cmd_id] = cmd
                                     post_title = post.get("title") or post.get("id")
-                                    push_log(f"⏰ ĐẾN GIỜ HẸN: Tự động kích hoạt đăng bài '{post_title}' lên {platform_sched} cho '{s.get('name')}'", "success", project_id=proj_id, subproject_id=sub_id)
+                                    if is_busy:
+                                        push_log(f"⏰ ĐẾN GIỜ HẸN: Bài viết '{post_title}' được xếp vào hàng đợi (#{q_pos}) do nick đang bận", "step", project_id=proj_id, subproject_id=sub_id)
+                                    else:
+                                        push_log(f"⏰ ĐẾN GIỜ HẸN: Tự động kích hoạt đăng bài '{post_title}' lên {platform_sched} cho '{s.get('name')}'", "success", project_id=proj_id, subproject_id=sub_id)
 
                         # 2. WATCHDOG CHỐNG TREO BÀI VIẾT (>90s in_progress)
                         for post in s.get("postQueue", []):
@@ -13517,7 +13566,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 "targetNodeId": "*",
                 "post": found_post
             }
-            pending_commands.insert(0, cmd)
+            pending_commands.append(cmd)
             recent_issued_commands[cmd_id] = cmd
             push_log(f"Đã kích hoạt đăng ngay bài viết '{post_id}' cho '{found_sub['name']}'", "step", project_id=found_proj["id"], subproject_id=found_sub["id"])
             self._send_json(200, {
@@ -13692,7 +13741,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 "targetNodeId": "*",
                 "post": post_item
             }
-            pending_commands.insert(0, cmd)
+            pending_commands.append(cmd)
             recent_issued_commands[cmd_id] = cmd
             push_log(f"Đã phát lệnh đăng lại bài viết '{post_id}' cho '{target_sub['name']}'", "step", project_id=proj_id, subproject_id=sub_id)
             self._send_json(200, {"success": True, "cmdId": cmd_id, "post": post_item})
@@ -13748,7 +13797,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 "comments": comments,
                 "autoReactType": auto_react
             }
-            pending_commands.insert(0, cmd)
+            pending_commands.append(cmd)
             recent_issued_commands[cmd_id] = cmd
             push_log(f"Đã phát lệnh seeding thêm {len(comments)} câu cho bài '{post_id}' của '{target_sub['name']}'", "step", project_id=proj_id, subproject_id=sub_id)
             self._send_json(200, {"success": True, "cmdId": cmd_id})
@@ -14060,6 +14109,30 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 temp_busy = set(busy_subprojects)
                 if cmd_sub:
                     temp_busy.add(cmd_sub)
+                    if node_id and node_id in connected_nodes:
+                        connected_nodes[node_id].setdefault("busySubProjects", [])
+                        if cmd_sub not in connected_nodes[node_id]["busySubProjects"]:
+                            connected_nodes[node_id]["busySubProjects"].append(cmd_sub)
+
+                # Chuyển trạng thái bài viết từ "queued" sang "in_progress" khi lệnh rời hàng đợi sang Extension
+                cmd_post = cmd.get("post") or {}
+                post_id_to_run = cmd_post.get("id") or cmd.get("postId")
+                if post_id_to_run and cmd_sub:
+                    with PROJECTS_LOCK:
+                        projs_p = get_projects()
+                        p_mod = False
+                        for p in projs_p:
+                            for s in p.get("subProjects", []):
+                                if s.get("id") == cmd_sub:
+                                    for itm in s.get("postQueue", []):
+                                        if itm.get("id") == post_id_to_run and itm.get("status") in ("queued", "pending"):
+                                            itm["status"] = "in_progress"
+                                            itm["progressStep"] = "🚀 Đến lượt! Đang chuyển lệnh sang Extension để xuất bản..."
+                                            itm["updatedAt"] = int(time.time() * 1000)
+                                            p_mod = True
+                                            break
+                        if p_mod:
+                            save_projects(projs_p)
 
                 for c in pending_commands:
                     t_node = c.get("targetNodeId")

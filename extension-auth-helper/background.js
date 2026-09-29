@@ -4402,7 +4402,7 @@ async function _executeCommandAsync(cmd) {
                                             "color: #ffffff !important",
                                             "font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif !important",
                                             "user-select: none !important",
-                                            "pointer-events: all !important",
+                                            "pointer-events: none !important",
                                             "transition: opacity 0.3s ease !important"
                                         ].join(";"));
 
@@ -4646,11 +4646,11 @@ async function _executeCommandAsync(cmd) {
                                             const unescaped = text.replace(/\\u003d/g, "=").replace(/\\u0026/g, "&");
 
                                             // 1. Domain flow-content.google
-                                            const regex1 = /https:\/\/flow-content\.google\/image\/[a-f0-9-]+\?[^"\\'\s}]*/g;
+                                            const regex1 = /https:\/\/flow-content\.google\/image\/[a-f0-9-]+[^"\\'\s}]*/g;
                                             const m1 = unescaped.match(regex1) || [];
                                             m1.forEach(m => {
                                                 const clean = m.replace(/\\"/g, "").replace(/\\n/g, "");
-                                                if (clean.includes("KeyName=") && !window.__capturedImages.includes(clean)) {
+                                                if (!window.__capturedImages.includes(clean)) {
                                                     window.__capturedImages.push(clean);
                                                 }
                                             });
@@ -4664,6 +4664,16 @@ async function _executeCommandAsync(cmd) {
                                                     window.__capturedImages.push(clean);
                                                 }
                                             });
+
+                                            // 3. Domain googleusercontent.com
+                                            const regex3 = /https:\/\/[a-z0-9-]+\.googleusercontent\.com\/[^"\\'\s}]*/g;
+                                            const m3 = unescaped.match(regex3) || [];
+                                            m3.forEach(m => {
+                                                const clean = m.replace(/\\"/g, "").replace(/\\n/g, "");
+                                                if ((clean.includes("=s") || clean.includes("=w") || clean.includes("/asb/")) && !window.__capturedImages.includes(clean)) {
+                                                    window.__capturedImages.push(clean);
+                                                }
+                                            });
                                         };
 
                                         const origFetch = window.fetch;
@@ -4671,7 +4681,7 @@ async function _executeCommandAsync(cmd) {
                                             const res = await origFetch.apply(this, args);
                                             try {
                                                 const u = args[0] ? String(args[0]) : "";
-                                                if (u.includes("ogiZ0b") || u.includes("batchexecute")) {
+                                                if (u.includes("ogiZ0b") || u.includes("batchexecute") || u.includes("flow.google.com") || u.includes("image")) {
                                                     res.clone().text().then(extractImgs).catch(() => {});
                                                 }
                                             } catch(e) {}
@@ -4686,7 +4696,7 @@ async function _executeCommandAsync(cmd) {
                                         };
                                         XMLHttpRequest.prototype.send = function(...args) {
                                             this.addEventListener("load", function() {
-                                                if (this.__reqUrl && (this.__reqUrl.includes("ogiZ0b") || this.__reqUrl.includes("batchexecute"))) {
+                                                if (this.__reqUrl && (this.__reqUrl.includes("ogiZ0b") || this.__reqUrl.includes("batchexecute") || this.__reqUrl.includes("flow.google.com") || this.__reqUrl.includes("image"))) {
                                                     extractImgs(this.responseText);
                                                 }
                                             });
@@ -4728,13 +4738,12 @@ async function _executeCommandAsync(cmd) {
                         // ──────────── BƯỚC 3: Gõ Prompt vào ProseMirror + Click Generate qua CDP ────────────
                         await updateStep(`✍️ 2/4: Đang nhập prompt: "${prompt.substring(0, 35)}..."`);
 
-                        // A. Dọn sạch mọi backdrop/menu overlay đang che khuất màn hình và lấy toạ độ ProseMirror
+                        // A. Dọn sạch backdrop overlay và lấy toạ độ ProseMirror
                         const initEdRes = await chrome.scripting.executeScript({
                             target: { tabId: targetTab.id },
                             world: "MAIN",
                             func: () => {
-                                document.querySelectorAll(".cdk-overlay-backdrop").forEach(b => b.remove());
-                                document.querySelectorAll(".cdk-overlay-pane").forEach(p => p.remove());
+                                document.querySelectorAll(".cdk-overlay-backdrop").forEach(b => { try { b.click(); } catch(e) {} });
                                 const ed = document.querySelector(".ProseMirror");
                                 if (ed) ed.focus();
                                 const r = ed ? ed.getBoundingClientRect() : null;
@@ -4818,56 +4827,95 @@ async function _executeCommandAsync(cmd) {
                             });
                             await new Promise(r => setTimeout(r, 50));
 
-                            // B3. Gõ Prompt vào editor bằng CDP Native Input (hoạt động 100% trên tab ngầm!)
+                            // B3. Gõ Prompt vào editor bằng CDP Native Input
                             await sendDbg("Input.insertText", { text: prompt });
+                            await new Promise(r => setTimeout(r, 150));
+
+                            // B3.1. Kích hoạt sự kiện input & change trong DOM để Angular model nhận diện
+                            await chrome.scripting.executeScript({
+                                target: { tabId: targetTab.id },
+                                world: "MAIN",
+                                func: () => {
+                                    const ed = document.querySelector(".ProseMirror");
+                                    if (ed) {
+                                        ed.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+                                        ed.dispatchEvent(new Event("change", { bubbles: true }));
+                                    }
+                                }
+                            });
+                            await new Promise(r => setTimeout(r, 100));
+
+                            // B4. Gửi phím ENTER native qua CDP vào ProseMirror (Cách submit tiêu chuẩn 100% của Google Flow!)
+                            await sendDbg("Input.dispatchKeyEvent", {
+                                type: "rawKeyDown",
+                                key: "Enter",
+                                code: "Enter",
+                                windowsVirtualKeyCode: 13,
+                                nativeVirtualKeyCode: 13
+                            });
+                            await new Promise(r => setTimeout(r, 40));
+                            await sendDbg("Input.dispatchKeyEvent", {
+                                type: "keyUp",
+                                key: "Enter",
+                                code: "Enter",
+                                windowsVirtualKeyCode: 13,
+                                nativeVirtualKeyCode: 13
+                            });
                             await new Promise(r => setTimeout(r, 200));
 
-                            // B4. Kiểm tra nút Bắt đầu tạo và trạng thái kích hoạt của Angular
+                            // B5. Dự phòng bổ trợ: Tìm và kích hoạt nút Bắt đầu tạo bằng mọi selector và cả sự kiện DOM + CDP
                             const btnCheckRes = await chrome.scripting.executeScript({
                                 target: { tabId: targetTab.id },
                                 world: "MAIN",
                                 func: () => {
-                                    document.querySelectorAll(".cdk-overlay-backdrop").forEach(b => b.remove());
                                     const ed = document.querySelector(".ProseMirror");
+                                    if (ed) {
+                                        ed.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+                                        ed.dispatchEvent(new KeyboardEvent("keypress", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+                                        ed.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
+                                    }
+
                                     const btn = document.querySelector(".generate-icon-button") 
+                                             || document.querySelector("flow-generate-icon-button button")
+                                             || document.querySelector("flow-generate-icon-button")
                                              || document.querySelector('button[type="submit"]')
                                              || document.querySelector('button[aria-label="Bắt đầu tạo"]')
                                              || document.querySelector('button[aria-label*="tạo" i]')
-                                             || document.querySelector('button[aria-label*="generate" i]');
-                                    if (!btn) return { error: "Không tìm thấy nút Bắt đầu tạo" };
-                                    const r = btn.getBoundingClientRect();
-                                    return {
-                                        editorText: ed ? ed.innerText.trim() : "",
-                                        btnDisabled: btn.disabled || btn.classList.contains("mat-mdc-button-disabled"),
-                                        x: Math.round(r.left),
-                                        y: Math.round(r.top),
-                                        w: Math.round(r.width),
-                                        h: Math.round(r.height)
-                                    };
+                                             || document.querySelector('button[aria-label*="generate" i]')
+                                             || document.querySelector('button[aria-label*="create" i]')
+                                             || document.querySelector('button[aria-label*="send" i]')
+                                             || document.querySelector('button[aria-label*="submit" i]')
+                                             || document.querySelector('button mat-icon[data-mat-icon-name="arrow_forward"]')?.closest('button')
+                                             || document.querySelector('button mat-icon[data-mat-icon-name="send"]')?.closest('button')
+                                             || document.querySelector('button mat-icon[data-mat-icon-name="sparkle"]')?.closest('button')
+                                             || document.querySelector('button mat-icon[data-mat-icon-name="auto_awesome"]')?.closest('button');
+
+                                    if (btn) {
+                                        btn.disabled = false;
+                                        btn.removeAttribute("disabled");
+                                        btn.classList.remove("mat-mdc-button-disabled");
+                                        try {
+                                            btn.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, view: window }));
+                                            btn.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+                                            btn.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, view: window }));
+                                            btn.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+                                            btn.click();
+                                        } catch(e) {}
+                                        const r = btn.getBoundingClientRect();
+                                        return {
+                                            found: true,
+                                            x: Math.round(r.left),
+                                            y: Math.round(r.top),
+                                            w: Math.round(r.width),
+                                            h: Math.round(r.height)
+                                        };
+                                    }
+                                    return { found: false };
                                 }
                             });
 
                             const btnData = btnCheckRes?.[0]?.result;
-                            console.log("[Flow Bridge] Trạng thái editor & nút tạo sau khi nhập CDP:", JSON.stringify(btnData));
-
-                            // Nếu nút disabled vì Angular chưa kích hoạt change, dispatch thêm input event
-                            if (btnData && btnData.btnDisabled) {
-                                await chrome.scripting.executeScript({
-                                    target: { tabId: targetTab.id },
-                                    world: "MAIN",
-                                    func: () => {
-                                        const ed = document.querySelector(".ProseMirror");
-                                        if (ed) {
-                                            ed.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
-                                            ed.dispatchEvent(new Event("change", { bubbles: true }));
-                                        }
-                                    }
-                                });
-                                await new Promise(r => setTimeout(r, 100));
-                            }
-
-                            // B5. Click nút Bắt đầu tạo 100% ngầm
-                            if (btnData && btnData.x !== undefined) {
+                            if (btnData && btnData.found && btnData.x !== undefined && btnData.w > 0) {
                                 const fx = btnData.x + Math.round(btnData.w / 2);
                                 const fy = btnData.y + Math.round(btnData.h / 2);
                                 await sendDbg("Input.dispatchMouseEvent", { type: "mouseMoved", x: fx, y: fy });
@@ -4889,11 +4937,11 @@ async function _executeCommandAsync(cmd) {
                         await updateStep("⏳ 3/4: Đang chờ Google Flow xử lý và trả về ảnh AI (15-40 giây)...");
 
                         let capturedImages = [];
-                        for (let wait = 0; wait < 120; wait++) {
+                        for (let wait = 0; wait < 180; wait++) {
                             await new Promise(r => setTimeout(r, 500));
 
                             if (wait > 0 && wait % 10 === 0) {
-                                await updateStep(`⏳ 3/4: Đang chờ Google Flow xử lý... (${Math.round(wait * 0.5)}s / 60s)`);
+                                await updateStep(`⏳ 3/4: Đang chờ Google Flow xử lý... (${Math.round(wait * 0.5)}s / 90s)`);
                             }
 
                             const checkRes = await chrome.scripting.executeScript({
@@ -4918,7 +4966,7 @@ async function _executeCommandAsync(cmd) {
                                     const existing = new Set(window.__existingImages || []);
                                     const currentImgs = Array.from(document.querySelectorAll("img")).filter(i => {
                                         const src = i.src || "";
-                                        const isFlowImg = src.includes("/asb/") || src.includes("flow-content.google");
+                                        const isFlowImg = src.includes("/asb/") || src.includes("flow-content.google") || src.includes("googleusercontent.com");
                                         const isNew = !existing.has(src);
                                         const w = i.naturalWidth || i.width || 0;
                                         const h = i.naturalHeight || i.height || 0;
@@ -4959,7 +5007,7 @@ async function _executeCommandAsync(cmd) {
                         // TUYỆT ĐỐI KHÔNG DÙNG FALLBACK LẤY ẢNH CŨ TRÊN CANVAS!
                         // Báo lỗi rõ ràng nếu không có ảnh MỚI nào được sinh ra cho prompt này
                         if (capturedImages.length === 0) {
-                            const err = "Google Flow không tạo ảnh mới cho prompt này sau 60s (có thể prompt bị bộ lọc an toàn của Google chặn hoặc hết quota)";
+                            const err = "Google Flow không phản hồi ảnh mới sau 90s. Vui lòng kiểm tra tab Google Flow xem tài khoản có bị hiện thông báo/bộ lọc an toàn, hết quota hoặc cần đăng nhập lại không!";
                             await sendAppLog(`❌ [Google Flow Timeout] ${err}`, "err", {
                                 imageRequestId,
                                 targetProjectId: cmd.targetProjectId,

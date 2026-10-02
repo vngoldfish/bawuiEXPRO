@@ -6613,6 +6613,8 @@ async function callAiApi(systemPrompt, userMessage, options = {}) {
     const headers = { "Content-Type": "application/json" };
     if (AI_API_KEY) headers["Authorization"] = `Bearer ${AI_API_KEY}`;
 
+    console.log("[BAWUI AI] callAiApi →", { url: AI_API_URL, keyPresent: !!AI_API_KEY, keyLen: AI_API_KEY?.length, model: AI_MODEL, hasAuth: !!headers["Authorization"] });
+
     const resp = await fetch(AI_API_URL, {
         method: "POST",
         headers,
@@ -6704,15 +6706,21 @@ async function handleAiMessage(msg) {
             );
         case "getConfig":
             return { url: AI_API_URL, model: AI_MODEL, language: AI_LANGUAGE, hasKey: !!AI_API_KEY };
-        case "saveConfig":
-            await chrome.storage.local.set({
-                ai_api_url: msg.config.url,
-                ai_api_key: msg.config.key,
-                ai_model: msg.config.model,
-                ai_language: msg.config.language
-            });
+        case "saveConfig": {
+            const storageData = {
+                ai_api_url: msg.config.url || "",
+                ai_model: msg.config.model || "default",
+                ai_language: msg.config.language || "vi"
+            };
+            // Only overwrite API key if user actually typed a new one
+            if (msg.config.key && msg.config.key.trim()) {
+                storageData.ai_api_key = msg.config.key.trim();
+            }
+            await chrome.storage.local.set(storageData);
             await initAiConfig();
-            return { saved: true };
+            console.log("[BAWUI AI] Config saved. Key present:", !!AI_API_KEY, "Key length:", AI_API_KEY?.length, "URL:", AI_API_URL);
+            return { saved: true, keyUpdated: !!(msg.config.key && msg.config.key.trim()) };
+        }
         case "testConnection":
             return callAiApi(
                 "You are a helpful assistant.",

@@ -193,7 +193,13 @@ if (btnSaveAiConfig) {
             btnSaveAiConfig.disabled = false;
             btnSaveAiConfig.textContent = "💾 Lưu";
             if (res?.success) {
-                showAiTestResult("✅ Đã lưu cấu hình AI!", "#4ade80");
+                const keyMsg = res.data?.keyUpdated ? " (API key đã cập nhật)" : (config.key ? "" : " (giữ API key cũ)");
+                showAiTestResult("✅ Đã lưu cấu hình AI!" + keyMsg, "#4ade80");
+                // Reset key field after successful save
+                if (aiApiKey && res.data?.keyUpdated) {
+                    aiApiKey.value = "";
+                    aiApiKey.placeholder = "••••••• (đã lưu)";
+                }
             } else {
                 showAiTestResult("❌ Lỗi lưu: " + (res?.error || "Unknown"), "#f87171");
             }

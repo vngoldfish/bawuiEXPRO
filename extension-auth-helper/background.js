@@ -11,41 +11,162 @@ if (typeof window === "undefined") {
 
 // 1. Service Worker document shim for libraries bundled into background.bundle.js
 if (typeof document === "undefined") {
-    const dummyElement = () => ({
+    const dummyNode = () => ({
+        nodeType: 1,
+        nodeName: "DIV",
         tagName: "DIV",
         style: {},
+        ownerDocument: null,
+        parentNode: null,
+        parentElement: null,
+        firstChild: null,
+        lastChild: null,
+        nextSibling: null,
+        previousSibling: null,
+        childNodes: [],
+        children: [],
+        innerHTML: "",
+        outerHTML: "",
+        textContent: "",
+        innerText: "",
         setAttribute: () => {},
         getAttribute: () => null,
         removeAttribute: () => {},
-        appendChild: () => {},
-        removeChild: () => {},
+        hasAttribute: () => false,
+        appendChild(c) { return c; },
+        removeChild(c) { return c; },
+        insertBefore(n) { return n; },
+        replaceChild(n) { return n; },
+        cloneNode() { return dummyNode(); },
+        contains: () => false,
         addEventListener: () => {},
         removeEventListener: () => {},
+        dispatchEvent: () => true,
         classList: { add: () => {}, remove: () => {}, toggle: () => {}, contains: () => false },
+        dataset: {},
+        getBoundingClientRect: () => ({ top: 0, right: 0, bottom: 0, left: 0, width: 0, height: 0, x: 0, y: 0 }),
+        focus: () => {},
+        blur: () => {},
+        click: () => {},
+        matches: () => false,
+        closest: () => null,
+        querySelector: () => null,
+        querySelectorAll: () => [],
+        getElementsByTagName: () => [],
+        getElementsByClassName: () => [],
+        remove: () => {}
+    });
+
+    const dummyFragment = () => ({
+        nodeType: 11,
+        nodeName: "#document-fragment",
+        childNodes: [],
         children: [],
-        innerHTML: "",
-        textContent: ""
+        firstChild: null,
+        lastChild: null,
+        appendChild(c) { return c; },
+        removeChild(c) { return c; },
+        insertBefore(n) { return n; },
+        replaceChild(n) { return n; },
+        cloneNode() { return dummyFragment(); },
+        querySelector: () => null,
+        querySelectorAll: () => [],
+        getElementById: () => null,
+        textContent: "",
+        addEventListener: () => {},
+        removeEventListener: () => {}
     });
 
     globalThis.document = {
-        createElement: (tag) => dummyElement(),
+        // Node creation
+        createElement: (tag) => dummyNode(),
+        createDocumentFragment: () => dummyFragment(),
+        createTextNode: (text) => ({ nodeType: 3, nodeName: "#text", textContent: text || "", data: text || "" }),
+        createComment: (text) => ({ nodeType: 8, nodeName: "#comment", textContent: text || "", data: text || "" }),
+        createEvent: (type) => ({
+            type: type || "",
+            initEvent: () => {},
+            preventDefault: () => {},
+            stopPropagation: () => {},
+            stopImmediatePropagation: () => {}
+        }),
+        createElementNS: (ns, tag) => dummyNode(),
+        createTreeWalker: () => ({ nextNode: () => null, currentNode: null }),
+        createRange: () => ({
+            setStart: () => {},
+            setEnd: () => {},
+            collapse: () => {},
+            selectNode: () => {},
+            selectNodeContents: () => {},
+            cloneContents: () => dummyFragment(),
+            deleteContents: () => {},
+            extractContents: () => dummyFragment(),
+            insertNode: () => {},
+            surroundContents: () => {},
+            createContextualFragment: (html) => dummyFragment(),
+            getBoundingClientRect: () => ({ top: 0, right: 0, bottom: 0, left: 0, width: 0, height: 0 }),
+            getClientRects: () => [],
+            commonAncestorContainer: null
+        }),
+
+        // Querying
         getElementById: () => null,
         querySelector: () => null,
         querySelectorAll: () => [],
         getElementsByTagName: () => [],
         getElementsByClassName: () => [],
+        getElementsByName: () => [],
+
+        // Events
         addEventListener: () => {},
         removeEventListener: () => {},
         dispatchEvent: () => true,
-        documentElement: { style: {}, clientWidth: 1920, clientHeight: 1080 },
-        body: dummyElement(),
-        head: dummyElement(),
+
+        // Properties
+        documentElement: {
+            style: {},
+            clientWidth: 1920,
+            clientHeight: 1080,
+            scrollTop: 0,
+            scrollLeft: 0,
+            setAttribute: () => {},
+            getAttribute: () => null,
+            classList: { add: () => {}, remove: () => {}, toggle: () => {}, contains: () => false },
+            appendChild: (c) => c,
+            contains: () => false
+        },
+        body: dummyNode(),
+        head: dummyNode(),
         visibilityState: "visible",
         hidden: false,
-        location: self.location || { href: "", pathname: "" },
-        nodeType: 9
+        location: self.location || { href: "", pathname: "", hostname: "", protocol: "https:", search: "", hash: "" },
+        nodeType: 9,
+        readyState: "complete",
+        cookie: "",
+        title: "",
+        referrer: "",
+        domain: "",
+        URL: self.location ? self.location.href : "",
+        defaultView: self,
+        activeElement: null,
+        characterSet: "UTF-8",
+        charset: "UTF-8",
+        contentType: "text/html",
+        compatMode: "CSS1Compat",
+        implementation: {
+            createHTMLDocument: () => globalThis.document,
+            hasFeature: () => true
+        },
+        adoptNode: (node) => node,
+        importNode: (node) => node,
+        hasFocus: () => false,
+        exitFullscreen: () => Promise.resolve(),
+        getSelection: () => null
     };
     self.document = globalThis.document;
+    // Ensure ownerDocument references work
+    globalThis.document.body.ownerDocument = globalThis.document;
+    globalThis.document.documentElement.ownerDocument = globalThis.document;
 }
 
 // 2. Safe message sender wrappers (prevent 'Receiving end does not exist' uncaught errors)

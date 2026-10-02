@@ -9,6 +9,42 @@ if (typeof window === "undefined") {
     self.window = self;
 }
 
+// 0b. Minimal DOM constructor stubs for DOMPurify v3.0.8 & jQuery/Sizzle.
+//     DOMPurify destructures {Element, Node, NodeFilter, ...} from `window`
+//     then accesses Element.prototype → TypeError if undefined.
+//     These stubs provide just enough prototype chain to prevent crashes.
+//     DOMPurify will initialize but never actually be called in Service Worker.
+if (typeof Element === "undefined") {
+    self.Node = self.Node || function Node() {};
+    self.Node.prototype = self.Node.prototype || {};
+    self.Node.prototype.cloneNode = function() { return this; };
+    self.Node.prototype.nextSibling = null;
+    self.Node.prototype.childNodes = [];
+    self.Node.prototype.parentNode = null;
+
+    self.Element = function Element() {};
+    self.Element.prototype = Object.create(self.Node.prototype);
+    self.Element.prototype.constructor = self.Element;
+
+    self.HTMLElement = self.HTMLElement || function HTMLElement() {};
+    self.HTMLElement.prototype = Object.create(self.Element.prototype);
+
+    self.DocumentFragment = self.DocumentFragment || function DocumentFragment() {};
+    self.DocumentFragment.prototype = Object.create(self.Node.prototype);
+
+    self.HTMLFormElement = self.HTMLFormElement || function HTMLFormElement() {};
+    self.HTMLFormElement.prototype = Object.create(self.HTMLElement.prototype);
+
+    self.HTMLTemplateElement = self.HTMLTemplateElement || function HTMLTemplateElement() {};
+    self.HTMLTemplateElement.prototype = Object.create(self.HTMLElement.prototype);
+
+    self.NodeFilter = self.NodeFilter || { SHOW_ELEMENT: 1, SHOW_TEXT: 4, FILTER_ACCEPT: 1, FILTER_REJECT: 2, FILTER_SKIP: 3 };
+    self.NamedNodeMap = self.NamedNodeMap || function NamedNodeMap() {};
+
+    self.DOMParser = self.DOMParser || function DOMParser() {};
+    self.DOMParser.prototype.parseFromString = function() { return globalThis.document; };
+}
+
 // 1. Service Worker document shim for libraries bundled into background.bundle.js
 //    IMPORTANT: Keep this minimal! Over-shimming makes DOMPurify/jQuery think
 //    there's a real DOM, breaking vidIQ's auth flow. Let non-critical errors
@@ -174,7 +210,7 @@ if (typeof document === "undefined") {
         visibilityState: "visible",
         hidden: false,
         location: self.location || { href: "", pathname: "", hostname: "", protocol: "https:", search: "", hash: "" },
-        nodeType: 0, // NOT 9: prevents DOMPurify from attempting Element.prototype access in Service Worker
+        nodeType: 9, // Must be 9 for jQuery/Sizzle setDocument() — DOMPurify guarded by constructor stubs above
         readyState: "complete",
         cookie: "",
         title: "",

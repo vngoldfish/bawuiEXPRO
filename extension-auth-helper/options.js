@@ -121,7 +121,63 @@ function showResult(msg, isSuccess) {
     testResultText.style.color = isSuccess ? "var(--success)" : "var(--danger)";
 }
 
+// -------------------------------------------------------------
+// TAB CONTROLLER & PRESET URL HANDLERS
+// -------------------------------------------------------------
+function initTabController() {
+    const tabOptBawui = document.getElementById("tabOptBawui");
+    const tabOptVidiq = document.getElementById("tabOptVidiq");
+    const paneBawuiOptions = document.getElementById("paneBawuiOptions");
+    const paneVidiqOptions = document.getElementById("paneVidiqOptions");
+
+    function switchOptTab(tab) {
+        if (tab === "vidiq") {
+            if (tabOptVidiq) tabOptVidiq.classList.add("active");
+            if (tabOptBawui) tabOptBawui.classList.remove("active");
+            if (paneVidiqOptions) paneVidiqOptions.classList.add("active");
+            if (paneBawuiOptions) paneBawuiOptions.classList.remove("active");
+            try {
+                history.replaceState(null, "", "#vidiq");
+                localStorage.setItem("active_options_tab", "vidiq");
+            } catch(e) {}
+        } else {
+            if (tabOptBawui) tabOptBawui.classList.add("active");
+            if (tabOptVidiq) tabOptVidiq.classList.remove("active");
+            if (paneBawuiOptions) paneBawuiOptions.classList.add("active");
+            if (paneVidiqOptions) paneVidiqOptions.classList.remove("active");
+            try {
+                history.replaceState(null, "", "#bawui");
+                localStorage.setItem("active_options_tab", "bawui");
+            } catch(e) {}
+        }
+    }
+
+    if (tabOptBawui) tabOptBawui.addEventListener("click", () => switchOptTab("bawui"));
+    if (tabOptVidiq) tabOptVidiq.addEventListener("click", () => switchOptTab("vidiq"));
+
+    // Check URL hash / query param / saved tab
+    const hash = window.location.hash;
+    const search = window.location.search;
+    if (hash === "#vidiq" || search.includes("tab=vidiq")) {
+        switchOptTab("vidiq");
+    } else {
+        // By default, or if #bawui, open BAWUI VPS Settings
+        switchOptTab("bawui");
+    }
+
+    // Attach click handlers to preset URL tags
+    document.querySelectorAll(".preset-tag").forEach((tag) => {
+        tag.addEventListener("click", () => {
+            const url = tag.getAttribute("data-url");
+            if (url && inputUrl) {
+                inputUrl.value = url;
+            }
+        });
+    });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
+    initTabController();
     updateStatus();
     setInterval(updateStatus, 3000);
 });

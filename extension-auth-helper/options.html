@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>Cài Đặt — BAWUI EXTENSION PRO & vidIQ Vision</title>
+    <title>Cài Đặt — BAWUI EXTENSION PRO</title>
     <link rel="stylesheet" type="text/css" href="options.css" />
     <style>
       :root {
@@ -19,6 +19,21 @@
         --bw-text-muted: #94a3b8;
       }
 
+      /* Override options.css body flex row layout */
+      body {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: stretch !important;
+        justify-content: flex-start !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        min-height: 100vh !important;
+        background: #0b1120 !important;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+      }
+
       /* Universal Tab Bar Header */
       .unified-tabs-bar {
         background: #0b1120;
@@ -30,7 +45,9 @@
         justify-content: center;
         gap: 8px;
         padding: 8px 16px 0;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+        box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        width: 100%;
+        box-sizing: border-box;
       }
       .opt-tab-btn {
         background: transparent;
@@ -65,11 +82,12 @@
         background: rgba(37, 99, 235, 0.1);
       }
 
+      /* Pane Visibility */
       .opt-pane {
-        display: none;
+        display: none !important;
       }
       .opt-pane.active {
-        display: block;
+        display: block !important;
       }
 
       /* BAWUI Container Styles */
@@ -77,8 +95,9 @@
         background: var(--bw-bg-body);
         color: var(--bw-text-main);
         padding: 40px 20px;
-        min-height: calc(100vh - 60px);
+        min-height: calc(100vh - 65px);
         box-sizing: border-box;
+        width: 100%;
       }
       #paneBawuiOptions .container {
         width: 100%;
@@ -166,11 +185,13 @@
         background: rgba(255, 255, 255, 0.05);
         border: 1px solid var(--bw-border);
         color: var(--bw-text-muted);
-        padding: 5px 12px;
+        padding: 6px 14px;
         border-radius: 6px;
         font-size: 12px;
+        font-weight: 600;
         cursor: pointer;
         transition: 0.15s;
+        user-select: none;
       }
       #paneBawuiOptions .preset-tag:hover {
         background: rgba(56, 189, 248, 0.15);
@@ -256,6 +277,20 @@
         margin-top: 8px;
         display: none;
       }
+
+      /* vidIQ Pane Styling */
+      #paneVidiqOptions {
+        width: 100%;
+        padding: 24px 0 40px;
+        box-sizing: border-box;
+      }
+      #paneVidiqOptions.active {
+        display: flex !important;
+        justify-content: center !important;
+      }
+      #paneVidiqOptions .vidiq-options {
+        margin: 0 auto;
+      }
     </style>
     <script src="options.bundle.js"></script>
   </head>
@@ -263,18 +298,75 @@
   <body>
     <!-- HEADER TAB SELECTOR -->
     <div class="unified-tabs-bar">
-      <button class="opt-tab-btn vidiq-tab active" id="tabOptVidiq">
-        <span>📊</span> <span>vidIQ Vision Settings</span>
-      </button>
-      <button class="opt-tab-btn" id="tabOptBawui">
+      <button class="opt-tab-btn active" id="tabOptBawui">
         <span>⚡</span> <span>Kết Nối Máy Chủ VPS (BAWUI)</span>
+      </button>
+      <button class="opt-tab-btn vidiq-tab" id="tabOptVidiq">
+        <span>📊</span> <span>vidIQ Vision Settings</span>
       </button>
     </div>
 
-    <!-- PANE 1: VIDIQ VISION SETTINGS -->
-    <div id="paneVidiqOptions" class="opt-pane active">
+    <!-- PANE 1: BAWUI VPS CONNECTION SETTINGS -->
+    <div id="paneBawuiOptions" class="opt-pane active">
+      <div class="container">
+        <div class="header-brand">
+          <div class="brand-icon">⚡</div>
+          <div>
+            <div class="brand-title">BAWUI EXTENSION PRO</div>
+            <div class="brand-sub">Trung Tâm Cài Đặt Kết Nối VPS & Máy Chủ Backend</div>
+          </div>
+        </div>
 
-    <div class="vidiq-options">
+        <div class="card">
+          <div class="card-header">🌐 Địa Chỉ Máy Chủ Backend / VPS Target</div>
+          <label for="inputUrl">Đường Dẫn Server (URL hoặc IP:Port):</label>
+          <input type="text" id="inputUrl" placeholder="http://127.0.0.1:9999 hoặc https://vps.yourdomain.com" />
+
+          <div class="preset-row">
+            <span class="preset-tag" data-url="http://127.0.0.1:9999">📍 Localhost (:9999)</span>
+            <span class="preset-tag" data-url="https://ex.bawui.com">☁️ VPS (ex.bawui.com)</span>
+          </div>
+
+          <label for="inputToken">🔑 Mã Xác Thực Dự Án (Project Auth Token):</label>
+          <input type="text" id="inputToken" placeholder="Nhập mã Token của Dự Án (vd: BW-PROJ-MAIN9999)" />
+          <div style="font-size:11px; color:var(--bw-text-muted); margin-top:-6px; margin-bottom:12px;">
+            💡 <i>Mỗi dự án trên Web Controller có 1 mã Token riêng. Nhập mã của dự án mà bạn muốn máy này tham gia.</i>
+          </div>
+
+          <label for="inputName">Tên Định Danh Máy Này (Node Name):</label>
+          <input type="text" id="inputName" placeholder="Ví dụ: Máy Làm Việc 01 / Nick A" />
+        </div>
+
+        <div class="card">
+          <div class="card-header">📡 Kiểm Tra Trạng Thái & Lưu Kết Nối</div>
+          <div class="status-box">
+            <div class="status-indicator">
+              <span class="dot" id="liveDot"></span>
+              <span id="liveStatusText">Đang kiểm tra kết nối...</span>
+            </div>
+            <span id="latencyBadge" style="font-family:monospace; font-size:12px; color:var(--bw-accent);">-- ms</span>
+          </div>
+
+          <div id="testResultText"></div>
+
+          <div class="btn-group">
+            <button class="btn-test" id="btnTestPing">🔍 Kiểm Tra Kết Nối (Ping)</button>
+            <button id="btnSaveConfig">💾 Lưu Cấu Hình</button>
+          </div>
+
+          <button class="btn-open" id="btnOpenWeb" style="width:100%; margin-top:10px;">🚀 Mở Web Controller Trên VPS</button>
+        </div>
+
+        <div class="notice">
+          💡 <b>Hướng dẫn triển khai VPS:</b><br/>
+          Khi bạn đưa Backend Python lên VPS, bạn chỉ cần sao chép địa chỉ IP hoặc Domain của VPS vào ô trên (ví dụ: <code>http://103.74.120.15:9999</code>) và bấm <b>"Lưu Cấu Hình"</b>. Extension sẽ tự động bắt tay với VPS ngay lập tức mà không cần cài đặt lại!
+        </div>
+      </div>
+    </div>
+
+    <!-- PANE 2: VIDIQ VISION SETTINGS -->
+    <div id="paneVidiqOptions" class="opt-pane">
+<div class="vidiq-options">
       <div class="vidiq-header">
         <h1>
           <img src="images/vidiq_dark.svg" />&nbsp;
@@ -678,99 +770,9 @@
         </div>
       </div>
     </div>
-  
     </div>
 
-    <!-- PANE 2: BAWUI VPS CONNECTION SETTINGS -->
-    <div id="paneBawuiOptions" class="opt-pane">
-      <div class="container">
-        <div class="header-brand">
-          <div class="brand-icon">⚡</div>
-          <div>
-            <div class="brand-title">BAWUI EXTENSION PRO</div>
-            <div class="brand-sub">Trung Tâm Cài Đặt Kết Nối VPS & Máy Chủ Backend</div>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-header">🌐 Địa Chỉ Máy Chủ Backend / VPS Target</div>
-          <label for="inputUrl">Đường Dẫn Server (URL hoặc IP:Port):</label>
-          <input type="text" id="inputUrl" placeholder="http://127.0.0.1:9999 hoặc https://vps.yourdomain.com" />
-
-          <div class="preset-row">
-            <span class="preset-tag" onclick="setUrl('http://127.0.0.1:9999')">📍 Localhost (:9999)</span>
-            <span class="preset-tag" onclick="setUrl('https://ex.bawui.com')">☁️ VPS (ex.bawui.com)</span>
-          </div>
-
-          <label for="inputToken">🔑 Mã Xác Thực Dự Án (Project Auth Token):</label>
-          <input type="text" id="inputToken" placeholder="Nhập mã Token của Dự Án (vd: BW-PROJ-MAIN9999)" />
-          <div style="font-size:11px; color:var(--bw-text-muted); margin-top:-6px; margin-bottom:12px;">
-            💡 <i>Mỗi dự án trên Web Controller có 1 mã Token riêng. Nhập mã của dự án mà bạn muốn máy này tham gia.</i>
-          </div>
-
-          <label for="inputName">Tên Định Danh Máy Này (Node Name):</label>
-          <input type="text" id="inputName" placeholder="Ví dụ: Máy Làm Việc 01 / Nick A" />
-        </div>
-
-        <div class="card">
-          <div class="card-header">📡 Kiểm Tra Trạng Thái & Lưu Kết Nối</div>
-          <div class="status-box">
-            <div class="status-indicator">
-              <span class="dot" id="liveDot"></span>
-              <span id="liveStatusText">Đang kiểm tra kết nối...</span>
-            </div>
-            <span id="latencyBadge" style="font-family:monospace; font-size:12px; color:var(--bw-accent);">-- ms</span>
-          </div>
-
-          <div id="testResultText"></div>
-
-          <div class="btn-group">
-            <button class="btn-test" id="btnTestPing">🔍 Kiểm Tra Kết Nối (Ping)</button>
-            <button id="btnSaveConfig">💾 Lưu Cấu Hình</button>
-          </div>
-
-          <button class="btn-open" id="btnOpenWeb" style="width:100%; margin-top:10px;">🚀 Mở Web Controller Trên VPS</button>
-        </div>
-
-        <div class="notice">
-          💡 <b>Hướng dẫn triển khai VPS:</b><br/>
-          Khi bạn đưa Backend Python lên VPS, bạn chỉ cần sao chép địa chỉ IP hoặc Domain của VPS vào ô trên (ví dụ: <code>http://103.74.120.15:9999</code>) và bấm <b>"Lưu Cấu Hình"</b>. Extension sẽ tự động bắt tay với VPS ngay lập tức mà không cần cài đặt lại!
-        </div>
-      </div>
-    </div>
-
-    <!-- SCRIPTS -->
+    <!-- EXTERNAL SCRIPT (No inline script for CSP compliance) -->
     <script src="options.js"></script>
-    <script>
-      (function() {
-        const tabOptVidiq = document.getElementById('tabOptVidiq');
-        const tabOptBawui = document.getElementById('tabOptBawui');
-        const paneVidiqOptions = document.getElementById('paneVidiqOptions');
-        const paneBawuiOptions = document.getElementById('paneBawuiOptions');
-
-        function switchOptTab(tab) {
-          if (tab === 'bawui') {
-            tabOptBawui.classList.add('active');
-            tabOptVidiq.classList.remove('active');
-            paneBawuiOptions.classList.add('active');
-            paneVidiqOptions.classList.remove('active');
-            window.location.hash = 'bawui';
-          } else {
-            tabOptVidiq.classList.add('active');
-            tabOptBawui.classList.remove('active');
-            paneVidiqOptions.classList.add('active');
-            paneBawuiOptions.classList.remove('active');
-            window.location.hash = 'vidiq';
-          }
-        }
-
-        tabOptVidiq.addEventListener('click', () => switchOptTab('vidiq'));
-        tabOptBawui.addEventListener('click', () => switchOptTab('bawui'));
-
-        if (window.location.hash === '#bawui') {
-          switchOptTab('bawui');
-        }
-      })();
-    </script>
   </body>
 </html>

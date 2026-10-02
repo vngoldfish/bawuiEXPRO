@@ -1395,6 +1395,68 @@
           "scrapedData": [],
           "postQueue": [
             {
+              "id": "post_1790916524_e8ce",
+              "title": "",
+              "content": "con gaf con hahah",
+              "postType": "post",
+              "targetType": "profile",
+              "targetId": "",
+              "targetUrl": "https://www.facebook.com",
+              "shareToFeed": true,
+              "mediaUrl": "",
+              "mediaData": null,
+              "seedingComments": [
+                "3",
+                "2",
+                "1"
+              ],
+              "autoReactType": "LIKE",
+              "status": "completed",
+              "progressStep": "✅ Đã đăng thành công lên Facebook (ID: 2160246748181936)",
+              "queuePosition": 1,
+              "fbPostId": "2160246748181936",
+              "fbPostUrl": "https://www.facebook.com/permalink.php?story_fbid=2160246748181936&id=100025898964308",
+              "scheduledTime": 0,
+              "scheduledTimeStr": "",
+              "scheduledAt": "",
+              "lastError": "",
+              "createdAt": 1790916524045,
+              "callbackUrl": "",
+              "source": "dashboard",
+              "updatedAt": 1790916559015,
+              "fbFeedbackId": "ZmVlZGJhY2s6MjE2MDI0Njc0ODE4MTkzNg==",
+              "seedingIds": [
+                "1371082261762995",
+                "1637527031319755",
+                "970667219451878"
+              ],
+              "seedingDetails": [
+                {
+                  "id": "1371082261762995",
+                  "status": "success",
+                  "text": "3",
+                  "timestamp": 1790916546999
+                },
+                {
+                  "id": "1637527031319755",
+                  "status": "success",
+                  "text": "2",
+                  "timestamp": 1790916552095
+                },
+                {
+                  "id": "970667219451878",
+                  "status": "success",
+                  "text": "1",
+                  "timestamp": 1790916557799
+                }
+              ],
+              "shareToStorySuccess": true,
+              "autoReactSuccess": true,
+              "autoReactMethod": "graphql",
+              "publishedAt": 1790916559065,
+              "publishedAtStr": "13:49:19 02/10/2026"
+            },
+            {
               "id": "post_1790560870_e5ad",
               "title": "",
               "content": "4321",

@@ -65,6 +65,21 @@
       ]
     },
     {
+      "css": [
+        "ai_content.css"
+      ],
+      "exclude_matches": [
+        "*://www.youtube.com/subscribe_embed*"
+      ],
+      "js": [
+        "ai_content.js"
+      ],
+      "matches": [
+        "*://www.youtube.com/*"
+      ],
+      "run_at": "document_idle"
+    },
+    {
       "js": [
         "tiktok.bundle.js"
       ],
@@ -179,6 +194,7 @@
       ],
       "resources": [
         "_locales/en/messages.json",
+        "ai_extractor.js",
         "billing-popup.html",
         "billingPopup.bundle.js",
         "bridge.bundle.js",

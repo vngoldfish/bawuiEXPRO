@@ -6573,3 +6573,153 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return true; // asynchronous response
     }
 });
+
+// ============================================================
+// BAWUI AI ANALYSIS ENGINE — Custom AI API Integration
+// ============================================================
+
+// AI Config (loaded from chrome.storage.local)
+let AI_API_URL = "";
+let AI_API_KEY = "";
+let AI_MODEL = "default";
+let AI_LANGUAGE = "vi";
+
+async function initAiConfig() {
+    const data = await chrome.storage.local.get([
+        "ai_api_url", "ai_api_key", "ai_model", "ai_language"
+    ]);
+    AI_API_URL = data.ai_api_url || "";
+    AI_API_KEY = data.ai_api_key || "";
+    AI_MODEL = data.ai_model || "default";
+    AI_LANGUAGE = data.ai_language || "vi";
+}
+initAiConfig();
+
+// Core AI request function (OpenAI-compatible format)
+async function callAiApi(systemPrompt, userMessage, options = {}) {
+    if (!AI_API_URL) throw new Error("AI API URL chưa được cấu hình. Vào popup → tab AI Analysis để cài đặt.");
+
+    const body = {
+        model: AI_MODEL,
+        messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userMessage }
+        ],
+        temperature: options.temperature || 0.7,
+        max_tokens: options.max_tokens || 4096,
+        stream: false
+    };
+
+    const headers = { "Content-Type": "application/json" };
+    if (AI_API_KEY) headers["Authorization"] = `Bearer ${AI_API_KEY}`;
+
+    const resp = await fetch(AI_API_URL, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body)
+    });
+    if (!resp.ok) {
+        const errText = await resp.text().catch(() => "");
+        throw new Error(`AI API error: ${resp.status} ${resp.statusText} — ${errText.substring(0, 200)}`);
+    }
+
+    const data = await resp.json();
+    return data.choices?.[0]?.message?.content || data.response || JSON.stringify(data);
+}
+
+// === ANALYSIS PROMPTS ===
+
+const AI_PROMPTS = {
+    analyzeVideo: (lang) => `Bạn là chuyên gia phân tích YouTube SEO. Phân tích video sau và đưa ra:
+1. **SEO Score** (0-100) với giải thích
+2. **Điểm mạnh** của title, description, tags
+3. **Điểm yếu** cần cải thiện
+4. **Đề xuất** cụ thể để tăng views
+5. **Keyword gaps** — từ khóa nên thêm
+Trả lời bằng ${lang === "vi" ? "tiếng Việt" : "English"}. Format markdown.`,
+
+    analyzeChannel: (lang) => `Bạn là chuyên gia phân tích kênh YouTube. Đánh giá:
+1. **Tổng quan kênh** — niche, đối tượng, vị thế
+2. **Tốc độ tăng trưởng** dựa trên dữ liệu
+3. **Content strategy** — điều gì đang hiệu quả/không
+4. **Đề xuất chiến lược** tiếp theo
+5. **Đối thủ tiềm năng** nên nghiên cứu
+Trả lời bằng ${lang === "vi" ? "tiếng Việt" : "English"}. Format markdown.`,
+
+    analyzeComments: (lang) => `Phân tích bình luận YouTube:
+1. **Sentiment** tổng thể (tích cực/tiêu cực/trung tính) với %
+2. **Chủ đề nổi bật** người xem quan tâm
+3. **Câu hỏi thường gặp** từ viewers
+4. **Đề xuất** nội dung dựa trên feedback
+5. **Bình luận đáng chú ý** cần phản hồi
+Trả lời bằng ${lang === "vi" ? "tiếng Việt" : "English"}. Format markdown.`,
+
+    suggestContent: (lang) => `Dựa trên dữ liệu video/kênh, đề xuất:
+1. **5 ý tưởng tiêu đề** (SEO-optimized, click-worthy)
+2. **Tag suggestions** (20 tags, mix head + long-tail)
+3. **Mô tả mẫu** (SEO-optimized, 200 từ)
+4. **Script outline** cho video tiếp theo
+5. **Thumbnail concept** mô tả
+Trả lời bằng ${lang === "vi" ? "tiếng Việt" : "English"}. Format markdown.`
+};
+
+// === AI MESSAGE HANDLER ===
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg.type !== "BAWUI_AI") return false;
+
+    handleAiMessage(msg).then(result => {
+        sendResponse({ success: true, data: result });
+    }).catch(err => {
+        console.error("[BAWUI AI] Error:", err);
+        sendResponse({ success: false, error: err.message });
+    });
+
+    return true; // async response
+});
+
+async function handleAiMessage(msg) {
+    await initAiConfig();
+
+    switch (msg.action) {
+        case "analyzeVideo":
+            return callAiApi(
+                AI_PROMPTS.analyzeVideo(AI_LANGUAGE),
+                JSON.stringify(msg.videoData, null, 2)
+            );
+        case "analyzeChannel":
+            return callAiApi(
+                AI_PROMPTS.analyzeChannel(AI_LANGUAGE),
+                JSON.stringify(msg.channelData, null, 2)
+            );
+        case "analyzeComments":
+            return callAiApi(
+                AI_PROMPTS.analyzeComments(AI_LANGUAGE),
+                JSON.stringify(msg.comments, null, 2)
+            );
+        case "suggestContent":
+            return callAiApi(
+                AI_PROMPTS.suggestContent(AI_LANGUAGE),
+                JSON.stringify(msg.videoData, null, 2)
+            );
+        case "getConfig":
+            return { url: AI_API_URL, model: AI_MODEL, language: AI_LANGUAGE, hasKey: !!AI_API_KEY };
+        case "saveConfig":
+            await chrome.storage.local.set({
+                ai_api_url: msg.config.url,
+                ai_api_key: msg.config.key,
+                ai_model: msg.config.model,
+                ai_language: msg.config.language
+            });
+            await initAiConfig();
+            return { saved: true };
+        case "testConnection":
+            return callAiApi(
+                "You are a helpful assistant.",
+                "Say 'OK' if you can hear me. Reply in one word.",
+                { max_tokens: 20 }
+            );
+        default:
+            throw new Error(`Unknown AI action: ${msg.action}`);
+    }
+}

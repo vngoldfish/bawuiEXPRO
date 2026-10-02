@@ -61,6 +61,11 @@
             border-bottom-color: #2563eb;
             background: rgba(37, 99, 235, 0.08);
         }
+        .top-tab-btn.tab-ai.active {
+            color: #2dd4bf;
+            border-bottom-color: #2dd4bf;
+            background: rgba(45, 212, 191, 0.08);
+        }
 
         /* Panes */
         .tab-pane {
@@ -176,6 +181,112 @@
             width: 448px;
             background-color: #f1f5f9;
         }
+
+        /* AI Pane */
+        #paneAi {
+            padding: 14px 16px 16px;
+            background: #0f172a;
+        }
+        #paneAi .ai-card {
+            background: #1e293b;
+            border-radius: 8px;
+            padding: 12px 14px;
+            margin-bottom: 10px;
+        }
+        #paneAi .ai-card h3 {
+            font-size: 13px;
+            font-weight: 700;
+            color: #2dd4bf;
+            margin-bottom: 10px;
+        }
+        #paneAi label {
+            font-size: 11px;
+            color: #94a3b8;
+            display: block;
+            margin-bottom: 3px;
+            margin-top: 8px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        #paneAi label:first-of-type { margin-top: 0; }
+        #paneAi input, #paneAi select {
+            width: 100%;
+            background: #0f172a;
+            border: 1px solid #334155;
+            color: #fff;
+            padding: 7px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+        }
+        #paneAi select { cursor: pointer; }
+        #paneAi .ai-btn-row {
+            display: flex;
+            gap: 6px;
+            margin-top: 10px;
+        }
+        #paneAi .ai-btn {
+            flex: 1;
+            background: #2dd4bf;
+            color: #0f172a;
+            border: none;
+            padding: 7px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: 0.15s;
+        }
+        #paneAi .ai-btn:hover { background: #5eead4; }
+        #paneAi .ai-btn-outline {
+            flex: 1;
+            background: transparent;
+            color: #2dd4bf;
+            border: 1px solid #2dd4bf;
+            padding: 7px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: 0.15s;
+        }
+        #paneAi .ai-btn-outline:hover { background: rgba(45,212,191,0.1); }
+        #paneAi .ai-test-result {
+            font-size: 11px;
+            margin-top: 6px;
+            text-align: center;
+            min-height: 16px;
+        }
+        #paneAi .ai-action-btn {
+            width: 100%;
+            background: #1e293b;
+            color: #f1f5f9;
+            border: 1px solid #334155;
+            padding: 9px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+            transition: 0.15s;
+        }
+        #paneAi .ai-action-btn:hover { border-color: #2dd4bf; background: rgba(45,212,191,0.06); }
+        #paneAi .ai-action-btn:disabled { opacity: 0.5; cursor: wait; }
+        #paneAi #aiPopupResult {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            padding: 10px 12px;
+            margin-top: 8px;
+            font-size: 12px;
+            line-height: 1.5;
+            color: #e2e8f0;
+            max-height: 300px;
+            overflow-y: auto;
+        }
     </style>
 </head>
 <body>
@@ -186,6 +297,9 @@
         </button>
         <button class="top-tab-btn tab-vidiq" id="tabBtnVidiq">
             <span>📊</span> <span>vidIQ Vision</span>
+        </button>
+        <button class="top-tab-btn tab-ai" id="tabBtnAi">
+            <span>🤖</span> <span>AI Analysis</span>
         </button>
     </div>
 
@@ -226,6 +340,50 @@
     <!-- PANE 2: VIDIQ VISION INTERFACE -->
     <div id="paneVidiq" class="tab-pane">
         <div id="vidiq-popup-body"></div>
+    </div>
+
+    <!-- PANE 3: AI ANALYSIS -->
+    <div id="paneAi" class="tab-pane">
+        <!-- AI Config Card -->
+        <div class="ai-card">
+            <h3>⚙️ Cấu hình AI API</h3>
+            <label>API URL</label>
+            <input id="aiApiUrl" type="text" placeholder="https://your-vps.com/v1/chat/completions" />
+            <label>API Key (tuỳ chọn)</label>
+            <input id="aiApiKey" type="password" placeholder="sk-... hoặc để trống" />
+            <label>Model</label>
+            <input id="aiModel" type="text" placeholder="default" />
+            <label>Ngôn ngữ kết quả</label>
+            <select id="aiLanguage">
+                <option value="vi">🇻🇳 Tiếng Việt</option>
+                <option value="en">🇬🇧 English</option>
+            </select>
+            <div class="ai-btn-row">
+                <button class="ai-btn" id="btnSaveAiConfig">💾 Lưu</button>
+                <button class="ai-btn-outline" id="btnTestAi">🔗 Test kết nối</button>
+            </div>
+            <div class="ai-test-result" id="aiTestResult"></div>
+        </div>
+
+        <!-- Quick Analysis Card -->
+        <div class="ai-card">
+            <h3>📊 Phân tích nhanh (tab hiện tại)</h3>
+            <p style="font-size:11px; color:#64748b; margin-bottom:10px;">
+                Mở video YouTube → nhấn nút phân tích bên dưới
+            </p>
+            <button class="ai-action-btn" id="btnPopupAnalyzeVideo">
+                <span>🎬</span> <span>Phân tích Video SEO</span>
+            </button>
+            <button class="ai-action-btn" id="btnPopupAnalyzeChannel">
+                <span>📺</span> <span>Phân tích Kênh</span>
+            </button>
+            <button class="ai-action-btn" id="btnPopupSuggestContent">
+                <span>💡</span> <span>Gợi ý Nội dung</span>
+            </button>
+            <div id="aiPopupResult" style="display:none;">
+                <div id="aiPopupResultContent"></div>
+            </div>
+        </div>
     </div>
 
     <script src="popup_shield.js"></script>

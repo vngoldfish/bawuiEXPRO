@@ -6631,7 +6631,13 @@ async function callAiApi(systemPrompt, userMessage, options = {}) {
     });
     if (!resp.ok) {
         const errText = await resp.text().catch(() => "");
-        throw new Error(`AI API error: ${resp.status} ${resp.statusText} — ${errText.substring(0, 200)}`);
+        const status = resp.status;
+        let hint = "";
+        if (status === 401) hint = " → API key sai hoặc chưa lưu. Nhập lại key rồi bấm Lưu.";
+        else if (status === 403) hint = " → Bị từ chối truy cập. Kiểm tra quyền API key.";
+        else if (status === 404) hint = " → Endpoint không tồn tại. Kiểm tra URL.";
+        else if (status === 405) hint = " → Server không chấp nhận POST. Kiểm tra URL đúng chưa.";
+        throw new Error(`AI API error: ${status}${hint} — ${errText.substring(0, 200)}`);
     }
 
     const data = await resp.json();

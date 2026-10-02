@@ -304,6 +304,7 @@
         "images/youtube/yt_icon_white_digital.png",
         "options.html",
         "options.js",
+        "popup_shield.js",
         "pageRequest.bundle.js",
         "tiktokFetchHandler.bundle.js",
         "vidiq_options.html",

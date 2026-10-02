@@ -42,17 +42,52 @@ if (typeof document === "undefined") {
 }
 
 // 2. Safe message sender wrappers (prevent 'Receiving end does not exist' uncaught errors)
+const BENIGN_MSG_PATTERNS = [
+    "Receiving end does not exist",
+    "Could not establish connection",
+    "Extension context invalidated",
+    "message port closed",
+    "The message port closed before a response was received",
+    "Missing queryFn",
+    "document is not defined"
+];
+
+function isBenignMessage(str) {
+    if (!str) return false;
+    const s = String(str);
+    return BENIGN_MSG_PATTERNS.some(function(p) { return s.indexOf(p) !== -1; });
+}
+
 if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
     const origRuntimeSendMessage = chrome.runtime.sendMessage.bind(chrome.runtime);
     chrome.runtime.sendMessage = function(...args) {
+        const lastArg = args[args.length - 1];
+        const hasCallback = typeof lastArg === "function";
+
+        if (hasCallback) {
+            const originalCb = args.pop();
+            const safeCb = function(...cbArgs) {
+                const lastErr = chrome.runtime.lastError;
+                if (lastErr && isBenignMessage(lastErr.message || String(lastErr))) {
+                    try { return originalCb(null); } catch (e) { return; }
+                }
+                return originalCb(...cbArgs);
+            };
+            args.push(safeCb);
+            try {
+                return origRuntimeSendMessage(...args);
+            } catch (e) {
+                if (isBenignMessage(e && e.message ? e.message : String(e))) return;
+                throw e;
+            }
+        }
+
         try {
             const p = origRuntimeSendMessage(...args);
             if (p && typeof p.catch === "function") {
                 return p.catch((err) => {
-                    const msg = err && err.message ? String(err.message) : "";
-                    if (msg.includes("Receiving end does not exist") ||
-                        msg.includes("Extension context invalidated") ||
-                        msg.includes("message port closed")) {
+                    const msg = err && err.message ? String(err.message) : String(err || "");
+                    if (isBenignMessage(msg)) {
                         return null;
                     }
                     throw err;
@@ -60,10 +95,8 @@ if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessag
             }
             return p;
         } catch (e) {
-            const msg = e && e.message ? String(e.message) : "";
-            if (msg.includes("Receiving end does not exist") ||
-                msg.includes("Extension context invalidated") ||
-                msg.includes("message port closed")) {
+            const msg = e && e.message ? String(e.message) : String(e || "");
+            if (isBenignMessage(msg)) {
                 return Promise.resolve(null);
             }
             throw e;
@@ -74,14 +107,33 @@ if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessag
 if (typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.sendMessage) {
     const origTabsSendMessage = chrome.tabs.sendMessage.bind(chrome.tabs);
     chrome.tabs.sendMessage = function(...args) {
+        const lastArg = args[args.length - 1];
+        const hasCallback = typeof lastArg === "function";
+
+        if (hasCallback) {
+            const originalCb = args.pop();
+            const safeCb = function(...cbArgs) {
+                const lastErr = chrome.runtime.lastError;
+                if (lastErr && isBenignMessage(lastErr.message || String(lastErr))) {
+                    try { return originalCb(null); } catch (e) { return; }
+                }
+                return originalCb(...cbArgs);
+            };
+            args.push(safeCb);
+            try {
+                return origTabsSendMessage(...args);
+            } catch (e) {
+                if (isBenignMessage(e && e.message ? e.message : String(e))) return;
+                throw e;
+            }
+        }
+
         try {
             const p = origTabsSendMessage(...args);
             if (p && typeof p.catch === "function") {
                 return p.catch((err) => {
-                    const msg = err && err.message ? String(err.message) : "";
-                    if (msg.includes("Receiving end does not exist") ||
-                        msg.includes("Extension context invalidated") ||
-                        msg.includes("message port closed")) {
+                    const msg = err && err.message ? String(err.message) : String(err || "");
+                    if (isBenignMessage(msg)) {
                         return null;
                     }
                     throw err;
@@ -89,10 +141,8 @@ if (typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.sendMessage) {
             }
             return p;
         } catch (e) {
-            const msg = e && e.message ? String(e.message) : "";
-            if (msg.includes("Receiving end does not exist") ||
-                msg.includes("Extension context invalidated") ||
-                msg.includes("message port closed")) {
+            const msg = e && e.message ? String(e.message) : String(e || "");
+            if (isBenignMessage(msg)) {
                 return Promise.resolve(null);
             }
             throw e;
@@ -100,22 +150,71 @@ if (typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.sendMessage) {
     };
 }
 
-// 3. Catch all benign unhandled promise rejections in Service Worker
+// 3. Catch all benign unhandled promise rejections & errors in Service Worker
 self.addEventListener("unhandledrejection", (event) => {
     const reason = event.reason;
     const msg = reason && reason.message ? String(reason.message) : String(reason || "");
-    if (
-        msg.includes("Receiving end does not exist") ||
-        msg.includes("Extension context invalidated") ||
-        msg.includes("message port closed") ||
-        msg.includes("The message port closed before a response was received") ||
-        msg.includes("document is not defined") ||
-        reason === undefined
-    ) {
+    if (isBenignMessage(msg) || reason === undefined || reason === null) {
         event.preventDefault();
         event.stopImmediatePropagation();
     }
 });
+
+self.addEventListener("error", (event) => {
+    const msg = event && event.message ? String(event.message) : "";
+    if (isBenignMessage(msg)) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+    }
+});
+
+// 4. Handle external messages sent to extension ID (e.g., from vidIQ popup cookies/session)
+if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessageExternal) {
+    chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
+        if (!msg) {
+            sendResponse({ success: false });
+            return false;
+        }
+        if (msg.setCookie) {
+            const { name, value, expirationDate, url, domain, secure } = msg.setCookie;
+            if (name) {
+                const cookieDetails = {
+                    url: url || "https://www.youtube.com",
+                    domain: domain || ".youtube.com",
+                    path: "/",
+                    name: name,
+                    secure: !!secure
+                };
+                if (value !== undefined) cookieDetails.value = value;
+                if (expirationDate) cookieDetails.expirationDate = expirationDate;
+                chrome.cookies.set(cookieDetails, (c) => {
+                    sendResponse({ success: !chrome.runtime.lastError, cookie: c });
+                });
+                return true;
+            }
+        }
+        if (msg.getCookies) {
+            const { names, domain, url } = msg.getCookies;
+            const lookupUrl = url || (domain ? `https://${domain.replace(/^\./, "")}` : "https://vidiq.com");
+            if (Array.isArray(names) && names.length > 0) {
+                const results = [];
+                let pending = names.length;
+                names.forEach((cName, idx) => {
+                    chrome.cookies.get({ url: lookupUrl, name: cName }, (cookie) => {
+                        results[idx] = cookie || null;
+                        pending--;
+                        if (pending === 0) {
+                            sendResponse(results.filter(Boolean));
+                        }
+                    });
+                });
+                return true;
+            }
+        }
+        sendResponse({ success: true, acknowledged: true });
+        return true;
+    });
+}
 
 // ============================================================================
 // VIDIQ VISION FOR YOUTUBE — RUNTIME INTEGRATION

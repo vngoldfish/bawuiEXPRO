@@ -9,6 +9,78 @@ if (typeof window === "undefined") {
     self.window = self;
 }
 
+// 0b. DOM constructor stubs — DOMPurify v3 destructures { Element, Node, NodeFilter,
+//     HTMLFormElement, HTMLTemplateElement, DocumentFragment, NamedNodeMap, DOMParser }
+//     from window. Service Workers lack these, so provide minimal stubs with prototypes.
+if (typeof Element === "undefined") {
+    const StubClass = () => {
+        function C() {}
+        C.prototype = {};
+        return C;
+    };
+
+    // Core DOM classes
+    globalThis.Element = StubClass();
+    globalThis.Node = StubClass();
+    globalThis.DocumentFragment = StubClass();
+    globalThis.HTMLElement = StubClass();
+    globalThis.HTMLFormElement = StubClass();
+    globalThis.HTMLTemplateElement = StubClass();
+    globalThis.HTMLInputElement = StubClass();
+    globalThis.HTMLTextAreaElement = StubClass();
+    globalThis.HTMLSelectElement = StubClass();
+    globalThis.HTMLAnchorElement = StubClass();
+    globalThis.HTMLImageElement = StubClass();
+    globalThis.HTMLDivElement = StubClass();
+    globalThis.HTMLSpanElement = StubClass();
+    globalThis.HTMLBodyElement = StubClass();
+    globalThis.HTMLHeadElement = StubClass();
+    globalThis.CharacterData = StubClass();
+    globalThis.Text = StubClass();
+    globalThis.Comment = StubClass();
+    globalThis.ProcessingInstruction = StubClass();
+
+    // NodeFilter stub with constants
+    globalThis.NodeFilter = {
+        SHOW_ALL: 0xFFFFFFFF,
+        SHOW_ELEMENT: 0x1,
+        SHOW_TEXT: 0x4,
+        SHOW_COMMENT: 0x80,
+        FILTER_ACCEPT: 1,
+        FILTER_REJECT: 2,
+        FILTER_SKIP: 3
+    };
+
+    // NamedNodeMap stub
+    globalThis.NamedNodeMap = StubClass();
+
+    // DOMParser stub
+    globalThis.DOMParser = function() {};
+    globalThis.DOMParser.prototype.parseFromString = function(str, type) {
+        return globalThis.document || {};
+    };
+
+    // Event classes
+    globalThis.Event = globalThis.Event || StubClass();
+    globalThis.CustomEvent = globalThis.CustomEvent || StubClass();
+    globalThis.MouseEvent = globalThis.MouseEvent || StubClass();
+    globalThis.KeyboardEvent = globalThis.KeyboardEvent || StubClass();
+    globalThis.FocusEvent = globalThis.FocusEvent || StubClass();
+    globalThis.InputEvent = globalThis.InputEvent || StubClass();
+
+    // Range/Selection
+    globalThis.Range = globalThis.Range || StubClass();
+    globalThis.Selection = globalThis.Selection || StubClass();
+
+    // MutationObserver (may not exist in all SW contexts)
+    globalThis.MutationObserver = globalThis.MutationObserver || function(cb) {
+        this.observe = () => {};
+        this.disconnect = () => {};
+        this.takeRecords = () => [];
+    };
+}
+
+
 // 1. Service Worker document shim for libraries bundled into background.bundle.js
 //    Uses Proxy-based dummyNode to auto-handle any property access, preventing
 //    null/undefined TypeErrors from jQuery support detection & vidIQ internals.

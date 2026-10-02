@@ -9,232 +9,105 @@ if (typeof window === "undefined") {
     self.window = self;
 }
 
-// 0b. DOM constructor stubs — DOMPurify v3 destructures { Element, Node, NodeFilter,
-//     HTMLFormElement, HTMLTemplateElement, DocumentFragment, NamedNodeMap, DOMParser }
-//     from window. Service Workers lack these, so provide minimal stubs with prototypes.
-if (typeof Element === "undefined") {
-    const StubClass = () => {
-        function C() {}
-        C.prototype = {};
-        return C;
-    };
-
-    // Core DOM classes
-    globalThis.Element = StubClass();
-    globalThis.Node = StubClass();
-    globalThis.DocumentFragment = StubClass();
-    globalThis.HTMLElement = StubClass();
-    globalThis.HTMLFormElement = StubClass();
-    globalThis.HTMLTemplateElement = StubClass();
-    globalThis.HTMLInputElement = StubClass();
-    globalThis.HTMLTextAreaElement = StubClass();
-    globalThis.HTMLSelectElement = StubClass();
-    globalThis.HTMLAnchorElement = StubClass();
-    globalThis.HTMLImageElement = StubClass();
-    globalThis.HTMLDivElement = StubClass();
-    globalThis.HTMLSpanElement = StubClass();
-    globalThis.HTMLBodyElement = StubClass();
-    globalThis.HTMLHeadElement = StubClass();
-    globalThis.CharacterData = StubClass();
-    globalThis.Text = StubClass();
-    globalThis.Comment = StubClass();
-    globalThis.ProcessingInstruction = StubClass();
-
-    // NodeFilter stub with constants
-    globalThis.NodeFilter = {
-        SHOW_ALL: 0xFFFFFFFF,
-        SHOW_ELEMENT: 0x1,
-        SHOW_TEXT: 0x4,
-        SHOW_COMMENT: 0x80,
-        FILTER_ACCEPT: 1,
-        FILTER_REJECT: 2,
-        FILTER_SKIP: 3
-    };
-
-    // NamedNodeMap stub
-    globalThis.NamedNodeMap = StubClass();
-
-    // DOMParser stub
-    globalThis.DOMParser = function() {};
-    globalThis.DOMParser.prototype.parseFromString = function(str, type) {
-        return globalThis.document || {};
-    };
-
-    // Event classes
-    globalThis.Event = globalThis.Event || StubClass();
-    globalThis.CustomEvent = globalThis.CustomEvent || StubClass();
-    globalThis.MouseEvent = globalThis.MouseEvent || StubClass();
-    globalThis.KeyboardEvent = globalThis.KeyboardEvent || StubClass();
-    globalThis.FocusEvent = globalThis.FocusEvent || StubClass();
-    globalThis.InputEvent = globalThis.InputEvent || StubClass();
-
-    // Range/Selection
-    globalThis.Range = globalThis.Range || StubClass();
-    globalThis.Selection = globalThis.Selection || StubClass();
-
-    // MutationObserver (may not exist in all SW contexts)
-    globalThis.MutationObserver = globalThis.MutationObserver || function(cb) {
-        this.observe = () => {};
-        this.disconnect = () => {};
-        this.takeRecords = () => [];
-    };
-}
-
-
 // 1. Service Worker document shim for libraries bundled into background.bundle.js
-//    Uses Proxy-based dummyNode to auto-handle any property access, preventing
-//    null/undefined TypeErrors from jQuery support detection & vidIQ internals.
+//    IMPORTANT: Keep this minimal! Over-shimming makes DOMPurify/jQuery think
+//    there's a real DOM, breaking vidIQ's auth flow. Let non-critical errors
+//    be caught by the try/catch around importScripts instead.
 if (typeof document === "undefined") {
-
-    // Proxy handler: any property access that would be null/undefined returns
-    // either a sensible default or another dummyNode proxy, so chaining like
-    // .cloneNode(true).lastChild.checked never crashes.
-    const DUMMY_PROPS = {
-        // Node identity
-        nodeType: 1, nodeName: "DIV", tagName: "DIV",
-        // Traversal — return dummyNode instead of null to allow chaining
+    const dummyNode = () => ({
+        nodeType: 1,
+        nodeName: "DIV",
+        tagName: "DIV",
+        style: {},
+        ownerDocument: null,
+        // Navigation — use dummyNode() via getter to prevent null-access crashes
         // (jQuery does: cloneNode(true).cloneNode(true).lastChild.checked)
-        ownerDocument: "LAZY_DOC",  // special: resolved after document is created
-        // Text
-        innerHTML: "", outerHTML: "", textContent: "", innerText: "",
-        // Input/form
-        checked: false, value: "", defaultValue: "", type: "", name: "",
-        disabled: false, readOnly: false, placeholder: "",
-        selectedIndex: -1, options: [], files: [],
-        validity: { valid: true }, willValidate: false,
-        // Dimensions
-        scrollTop: 0, scrollLeft: 0, scrollWidth: 0, scrollHeight: 0,
-        clientWidth: 0, clientHeight: 0, offsetWidth: 0, offsetHeight: 0,
-        offsetTop: 0, offsetLeft: 0,
+        get parentNode() { return dummyNode(); },
+        get parentElement() { return dummyNode(); },
+        get firstChild() { return dummyNode(); },
+        get lastChild() { return dummyNode(); },
+        get nextSibling() { return null; },
+        get previousSibling() { return null; },
+        childNodes: [],
+        children: [],
+        innerHTML: "",
+        outerHTML: "",
+        textContent: "",
+        innerText: "",
+        // Input/form element properties (jQuery accesses .checked, .value, etc.)
+        checked: false,
+        value: "",
+        defaultValue: "",
+        type: "",
+        name: "",
+        disabled: false,
+        readOnly: false,
+        placeholder: "",
+        selectedIndex: -1,
+        options: [],
+        files: [],
+        form: null,
+        validity: { valid: true },
+        willValidate: false,
+        checkValidity: () => true,
+        reportValidity: () => true,
+        // Standard element methods
+        setAttribute: () => {},
+        getAttribute: () => null,
+        removeAttribute: () => {},
+        hasAttribute: () => false,
+        appendChild(c) { return c; },
+        removeChild(c) { return c; },
+        insertBefore(n) { return n; },
+        replaceChild(n) { return n; },
+        cloneNode() { return dummyNode(); },
+        contains: () => false,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => true,
+        classList: { add: () => {}, remove: () => {}, toggle: () => {}, contains: () => false },
+        dataset: {},
+        getBoundingClientRect: () => ({ top: 0, right: 0, bottom: 0, left: 0, width: 0, height: 0, x: 0, y: 0 }),
+        getClientRects: () => [],
+        focus: () => {},
+        blur: () => {},
+        click: () => {},
+        matches: () => false,
+        closest: () => null,
+        querySelector: () => null,
+        querySelectorAll: () => [],
+        getElementsByTagName: () => [],
+        getElementsByClassName: () => [],
+        remove: () => {},
         // Misc
+        href: "", target: "", rel: "",
+        src: "", alt: "", width: 0, height: 0,
         id: "", className: "", title: "", lang: "", dir: "",
         tabIndex: -1, contentEditable: "false", isContentEditable: false,
-        href: "", target: "", rel: "", src: "", alt: "", width: 0, height: 0,
-        // Boolean results
-        hidden: false,
-    };
+        scrollTop: 0, scrollLeft: 0, scrollWidth: 0, scrollHeight: 0,
+        clientWidth: 0, clientHeight: 0,
+        offsetWidth: 0, offsetHeight: 0, offsetTop: 0, offsetLeft: 0,
+        offsetParent: null
+    });
 
-    // Properties that should always return a new dummyNode (not null)
-    const NODE_PROPS = new Set([
-        "parentNode", "parentElement", "firstChild", "lastChild",
-        "nextSibling", "previousSibling", "firstElementChild", "lastElementChild",
-        "nextElementSibling", "previousElementSibling",
-        "offsetParent", "form"
-    ]);
-
-    // Properties that should return empty array-like collections
-    const COLLECTION_PROPS = new Set([
-        "childNodes", "children"
-    ]);
-
-    const dummyNode = () => {
-        const obj = {
-            // Style must be a mutable object
-            style: new Proxy({}, { get: () => "", set: () => true }),
-            dataset: {},
-            classList: {
-                add: () => {}, remove: () => {}, toggle: () => false,
-                contains: () => false, replace: () => false,
-                entries: () => [][Symbol.iterator](),
-                forEach: () => {}, keys: () => [][Symbol.iterator](),
-                values: () => [][Symbol.iterator](),
-                item: () => null, length: 0
-            },
-            // Methods
-            setAttribute: () => {}, getAttribute: () => null,
-            removeAttribute: () => {}, hasAttribute: () => false,
-            setAttributeNS: () => {}, getAttributeNS: () => null,
-            hasAttributes: () => false,
-            appendChild(c) { return c; }, removeChild(c) { return c; },
-            insertBefore(n) { return n; }, replaceChild(n) { return n; },
-            cloneNode() { return dummyNode(); },
-            contains: () => false, hasChildNodes: () => false,
-            normalize: () => {},
-            addEventListener: () => {}, removeEventListener: () => {},
-            dispatchEvent: () => true,
-            getBoundingClientRect: () => ({ top: 0, right: 0, bottom: 0, left: 0, width: 0, height: 0, x: 0, y: 0 }),
-            getClientRects: () => [],
-            focus: () => {}, blur: () => {}, click: () => {},
-            matches: () => false, closest: () => dummyNode(),
-            querySelector: () => dummyNode(),
-            querySelectorAll: () => [],
-            getElementsByTagName: () => [],
-            getElementsByClassName: () => [],
-            remove: () => {},
-            checkValidity: () => true, reportValidity: () => true,
-            // Iteration support
-            [Symbol.iterator]: function*() {},
-            // Make it truthy in boolean context
-            valueOf: () => true,
-        };
-
-        return new Proxy(obj, {
-            get(target, prop) {
-                // Return explicit properties first
-                if (prop in target) return target[prop];
-                // Known static values
-                if (prop in DUMMY_PROPS) {
-                    const v = DUMMY_PROPS[prop];
-                    if (v === "LAZY_DOC") return globalThis.document || null;
-                    return v;
-                }
-                // Navigation properties → return dummyNode to prevent null access
-                if (NODE_PROPS.has(prop)) return dummyNode();
-                // Collections
-                if (COLLECTION_PROPS.has(prop)) return [];
-                // Symbols and internal JS props
-                if (typeof prop === "symbol") return undefined;
-                // For any unknown property, return a no-op function if it looks like
-                // a method call site, otherwise return a dummyNode to prevent null crashes
-                return undefined;
-            },
-            set(target, prop, value) {
-                target[prop] = value;
-                return true;
-            }
-        });
-    };
-
-    const dummyFragment = () => {
-        const obj = {
-            nodeType: 11,
-            nodeName: "#document-fragment",
-            childNodes: [],
-            children: [],
-            firstChild: null,
-            lastChild: null,
-            appendChild(c) { return c; },
-            removeChild(c) { return c; },
-            insertBefore(n) { return n; },
-            replaceChild(n) { return n; },
-            cloneNode() { return dummyFragment(); },
-            querySelector: () => dummyNode(),
-            querySelectorAll: () => [],
-            getElementById: () => dummyNode(),
-            textContent: "",
-            addEventListener: () => {},
-            removeEventListener: () => {}
-        };
-        return new Proxy(obj, {
-            get(target, prop) {
-                if (prop in target) return target[prop];
-                if (prop in DUMMY_PROPS) return DUMMY_PROPS[prop];
-                if (NODE_PROPS.has(prop)) return dummyNode();
-                if (COLLECTION_PROPS.has(prop)) return [];
-                if (typeof prop === "symbol") return undefined;
-                return undefined;
-            },
-            set(target, prop, value) {
-                target[prop] = value;
-                return true;
-            }
-        });
-    };
-
-    const docElement = dummyNode();
-    Object.assign(docElement, {
-        clientWidth: 1920, clientHeight: 1080,
-        scrollTop: 0, scrollLeft: 0,
+    const dummyFragment = () => ({
+        nodeType: 11,
+        nodeName: "#document-fragment",
+        childNodes: [],
+        children: [],
+        get firstChild() { return dummyNode(); },
+        get lastChild() { return dummyNode(); },
+        appendChild(c) { return c; },
+        removeChild(c) { return c; },
+        insertBefore(n) { return n; },
+        replaceChild(n) { return n; },
+        cloneNode() { return dummyFragment(); },
+        querySelector: () => null,
+        querySelectorAll: () => [],
+        getElementById: () => null,
+        textContent: "",
+        addEventListener: () => {},
+        removeEventListener: () => {}
     });
 
     globalThis.document = {
@@ -269,10 +142,10 @@ if (typeof document === "undefined") {
             commonAncestorContainer: null
         }),
 
-        // Querying — return dummy elements instead of null to prevent
-        // TypeError when vidIQ bundle accesses properties like .checked, .value
-        getElementById: () => dummyNode(),
-        querySelector: () => dummyNode(),
+        // Querying — return null (correct DOM behavior for "not found")
+        // Do NOT return dummyNode here — breaks vidIQ auth logic
+        getElementById: () => null,
+        querySelector: () => null,
         querySelectorAll: () => [],
         getElementsByTagName: () => [],
         getElementsByClassName: () => [],
@@ -284,7 +157,18 @@ if (typeof document === "undefined") {
         dispatchEvent: () => true,
 
         // Properties
-        documentElement: docElement,
+        documentElement: {
+            style: {},
+            clientWidth: 1920,
+            clientHeight: 1080,
+            scrollTop: 0,
+            scrollLeft: 0,
+            setAttribute: () => {},
+            getAttribute: () => null,
+            classList: { add: () => {}, remove: () => {}, toggle: () => {}, contains: () => false },
+            appendChild: (c) => c,
+            contains: () => false
+        },
         body: dummyNode(),
         head: dummyNode(),
         visibilityState: "visible",

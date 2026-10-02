@@ -1196,6 +1196,76 @@
           "createdAt": 1790224471866,
           "postQueue": [
             {
+              "id": "post_1790653061_1cd2",
+              "title": "",
+              "content": "5\n4\n3\n2",
+              "postType": "post",
+              "targetType": "profile",
+              "targetId": "",
+              "targetUrl": "https://www.facebook.com",
+              "shareToFeed": true,
+              "mediaUrl": "",
+              "mediaData": null,
+              "seedingComments": [
+                "1",
+                "2",
+                "3",
+                "4"
+              ],
+              "autoReactType": "LIKE",
+              "status": "completed",
+              "progressStep": "✅ Đã đăng thành công lên Facebook (ID: 1075356138615969)",
+              "queuePosition": 1,
+              "fbPostId": "1075356138615969",
+              "fbPostUrl": "https://www.facebook.com/permalink.php?story_fbid=1075356138615969&id=100084247794160",
+              "scheduledTime": 0,
+              "scheduledTimeStr": "",
+              "scheduledAt": "",
+              "lastError": "",
+              "createdAt": 1790653061058,
+              "callbackUrl": "",
+              "source": "dashboard",
+              "updatedAt": 1790653112738,
+              "fbFeedbackId": "ZmVlZGJhY2s6MTA3NTM1NjEzODYxNTk2OQ==",
+              "seedingIds": [
+                "1095032746463453",
+                "1562176925193430",
+                "1675266837507927",
+                "1415072090053462"
+              ],
+              "seedingDetails": [
+                {
+                  "id": "1095032746463453",
+                  "status": "success",
+                  "text": "1",
+                  "timestamp": 1790653093064
+                },
+                {
+                  "id": "1562176925193430",
+                  "status": "success",
+                  "text": "2",
+                  "timestamp": 1790653098524
+                },
+                {
+                  "id": "1675266837507927",
+                  "status": "success",
+                  "text": "3",
+                  "timestamp": 1790653104226
+                },
+                {
+                  "id": "1415072090053462",
+                  "status": "success",
+                  "text": "4",
+                  "timestamp": 1790653111306
+                }
+              ],
+              "shareToStorySuccess": true,
+              "autoReactSuccess": true,
+              "autoReactMethod": "graphql",
+              "publishedAt": 1790653112786,
+              "publishedAtStr": "12:38:32 29/09/2026"
+            },
+            {
               "id": "post_1790444913_bbb2",
               "title": "",
               "content": "321",

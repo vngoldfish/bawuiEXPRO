@@ -29,6 +29,24 @@ if (typeof document === "undefined") {
         outerHTML: "",
         textContent: "",
         innerText: "",
+        // Input/form element properties (vidIQ accesses .checked, .value, etc.)
+        checked: false,
+        value: "",
+        defaultValue: "",
+        type: "",
+        name: "",
+        disabled: false,
+        readOnly: false,
+        placeholder: "",
+        selectedIndex: -1,
+        options: [],
+        files: [],
+        form: null,
+        validity: { valid: true },
+        willValidate: false,
+        checkValidity: () => true,
+        reportValidity: () => true,
+        // Standard element methods
         setAttribute: () => {},
         getAttribute: () => null,
         removeAttribute: () => {},
@@ -45,16 +63,46 @@ if (typeof document === "undefined") {
         classList: { add: () => {}, remove: () => {}, toggle: () => {}, contains: () => false },
         dataset: {},
         getBoundingClientRect: () => ({ top: 0, right: 0, bottom: 0, left: 0, width: 0, height: 0, x: 0, y: 0 }),
+        getClientRects: () => [],
         focus: () => {},
         blur: () => {},
         click: () => {},
         matches: () => false,
         closest: () => null,
-        querySelector: () => null,
+        querySelector: () => dummyNode(),
         querySelectorAll: () => [],
         getElementsByTagName: () => [],
         getElementsByClassName: () => [],
-        remove: () => {}
+        remove: () => {},
+        // Anchor/link properties
+        href: "",
+        target: "",
+        rel: "",
+        // Image properties
+        src: "",
+        alt: "",
+        width: 0,
+        height: 0,
+        // Misc
+        id: "",
+        className: "",
+        title: "",
+        lang: "",
+        dir: "",
+        tabIndex: -1,
+        contentEditable: "false",
+        isContentEditable: false,
+        scrollTop: 0,
+        scrollLeft: 0,
+        scrollWidth: 0,
+        scrollHeight: 0,
+        clientWidth: 0,
+        clientHeight: 0,
+        offsetWidth: 0,
+        offsetHeight: 0,
+        offsetTop: 0,
+        offsetLeft: 0,
+        offsetParent: null
     });
 
     const dummyFragment = () => ({
@@ -69,9 +117,9 @@ if (typeof document === "undefined") {
         insertBefore(n) { return n; },
         replaceChild(n) { return n; },
         cloneNode() { return dummyFragment(); },
-        querySelector: () => null,
+        querySelector: () => dummyNode(),
         querySelectorAll: () => [],
-        getElementById: () => null,
+        getElementById: () => dummyNode(),
         textContent: "",
         addEventListener: () => {},
         removeEventListener: () => {}
@@ -109,9 +157,10 @@ if (typeof document === "undefined") {
             commonAncestorContainer: null
         }),
 
-        // Querying
-        getElementById: () => null,
-        querySelector: () => null,
+        // Querying — return dummy elements instead of null to prevent
+        // TypeError when vidIQ bundle accesses properties like .checked, .value
+        getElementById: () => dummyNode(),
+        querySelector: () => dummyNode(),
         querySelectorAll: () => [],
         getElementsByTagName: () => [],
         getElementsByClassName: () => [],

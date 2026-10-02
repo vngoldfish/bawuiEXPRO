@@ -174,7 +174,7 @@ if (typeof document === "undefined") {
         visibilityState: "visible",
         hidden: false,
         location: self.location || { href: "", pathname: "", hostname: "", protocol: "https:", search: "", hash: "" },
-        nodeType: 9,
+        nodeType: 0, // NOT 9: prevents DOMPurify from attempting Element.prototype access in Service Worker
         readyState: "complete",
         cookie: "",
         title: "",

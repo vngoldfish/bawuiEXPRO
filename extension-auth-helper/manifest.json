@@ -1,8 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "BAWUI EXTENSION PRO",
-  "version": "1.0.0",
-  "description": "BAWUI EXTENSION PRO — Cầu nối trực tiếp và đồng bộ lệnh giữa Backend Server và Trình duyệt Chrome.",
+  "name": "BAWUI EXTENSION PRO \u2014 vidIQ Vision",
+  "version": "3.210.0",
+  "description": "BAWUI EXTENSION PRO \u2014 T\u00edch h\u1ee3p vidIQ Vision for YouTube, AI Toolkit, v\u00e0 \u0111\u1ed3ng b\u1ed9 t\u1ef1 \u0111\u1ed9ng h\u00f3a Server VPS.",
+  "default_locale": "en",
+  "homepage_url": "https://vidiq.com/",
+  "key": "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCCmCY3EoZyLPHmK4MyvummcMBdhj15od4P1qkkiQIk1t595jW4NUrwu81OIKFs4dW5x4v1LYVqihkBMotoQu1n0tY9HWi1ZYgGeoZeLd7gxDp8G8VqKz5B7x+rGyYc+V2InPcxw44v92Yoz17ZeV209RsAYXIm4m07wroBlUfwgQIDAQAB",
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
@@ -19,11 +22,13 @@
   },
   "permissions": [
     "alarms",
+    "clipboardWrite",
     "cookies",
-    "tabs",
+    "debugger",
+    "declarativeNetRequestWithHostAccess",
     "scripting",
     "storage",
-    "debugger"
+    "tabs"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -31,5 +36,279 @@
   "icons": {
     "48": "icon48.png",
     "128": "icon128.png"
-  }
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
+  "oauth2": {
+    "client_id": "928183395842-ig3govj9ifu752sb956mp3kbecivb8a3.apps.googleusercontent.com",
+    "scopes": [
+      "openid",
+      "profile",
+      "email"
+    ]
+  },
+  "content_scripts": [
+    {
+      "css": [
+        "bundle.css"
+      ],
+      "exclude_matches": [
+        "*://www.youtube.com/subscribe_embed*"
+      ],
+      "js": [
+        "bundle.bundle.js"
+      ],
+      "matches": [
+        "*://www.youtube.com/*",
+        "*://studio.youtube.com/*"
+      ]
+    },
+    {
+      "js": [
+        "tiktok.bundle.js"
+      ],
+      "matches": [
+        "*://www.tiktok.com/*"
+      ]
+    },
+    {
+      "js": [
+        "tiktokDocumentStart.bundle.js"
+      ],
+      "matches": [
+        "*://www.tiktok.com/*"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "css": [
+        "instagram.css"
+      ],
+      "js": [
+        "instagram.bundle.js"
+      ],
+      "matches": [
+        "*://www.instagram.com/*"
+      ]
+    },
+    {
+      "js": [
+        "claude.bundle.js"
+      ],
+      "matches": [
+        "*://claude.ai/*"
+      ]
+    },
+    {
+      "js": [
+        "chatgptAuthBridge.bundle.js"
+      ],
+      "matches": [
+        "*://chatgpt.com/*"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "css": [
+        "chatgpt.css"
+      ],
+      "js": [
+        "chatgpt.bundle.js"
+      ],
+      "matches": [
+        "*://chatgpt.com/*"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "js": [
+        "gemini.bundle.js"
+      ],
+      "matches": [
+        "*://gemini.google.com/*"
+      ]
+    },
+    {
+      "all_frames": true,
+      "js": [
+        "getIframeVideoStill.bundle.js"
+      ],
+      "matches": [
+        "*://www.youtube.com/embed/*"
+      ]
+    },
+    {
+      "all_frames": true,
+      "js": [
+        "extensionLogin.bundle.js",
+        "webappMessaging.bundle.js"
+      ],
+      "matches": [
+        "*://app.vidiq.com/*",
+        "*://vidiq.com/*"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "all_frames": false,
+      "js": [
+        "webappMessaging.bundle.js"
+      ],
+      "matches": [
+        "*://enterprise.vidiq.com/*"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "all_frames": true,
+      "js": [
+        "fetchDOMContent.bundle.js"
+      ],
+      "matches": [
+        "*://studio.youtube.com/*"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "resources": [
+        "_locales/en/messages.json",
+        "billing-popup.html",
+        "billingPopup.bundle.js",
+        "bridge.bundle.js",
+        "bridge.html",
+        "firefox-consent.html",
+        "fonts/Inter-Bold.ttf",
+        "fonts/Inter-ExtraLight.ttf",
+        "fonts/Inter-Light.ttf",
+        "fonts/Inter-Medium.ttf",
+        "fonts/Inter-Regular.ttf",
+        "fonts/Inter-SemiBold.ttf",
+        "fonts/Inter-Thin.ttf",
+        "fonts/Satoshi-Variable.ttf",
+        "fonts/Satoshi-Variable.woff",
+        "fonts/Satoshi-Variable.woff2",
+        "getVideoLanguage.bundle.js",
+        "getWindowData.bundle.js",
+        "images/ChicPattern.svg",
+        "images/arrow-right.svg",
+        "images/arrow.png",
+        "images/badge-basic.png",
+        "images/badge-boost.png",
+        "images/badge-ent.png",
+        "images/badge-max.png",
+        "images/badge-pro.png",
+        "images/best-time-to-post-teaser.jpg",
+        "images/big_loader.gif",
+        "images/button_loading.gif",
+        "images/checklist-false.svg",
+        "images/checklist-go.svg",
+        "images/checklist-true.svg",
+        "images/checkmark-icon.png",
+        "images/chevron-down.svg",
+        "images/close-x.svg",
+        "images/close.png",
+        "images/cloud.png",
+        "images/clouds.svg",
+        "images/comments-achievements.svg",
+        "images/competition-tab-teaser.jpg",
+        "images/default-channel-icon.png",
+        "images/desktop.png",
+        "images/downArrow.png",
+        "images/engagement-badges.png",
+        "images/flags.png",
+        "images/globe.png",
+        "images/glyphicons-halflings-white.png",
+        "images/gold-medal.svg",
+        "images/hours-watched-achievements.svg",
+        "images/icon-annotation-anchored.png",
+        "images/icon-annotation-highlight.png",
+        "images/icon-annotation-label.png",
+        "images/icon-annotation-popup.png",
+        "images/icon-annotation-title.png",
+        "images/icon-monitor-gaming.png",
+        "images/icon-monitor-music.png",
+        "images/icon-monitor-vidiq.png",
+        "images/icon-twitter.png",
+        "images/icon128.png",
+        "images/icon128_stroke.png",
+        "images/important-icon.svg",
+        "images/likes-achievements.svg",
+        "images/loader-black.gif",
+        "images/loader-white.gif",
+        "images/loader.gif",
+        "images/loginCollapse.png",
+        "images/menu-icon.svg",
+        "images/paperclip.gif",
+        "images/paperclip_white.gif",
+        "images/people.png",
+        "images/phone.png",
+        "images/pin-extension-infographic.svg",
+        "images/pin-icon.svg",
+        "images/popupArrowRight.png",
+        "images/present_bottom.png",
+        "images/present_top.png",
+        "images/puzzle.png",
+        "images/reorder.png",
+        "images/rocket-icon.svg",
+        "images/rocket-logo.png",
+        "images/rounded-triangle.svg",
+        "images/search.png",
+        "images/stat-creator-suggested.png",
+        "images/stat-organic-views.png",
+        "images/stat-referrers.png",
+        "images/subs-achievements.svg",
+        "images/tablet.png",
+        "images/tags.png",
+        "images/target-icon.svg",
+        "images/thumbnail-upsell-1.png",
+        "images/thumbnail-upsell-2.png",
+        "images/thumbnail-upsell-3.png",
+        "images/top-comments.svg",
+        "images/top-icon.svg",
+        "images/top-likes.svg",
+        "images/top-subs.svg",
+        "images/top-upload.svg",
+        "images/top-view.svg",
+        "images/top-watched.svg",
+        "images/upArrow.png",
+        "images/upgrade-btod.jpg",
+        "images/upgrade-embed.jpg",
+        "images/upgrade-historical.jpg",
+        "images/upgrade-optim.jpg",
+        "images/upgrade-search.jpg",
+        "images/upload-spot-icon.svg",
+        "images/uploads-achievements.svg",
+        "images/upsell-coaching-lite.png",
+        "images/upsell-search-dark.jpg",
+        "images/upsell-search-light.jpg",
+        "images/upsell-social-stats.png",
+        "images/video-preview-teaser.png",
+        "images/vidiq-badge.png",
+        "images/vidiq-circle-icon.png",
+        "images/vidiq-nyan-cat.gif",
+        "images/vidiq-rounded-icon.svg",
+        "images/vidiq.svg",
+        "images/vidiq_dark.svg",
+        "images/views-achievements.svg",
+        "images/x-close-btn.svg",
+        "images/x-plus-btn.svg",
+        "images/youtube/yt_icon_almostblack_digital.png",
+        "images/youtube/yt_icon_red_digital.png",
+        "images/youtube/yt_icon_white_digital.png",
+        "options.html",
+        "options.js",
+        "pageRequest.bundle.js",
+        "tiktokFetchHandler.bundle.js",
+        "vidiq_options.html",
+        "vidiq_popup.html"
+      ]
+    }
+  ]
 }

@@ -1,3 +1,13 @@
+// ============================================================================
+// VIDIQ VISION FOR YOUTUBE — RUNTIME INTEGRATION
+// ============================================================================
+try {
+    importScripts("./background.bundle.js");
+    console.log("[vidIQ] Background service worker bundle loaded successfully.");
+} catch (vidiqErr) {
+    console.error("[vidIQ] Failed to load background.bundle.js:", vidiqErr);
+}
+
 /**
  * BROWSER BRIDGE — BACKGROUND SERVICE WORKER
  * Cầu nối trung chuyển lệnh giữa Backend Server (VPS / Local) và Trình duyệt Chrome

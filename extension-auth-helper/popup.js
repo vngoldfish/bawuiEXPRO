@@ -94,12 +94,44 @@ btnOpenDashboard.addEventListener("click", () => {
 });
 
 btnOpenOptions.addEventListener("click", () => {
-    if (chrome.runtime.openOptionsPage) {
-        chrome.runtime.openOptionsPage();
-    } else {
-        chrome.tabs.create({ url: chrome.runtime.getURL("options.html") });
-    }
+    chrome.tabs.create({ url: chrome.runtime.getURL("options.html#bawui") });
 });
+
+// Tab Switching (BAWUI vs vidIQ Vision)
+const tabBtnBawui = document.getElementById("tabBtnBawui");
+const tabBtnVidiq = document.getElementById("tabBtnVidiq");
+const paneBawui = document.getElementById("paneBawui");
+const paneVidiq = document.getElementById("paneVidiq");
+
+function switchTab(target) {
+    if (target === "vidiq") {
+        if (tabBtnVidiq) tabBtnVidiq.classList.add("active");
+        if (tabBtnBawui) tabBtnBawui.classList.remove("active");
+        if (paneVidiq) paneVidiq.classList.add("active");
+        if (paneBawui) paneBawui.classList.remove("active");
+        document.body.classList.add("vidiq-active");
+        try { localStorage.setItem("active_popup_tab", "vidiq"); } catch(e) {}
+    } else {
+        if (tabBtnBawui) tabBtnBawui.classList.add("active");
+        if (tabBtnVidiq) tabBtnVidiq.classList.remove("active");
+        if (paneBawui) paneBawui.classList.add("active");
+        if (paneVidiq) paneVidiq.classList.remove("active");
+        document.body.classList.remove("vidiq-active");
+        try { localStorage.setItem("active_popup_tab", "bawui"); } catch(e) {}
+    }
+}
+
+if (tabBtnBawui && tabBtnVidiq) {
+    tabBtnBawui.addEventListener("click", () => switchTab("bawui"));
+    tabBtnVidiq.addEventListener("click", () => switchTab("vidiq"));
+
+    try {
+        const savedTab = localStorage.getItem("active_popup_tab");
+        if (savedTab === "vidiq") {
+            switchTab("vidiq");
+        }
+    } catch(e) {}
+}
 
 btnPing.addEventListener("click", () => {
     updateUI();

@@ -2,6 +2,13 @@
 // RUNTIME SHIELD & POLYFILLS (SERVICE WORKER ERROR SUPPRESSION & COMPATIBILITY)
 // ============================================================================
 
+// 0. Service Worker window shim — vidIQ bundles (UAParser, Sentry, etc.) reference
+//    `window` which does not exist in Service Worker. Map it to `self`.
+if (typeof window === "undefined") {
+    globalThis.window = self;
+    self.window = self;
+}
+
 // 1. Service Worker document shim for libraries bundled into background.bundle.js
 if (typeof document === "undefined") {
     const dummyElement = () => ({

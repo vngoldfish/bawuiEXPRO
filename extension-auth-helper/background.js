@@ -6613,9 +6613,18 @@ async function callAiApi(systemPrompt, userMessage, options = {}) {
     const headers = { "Content-Type": "application/json" };
     if (AI_API_KEY) headers["Authorization"] = `Bearer ${AI_API_KEY}`;
 
-    console.log("[BAWUI AI] callAiApi →", { url: AI_API_URL, keyPresent: !!AI_API_KEY, keyLen: AI_API_KEY?.length, model: AI_MODEL, hasAuth: !!headers["Authorization"] });
+    // Auto-fix URL: append /chat/completions if user only entered base URL
+    let apiUrl = AI_API_URL.replace(/\/+$/, ""); // trim trailing slashes
+    if (apiUrl.endsWith("/v1") || apiUrl.endsWith("/v1/")) {
+        apiUrl += "/chat/completions";
+    } else if (!apiUrl.includes("/chat/completions")) {
+        // If URL doesn't end with /v1 and doesn't contain /chat/completions, append it
+        apiUrl += "/v1/chat/completions";
+    }
 
-    const resp = await fetch(AI_API_URL, {
+    console.log("[BAWUI AI] callAiApi →", { url: apiUrl, origUrl: AI_API_URL, keyPresent: !!AI_API_KEY, keyLen: AI_API_KEY?.length, model: AI_MODEL, hasAuth: !!headers["Authorization"] });
+
+    const resp = await fetch(apiUrl, {
         method: "POST",
         headers,
         body: JSON.stringify(body)

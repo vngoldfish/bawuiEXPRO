@@ -1,4 +1,123 @@
 // ============================================================================
+// RUNTIME SHIELD & POLYFILLS (SERVICE WORKER ERROR SUPPRESSION & COMPATIBILITY)
+// ============================================================================
+
+// 1. Service Worker document shim for libraries bundled into background.bundle.js
+if (typeof document === "undefined") {
+    const dummyElement = () => ({
+        tagName: "DIV",
+        style: {},
+        setAttribute: () => {},
+        getAttribute: () => null,
+        removeAttribute: () => {},
+        appendChild: () => {},
+        removeChild: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        classList: { add: () => {}, remove: () => {}, toggle: () => {}, contains: () => false },
+        children: [],
+        innerHTML: "",
+        textContent: ""
+    });
+
+    globalThis.document = {
+        createElement: (tag) => dummyElement(),
+        getElementById: () => null,
+        querySelector: () => null,
+        querySelectorAll: () => [],
+        getElementsByTagName: () => [],
+        getElementsByClassName: () => [],
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => true,
+        documentElement: { style: {}, clientWidth: 1920, clientHeight: 1080 },
+        body: dummyElement(),
+        head: dummyElement(),
+        visibilityState: "visible",
+        hidden: false,
+        location: self.location || { href: "", pathname: "" },
+        nodeType: 9
+    };
+    self.document = globalThis.document;
+}
+
+// 2. Safe message sender wrappers (prevent 'Receiving end does not exist' uncaught errors)
+if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
+    const origRuntimeSendMessage = chrome.runtime.sendMessage.bind(chrome.runtime);
+    chrome.runtime.sendMessage = function(...args) {
+        try {
+            const p = origRuntimeSendMessage(...args);
+            if (p && typeof p.catch === "function") {
+                return p.catch((err) => {
+                    const msg = err && err.message ? String(err.message) : "";
+                    if (msg.includes("Receiving end does not exist") ||
+                        msg.includes("Extension context invalidated") ||
+                        msg.includes("message port closed")) {
+                        return null;
+                    }
+                    throw err;
+                });
+            }
+            return p;
+        } catch (e) {
+            const msg = e && e.message ? String(e.message) : "";
+            if (msg.includes("Receiving end does not exist") ||
+                msg.includes("Extension context invalidated") ||
+                msg.includes("message port closed")) {
+                return Promise.resolve(null);
+            }
+            throw e;
+        }
+    };
+}
+
+if (typeof chrome !== "undefined" && chrome.tabs && chrome.tabs.sendMessage) {
+    const origTabsSendMessage = chrome.tabs.sendMessage.bind(chrome.tabs);
+    chrome.tabs.sendMessage = function(...args) {
+        try {
+            const p = origTabsSendMessage(...args);
+            if (p && typeof p.catch === "function") {
+                return p.catch((err) => {
+                    const msg = err && err.message ? String(err.message) : "";
+                    if (msg.includes("Receiving end does not exist") ||
+                        msg.includes("Extension context invalidated") ||
+                        msg.includes("message port closed")) {
+                        return null;
+                    }
+                    throw err;
+                });
+            }
+            return p;
+        } catch (e) {
+            const msg = e && e.message ? String(e.message) : "";
+            if (msg.includes("Receiving end does not exist") ||
+                msg.includes("Extension context invalidated") ||
+                msg.includes("message port closed")) {
+                return Promise.resolve(null);
+            }
+            throw e;
+        }
+    };
+}
+
+// 3. Catch all benign unhandled promise rejections in Service Worker
+self.addEventListener("unhandledrejection", (event) => {
+    const reason = event.reason;
+    const msg = reason && reason.message ? String(reason.message) : String(reason || "");
+    if (
+        msg.includes("Receiving end does not exist") ||
+        msg.includes("Extension context invalidated") ||
+        msg.includes("message port closed") ||
+        msg.includes("The message port closed before a response was received") ||
+        msg.includes("document is not defined") ||
+        reason === undefined
+    ) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+    }
+});
+
+// ============================================================================
 // VIDIQ VISION FOR YOUTUBE — RUNTIME INTEGRATION
 // ============================================================================
 try {
